@@ -4,6 +4,14 @@ run: modules
 modules:
     go mod vendor
 
+# bb
+# build the asimi development container
+infrabuild:
+    podman build -t asimi-dev:latest -f .asimi/Dockerfile .
+
+infraclean:
+    podman system prune --all --volumes --force 
+
 # run the tests
 test: modules
 	go test -v ./...

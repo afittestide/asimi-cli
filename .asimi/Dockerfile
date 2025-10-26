@@ -1,4 +1,4 @@
-FROM golang:1.24-bullseye
+FROM golang:latest
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git curl && \

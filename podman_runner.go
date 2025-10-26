@@ -49,22 +49,57 @@ func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
 	}
 }
 
-// ensureConnection ensures we have a connection to podman
-func (r *PodmanShellRunner) ensureConnection(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// initialize sets up everything needed to run commands: connection, container, and bash session
+func (r *PodmanShellRunner) initialize(ctx context.Context) error {
+	slog.Debug("initializing podman shell runner")
 
-	if r.conn != nil {
-		slog.Debug("podman connection already established")
-		return nil
+	// Step 1: Establish connection to podman if needed
+	r.mu.Lock()
+	hasConnection := r.conn != nil
+	r.mu.Unlock()
+
+	if !hasConnection {
+		slog.Debug("establishing podman connection")
+		conn, err := r.establishConnection(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to connect to podman: %w", err)
+		}
+		r.mu.Lock()
+		r.conn = conn
+		r.mu.Unlock()
+		slog.Debug("podman connection established")
 	}
 
+	// Step 2: Ensure container is running
+	if err := r.startContainer(ctx); err != nil {
+		return err
+	}
+
+	// Step 3: Establish bash session if needed
+	r.mu.Lock()
+	hasSession := r.execSessionID != ""
+	r.mu.Unlock()
+
+	if !hasSession {
+		slog.Debug("establishing persistent bash session")
+		if err := r.createBashSession(ctx); err != nil {
+			return err
+		}
+		slog.Debug("bash session established")
+	}
+
+	slog.Debug("initialization complete")
+	return nil
+}
+
+// establishConnection creates a connection to podman
+func (r *PodmanShellRunner) establishConnection(ctx context.Context) (context.Context, error) {
 	slog.Debug("attempting to establish podman connection")
 
 	// Get current user for socket paths
 	currentUser, err := user.Current()
 	if err != nil {
-		return fmt.Errorf("failed to get current user: %w", err)
+		return nil, fmt.Errorf("failed to get current user: %w", err)
 	}
 
 	// Try macOS podman machine socket first
@@ -74,8 +109,7 @@ func (r *PodmanShellRunner) ensureConnection(ctx context.Context) error {
 		conn, err := bindings.NewConnection(ctx, "unix://"+macOSSocket)
 		if err == nil {
 			slog.Debug("successfully connected via macOS socket")
-			r.conn = conn
-			return nil
+			return conn, nil
 		}
 		slog.Debug("failed to connect via macOS socket", "error", err)
 	}
@@ -85,8 +119,7 @@ func (r *PodmanShellRunner) ensureConnection(ctx context.Context) error {
 	conn, err := bindings.NewConnection(ctx, "")
 	if err == nil {
 		slog.Debug("successfully connected via default connection")
-		r.conn = conn
-		return nil
+		return conn, nil
 	}
 	slog.Debug("failed to connect via default connection", "error", err)
 
@@ -100,22 +133,17 @@ func (r *PodmanShellRunner) ensureConnection(ctx context.Context) error {
 		conn, err = bindings.NewConnection(ctx, "unix:///var/run/podman/podman.sock")
 		if err != nil {
 			slog.Debug("failed to connect via system socket", "error", err)
-			return fmt.Errorf("failed to connect to podman: %w", err)
+			return nil, err
 		}
 	}
 
 	slog.Debug("successfully connected via user/system socket")
-	r.conn = conn
-	return nil
+	return conn, nil
 }
 
-// ensureContainer ensures the container is running
-func (r *PodmanShellRunner) ensureContainer(ctx context.Context) error {
+// startContainer ensures the container is running
+func (r *PodmanShellRunner) startContainer(ctx context.Context) error {
 	slog.Debug("ensuring container is running", "containerName", r.containerName)
-
-	if err := r.ensureConnection(ctx); err != nil {
-		return err
-	}
 
 	// Check if container exists and is running
 	slog.Debug("inspecting container", "containerName", r.containerName)
@@ -141,25 +169,8 @@ func (r *PodmanShellRunner) ensureContainer(ctx context.Context) error {
 	return r.createContainer(ctx)
 }
 
-// ensurePersistentBashSession ensures a persistent interactive bash session is established
-func (r *PodmanShellRunner) ensurePersistentBashSession(ctx context.Context) error {
-	slog.Debug("ensuring persistent bash session is established")
-
-	// Ensure container is running BEFORE acquiring the mutex
-	slog.Debug("ensuring container is running from ensurePersistentBashSession")
-	if err := r.ensureContainer(ctx); err != nil {
-		return err
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.execSessionID != "" {
-		// Session already established
-		slog.Debug("bash session already established", "sessionID", r.execSessionID)
-		return nil
-	}
-
+// createBashSession establishes a persistent interactive bash session
+func (r *PodmanShellRunner) createBashSession(ctx context.Context) error {
 	slog.Debug("creating new bash session")
 
 	// Create exec configuration for an interactive bash session
@@ -196,7 +207,6 @@ func (r *PodmanShellRunner) ensurePersistentBashSession(ctx context.Context) err
 	execStartOptions.WithAttachInput(true)
 	execStartOptions.WithAttachOutput(true)
 	execStartOptions.WithAttachError(true)
-	// execStartOptions.WithTty(true) // Ensure TTY is enabled for the attachment
 
 	// Start the exec session in a goroutine so it doesn't block
 	slog.Debug("starting ExecStartAndAttach goroutine")
@@ -205,7 +215,7 @@ func (r *PodmanShellRunner) ensurePersistentBashSession(ctx context.Context) err
 		if err := containers.ExecStartAndAttach(r.conn, sessionID, execStartOptions); err != nil {
 			slog.Error("error attaching to persistent exec session", "error", err)
 			fmt.Fprintf(os.Stderr, "Error attaching to persistent exec session: %v\n", err)
-			// Handle error: perhaps close pipes and reset session ID
+			// Handle error: close pipes and reset session
 			stdinReader.Close()
 			stdoutWriter.Close()
 			stderrWriter.Close()
@@ -221,10 +231,12 @@ func (r *PodmanShellRunner) ensurePersistentBashSession(ctx context.Context) err
 		}
 	}()
 
+	r.mu.Lock()
 	r.execSessionID = sessionID
 	r.stdinPipe = stdinWriter
 	r.stdoutPipe = stdoutReader
 	r.stderrPipe = stderrReader
+	r.mu.Unlock()
 
 	slog.Debug("bash session pipes configured", "sessionID", sessionID)
 
@@ -302,27 +314,15 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	slog.Debug("Run called", "command", params.Command)
 
-	// Ensure container is running
-	slog.Debug("ensuring container is running")
-	if err := r.ensureContainer(ctx); err != nil {
-		slog.Error("failed to ensure container", "error", err)
+	// Initialize if needed (connection, container, bash session)
+	if err := r.initialize(ctx); err != nil {
+		slog.Error("failed to initialize", "error", err)
 		// If podman is not available, fall back to host shell only if allowed
 		if r.allowFallback {
 			slog.Debug("falling back to host shell")
 			return hostShellRunner{}.Run(ctx, params)
 		}
 		return RunInShellOutput{}, fmt.Errorf("podman unavailable and fallback to host shell is disabled: %w", err)
-	}
-
-	// Ensure persistent bash session is established
-	slog.Debug("ensuring persistent bash session")
-	if err := r.ensurePersistentBashSession(ctx); err != nil {
-		slog.Error("failed to establish persistent session", "error", err)
-		if r.allowFallback {
-			slog.Debug("falling back to host shell")
-			return hostShellRunner{}.Run(ctx, params)
-		}
-		return RunInShellOutput{}, fmt.Errorf("failed to establish persistent session: %w", err)
 	}
 
 	// Compose the command to run in the container
