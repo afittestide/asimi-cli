@@ -256,7 +256,13 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 			c.UserScrolled = true // User manually scrolled
 		case tea.MouseWheelDown:
 			c.Viewport.ScrollDown(1)
-			c.UserScrolled = true // User manually scrolled
+			// Check if we're at the bottom after scrolling down
+			if c.Viewport.AtBottom() {
+				c.UserScrolled = false // Re-enable autoscroll when at bottom
+				c.AutoScroll = true
+			} else {
+				c.UserScrolled = true
+			}
 		case tea.MouseLeft:
 			// Start of touch/drag gesture
 			if msg.Action == tea.MouseActionPress {
@@ -277,7 +283,13 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 						for i := 0; i < scrollLines; i++ {
 							c.Viewport.ScrollDown(1)
 						}
-						c.UserScrolled = true
+						// Check if we're at the bottom after scrolling down
+						if c.Viewport.AtBottom() {
+							c.UserScrolled = false
+							c.AutoScroll = true
+						} else {
+							c.UserScrolled = true
+						}
 					} else if scrollLines < 0 {
 						// Scroll up
 						for i := 0; i < -scrollLines; i++ {
@@ -298,13 +310,25 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 			c.UserScrolled = true
 		case "down", "j":
 			c.Viewport.ScrollDown(1)
-			c.UserScrolled = true
+			// Check if we're at the bottom after scrolling down
+			if c.Viewport.AtBottom() {
+				c.UserScrolled = false
+				c.AutoScroll = true
+			} else {
+				c.UserScrolled = true
+			}
 		case "pgup":
 			c.Viewport.HalfPageUp()
 			c.UserScrolled = true
 		case "pgdown":
 			c.Viewport.HalfPageDown()
-			c.UserScrolled = true
+			// Check if we're at the bottom after page down
+			if c.Viewport.AtBottom() {
+				c.UserScrolled = false
+				c.AutoScroll = true
+			} else {
+				c.UserScrolled = true
+			}
 		case "home":
 			c.Viewport.GotoTop()
 			c.UserScrolled = true
