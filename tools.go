@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -868,6 +871,176 @@ func gitCommandEnv() []string {
 	return filtered
 }
 
+// WebSearchInput is the input for the WebSearchTool
+type WebSearchInput struct {
+	Query      string `json:"query"`
+	MaxResults int    `json:"max_results,omitempty"`
+}
+
+// WebSearchTool is a tool for searching the web using DuckDuckGo
+type WebSearchTool struct{}
+
+func (t WebSearchTool) Name() string {
+	return "web_search"
+}
+
+func (t WebSearchTool) Description() string {
+	return "Searches the web using DuckDuckGo and returns relevant results. The input should be a JSON object with a 'query' field containing the search query. Optionally specify 'max_results' (default 5, max 10) to limit the number of results."
+}
+
+func (t WebSearchTool) Call(ctx context.Context, input string) (string, error) {
+	var params WebSearchInput
+	err := json.Unmarshal([]byte(input), &params)
+	if err != nil {
+		// If unmarshalling fails, assume the input is a raw query
+		params.Query = strings.Trim(input, `"'`)
+		params.MaxResults = 5
+	}
+
+	if params.Query == "" {
+		return "", fmt.Errorf("search query cannot be empty")
+	}
+
+	// Set default max results if not specified
+	if params.MaxResults == 0 {
+		params.MaxResults = 5
+	} else if params.MaxResults > 10 {
+		params.MaxResults = 10
+	}
+
+	// Perform DuckDuckGo HTML search
+	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(params.Query))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set user agent to avoid being blocked
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Asimi/1.0)")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to perform search: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("search returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse HTML results using regex (simple approach for DuckDuckGo HTML)
+	results := parseSearchResults(string(body), params.MaxResults)
+
+	if len(results) == 0 {
+		return "No results found.", nil
+	}
+
+	// Format results as JSON
+	output := struct {
+		Query   string          `json:"query"`
+		Results []SearchResult `json:"results"`
+	}{
+		Query:   params.Query,
+		Results: results,
+	}
+
+	resultJSON, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal results: %w", err)
+	}
+
+	return string(resultJSON), nil
+}
+
+func (t WebSearchTool) Format(input, result string, err error) string {
+	var params WebSearchInput
+	json.Unmarshal([]byte(input), &params)
+
+	paramStr := ""
+	if params.Query != "" {
+		paramStr = fmt.Sprintf("(%s)", params.Query)
+	}
+
+	firstLine := fmt.Sprintf("Web Search%s", paramStr)
+
+	if err != nil {
+		return fmt.Sprintf("%s\n  Error: %v", firstLine, err)
+	}
+
+	// Parse result to count results
+	var output struct {
+		Results []SearchResult `json:"results"`
+	}
+	json.Unmarshal([]byte(result), &output)
+
+	resultCount := len(output.Results)
+	return fmt.Sprintf("%s\n  Found %d result(s)", firstLine, resultCount)
+}
+
+// SearchResult represents a single search result
+type SearchResult struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Snippet string `json:"snippet"`
+}
+
+// parseSearchResults extracts search results from DuckDuckGo HTML
+func parseSearchResults(html string, maxResults int) []SearchResult {
+	var results []SearchResult
+
+	// Pattern to match result blocks in DuckDuckGo HTML
+	resultPattern := regexp.MustCompile(`<div class="result__body">.*?<a rel="nofollow" class="result__a" href="(.*?)">(.*?)</a>.*?<a class="result__snippet"[^>]*>(.*?)</a>`)
+	matches := resultPattern.FindAllStringSubmatch(html, -1)
+
+	for i, match := range matches {
+		if i >= maxResults {
+			break
+		}
+
+		if len(match) >= 4 {
+			// Clean up HTML entities and tags
+			title := cleanHTML(match[2])
+			snippet := cleanHTML(match[3])
+			resultURL := cleanHTML(match[1])
+
+			results = append(results, SearchResult{
+				Title:   title,
+				URL:     resultURL,
+				Snippet: snippet,
+			})
+		}
+	}
+
+	return results
+}
+
+// cleanHTML removes HTML tags and decodes HTML entities
+func cleanHTML(s string) string {
+	// Remove HTML tags
+	tagPattern := regexp.MustCompile(`<[^>]*>`)
+	s = tagPattern.ReplaceAllString(s, "")
+
+	// Decode common HTML entities
+	s = strings.ReplaceAll(s, "&amp;", "&")
+	s = strings.ReplaceAll(s, "&lt;", "<")
+	s = strings.ReplaceAll(s, "&gt;", ">")
+	s = strings.ReplaceAll(s, "&quot;", "\"")
+	s = strings.ReplaceAll(s, "&#x27;", "'")
+	s = strings.ReplaceAll(s, "&nbsp;", " ")
+
+	// Trim whitespace
+	s = strings.TrimSpace(s)
+
+	return s
+}
+
 type Tool interface {
 	tools.Tool
 	Format(input, result string, err error) string
@@ -881,4 +1054,5 @@ var availableTools = []Tool{
 	RunInShell{},
 	ReadManyFilesTool{},
 	MergeTool{},
+	WebSearchTool{},
 }
