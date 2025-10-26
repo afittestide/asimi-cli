@@ -133,7 +133,7 @@ func defaultConfig() Config {
 			Enabled:      true,
 			MaxSessions:  50,
 			MaxAgeDays:   30,
-			ListLimit:    10,
+			ListLimit:    0, // 0 means no limit, show all sessions
 			AutoSave:     false,
 			SaveInterval: 300,
 		},
