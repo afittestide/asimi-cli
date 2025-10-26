@@ -43,6 +43,9 @@ type TUIModel struct {
 	streamingActive bool
 	streamingCancel context.CancelFunc
 
+	// Exit confirmation
+	ctrlCPressed bool // Track if CTRL-C was pressed once
+
 	// Command registry
 	commandRegistry CommandRegistry
 
@@ -318,9 +321,28 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	if keyStr == "ctrl+c" {
-		m.saveSession()
-		m.shutdown()
-		return m, tea.Quit
+		// Double CTRL-C to exit
+		if m.ctrlCPressed {
+			// Second CTRL-C - actually quit
+			m.saveSession()
+			m.shutdown()
+			return m, tea.Quit
+		}
+
+		// First CTRL-C - cancel streaming and show warning
+		m.ctrlCPressed = true
+		if m.streamingActive {
+			m.cancelStreaming()
+			m.toastManager.AddToast("Streaming canceled. Press CTRL-C again to exit.", "error", 5*time.Second)
+		} else {
+			m.toastManager.AddToast("Press CTRL-C again to exit.", "error", 5*time.Second)
+		}
+		return m, nil
+	}
+
+	// Reset CTRL-C flag when user presses any other key
+	if m.ctrlCPressed {
+		m.ctrlCPressed = false
 	}
 
 	// Handle Ctrl+Z for background mode

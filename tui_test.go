@@ -102,10 +102,10 @@ func TestTUIModelKeyMsg(t *testing.T) {
 			expectCommand: false,
 		},
 		{
-			name:          "Quit with 'ctrl+c'",
+			name:          "First 'ctrl+c' does not quit",
 			key:           tea.KeyMsg{Type: tea.KeyCtrlC},
-			expectQuit:    true,
-			expectCommand: true,
+			expectQuit:    false,
+			expectCommand: false,
 		},
 	}
 
@@ -134,6 +134,24 @@ func TestTUIModelKeyMsg(t *testing.T) {
 			require.True(t, ok)
 		})
 	}
+}
+
+func TestDoubleCtrlCToQuit(t *testing.T) {
+	model := NewTUIModel(mockConfig())
+
+	// First CTRL-C should not quit
+	newModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	require.Nil(t, cmd)
+	tuiModel, ok := newModel.(TUIModel)
+	require.True(t, ok)
+	require.True(t, tuiModel.ctrlCPressed)
+
+	// Second CTRL-C should quit
+	newModel, cmd = tuiModel.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	require.NotNil(t, cmd)
+	result := cmd()
+	_, ok = result.(tea.QuitMsg)
+	require.True(t, ok)
 }
 
 func TestTUIModelSubmit(t *testing.T) {

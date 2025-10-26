@@ -53,7 +53,8 @@ func TestFileCompletion(t *testing.T) {
 	// Wait for a bit to let the file be read
 	time.Sleep(100 * time.Millisecond)
 
-	// Quit the application
+	// Quit the application (requires double CTRL-C)
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 
 	// Get the final model
@@ -102,7 +103,8 @@ func TestSlashCommandCompletion(t *testing.T) {
 	// Wait for a bit to let the command be executed
 	time.Sleep(100 * time.Millisecond)
 
-	// Quit the application
+	// Quit the application (requires double CTRL-C)
+	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 
 	// Get the final model
