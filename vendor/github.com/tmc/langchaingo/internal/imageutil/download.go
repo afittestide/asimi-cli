@@ -3,16 +3,15 @@ package imageutil
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
-
-	"github.com/tmc/langchaingo/httputil"
 )
 
 // downloadImageData downloads the content from the given URL and returns the
 // image type and data. The image type is the second part of the response's
 // MIME (e.g. "png" from "image/png").
 func DownloadImageData(url string) (string, []byte, error) {
-	resp, err := httputil.DefaultClient.Get(url)
+	resp, err := http.Get(url) //nolint
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch image from url: %w", err)
 	}
@@ -24,11 +23,6 @@ func DownloadImageData(url string) (string, []byte, error) {
 	}
 
 	mimeType := resp.Header.Get("Content-Type")
-
-	// Handle empty Content-Type header
-	if mimeType == "" {
-		return "", urlData, nil
-	}
 
 	parts := strings.Split(mimeType, "/")
 	if len(parts) != 2 {

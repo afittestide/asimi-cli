@@ -285,19 +285,46 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleKeyMsg processes keyboard input
+// handleKeyMsg processes keyboard input filtering out escape sequences
 func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// TODO: This is till not good enough. Not sure how sends them and why
+	// Filter out terminal escape sequences that shouldn't be processed
+	// These are responses to terminal queries (background color, cursor position, etc.)
+	keyStr := msg.String()
+
+	// Ignore OSC (Operating System Command) responses like ]11;rgb:...
+	// These come from terminal background color queries
+	if strings.HasPrefix(keyStr, "]") || strings.Contains(keyStr, "rgb:") || strings.Contains(keyStr, ";rgb") {
+		return m, nil
+	}
+
+	// Ignore CSI (Control Sequence Introducer) responses like cursor position reports [1;1R
+	// Check for pattern: starts with [ and ends with R and contains ;
+	if (strings.HasPrefix(keyStr, "[") || strings.HasPrefix(keyStr, "\x1b[")) &&
+		strings.HasSuffix(keyStr, "R") && strings.Contains(keyStr, ";") {
+		return m, nil
+	}
+
+	// Ignore any key that looks like a terminal response (contains escape sequences)
+	// This catches malformed or partial escape sequences
+	if len(keyStr) > 3 && (strings.Contains(keyStr, "\x1b") || strings.Contains(keyStr, "\\")) {
+		// But allow normal escape key
+		if keyStr != "esc" && keyStr != "escape" {
+			return m, nil
+		}
+	}
+
 	// Always handle Ctrl+C first
 	var cmd tea.Cmd
 
-	if msg.String() == "ctrl+c" {
+	if keyStr == "ctrl+c" {
 		m.saveSession()
 		m.shutdown()
 		return m, tea.Quit
 	}
 
 	// Handle Ctrl+Z for background mode
-	if msg.String() == "ctrl+z" {
+	if keyStr == "ctrl+z" {
 		return m.handleCtrlZ()
 	}
 
@@ -321,17 +348,17 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle escape key for vi mode transitions BEFORE other escape handling
 	// ESC in Insert mode -> Normal mode
-	if msg.String() == "esc" && m.prompt.IsViInsertMode() {
+	if keyStr == "esc" && m.prompt.IsViInsertMode() {
 		m.prompt.EnterViNormalMode()
 		return m, nil
 	}
 	// ESC in Visual mode -> Normal mode
-	if msg.String() == "esc" && m.prompt.IsViVisualMode() {
+	if keyStr == "esc" && m.prompt.IsViVisualMode() {
 		m.prompt.EnterViNormalMode()
 		return m, nil
 	}
 	// ESC in Command-line mode -> Normal mode
-	if msg.String() == "esc" && m.prompt.IsViCommandLineMode() {
+	if keyStr == "esc" && m.prompt.IsViCommandLineMode() {
 		m.prompt.EnterViNormalMode()
 		// Hide completion dialog
 		m.showCompletionDialog = false
@@ -341,7 +368,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle escape key after modals have had a chance to process it
-	if msg.String() == "esc" {
+	if keyStr == "esc" {
 		return m.handleEscape()
 	}
 
@@ -361,7 +388,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle regular key input
-	switch msg.String() {
+	switch keyStr {
 	case "ctrl+o":
 		return m.handleToggleRawMode()
 	case "enter":

@@ -1,6 +1,6 @@
 module github.com/daonb/asimi-cli
 
-go 1.24.6
+go 1.25.3
 
 require (
 	github.com/alecthomas/kong v1.12.1
@@ -26,8 +26,6 @@ require (
 	github.com/zalando/go-keyring v0.2.6
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
-
-replace github.com/tmc/langchaingo => /Users/daonb/src/langchaingo
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect

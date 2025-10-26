@@ -21,9 +21,6 @@ type CallOptions struct {
 	// StreamingFunc is a function to be called for each chunk of a streaming response.
 	// Return an error to stop streaming early.
 	StreamingFunc func(ctx context.Context, chunk []byte) error `json:"-"`
-	// StreamingReasoningFunc is a function to be called for each chunk of a streaming response.
-	// Return an error to stop streaming early.
-	StreamingReasoningFunc func(ctx context.Context, reasoningChunk, chunk []byte) error `json:"-"`
 	// TopK is the number of tokens to consider for top-k sampling.
 	TopK int `json:"top_k"`
 	// TopP is the cumulative probability for top-p sampling.
@@ -87,8 +84,7 @@ type FunctionDefinition struct {
 	Description string `json:"description"`
 	// Parameters is a list of parameters for the function.
 	Parameters any `json:"parameters,omitempty"`
-	// Strict is a flag to indicate if the function should be called strictly.
-	// Provider support varies - typically used for structured output guarantees.
+	// Strict is a flag to indicate if the function should be called strictly. Only used for openai llm structured output.
 	Strict bool `json:"strict,omitempty"`
 }
 
@@ -163,13 +159,6 @@ func WithOptions(options CallOptions) CallOption {
 func WithStreamingFunc(streamingFunc func(ctx context.Context, chunk []byte) error) CallOption {
 	return func(o *CallOptions) {
 		o.StreamingFunc = streamingFunc
-	}
-}
-
-// WithStreamingReasoningFunc specifies the streaming reasoning function to use.
-func WithStreamingReasoningFunc(streamingReasoningFunc func(ctx context.Context, reasoningChunk, chunk []byte) error) CallOption {
-	return func(o *CallOptions) {
-		o.StreamingReasoningFunc = streamingReasoningFunc
 	}
 }
 
@@ -284,8 +273,8 @@ func WithMetadata(metadata map[string]interface{}) CallOption {
 	}
 }
 
-// WithResponseMIMEType will add an option to set the ResponseMIMEType.
-// Provider support varies - check your provider's documentation.
+// WithResponseMIMEType will add an option to set the ResponseMIMEType
+// Currently only supported by googleai llms.
 func WithResponseMIMEType(responseMIMEType string) CallOption {
 	return func(o *CallOptions) {
 		o.ResponseMIMEType = responseMIMEType

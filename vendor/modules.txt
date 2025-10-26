@@ -994,10 +994,9 @@ github.com/tchap/go-patricia/v2/patricia
 # github.com/titanous/rocacheck v0.0.0-20171023193734-afe73141d399
 ## explicit
 github.com/titanous/rocacheck
-# github.com/tmc/langchaingo v0.1.13 => /Users/daonb/src/langchaingo
-## explicit; go 1.23.8
+# github.com/tmc/langchaingo v0.1.13
+## explicit; go 1.22.0
 github.com/tmc/langchaingo/callbacks
-github.com/tmc/langchaingo/httputil
 github.com/tmc/langchaingo/internal/imageutil
 github.com/tmc/langchaingo/llms
 github.com/tmc/langchaingo/llms/anthropic
@@ -1010,8 +1009,6 @@ github.com/tmc/langchaingo/llms/openai
 github.com/tmc/langchaingo/llms/openai/internal/openaiclient
 github.com/tmc/langchaingo/prompts
 github.com/tmc/langchaingo/prompts/internal/fstring
-github.com/tmc/langchaingo/prompts/internal/loader
-github.com/tmc/langchaingo/prompts/internal/sanitization
 github.com/tmc/langchaingo/schema
 github.com/tmc/langchaingo/tools
 # github.com/ulikunitz/xz v0.5.15
@@ -1151,6 +1148,7 @@ golang.org/x/crypto/ssh/knownhosts
 # golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f
 ## explicit; go 1.22.0
 golang.org/x/exp/constraints
+golang.org/x/exp/maps
 golang.org/x/exp/slices
 # golang.org/x/net v0.43.0
 ## explicit; go 1.23.0
@@ -1375,4 +1373,3 @@ sigs.k8s.io/yaml
 # tags.cncf.io/container-device-interface v1.0.1
 ## explicit; go 1.20
 tags.cncf.io/container-device-interface/pkg/parser
-# github.com/tmc/langchaingo => /Users/daonb/src/langchaingo

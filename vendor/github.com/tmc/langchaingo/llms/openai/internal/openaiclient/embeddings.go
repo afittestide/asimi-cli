@@ -14,9 +14,8 @@ const (
 )
 
 type embeddingPayload struct {
-	Model      string   `json:"model"`
-	Input      []string `json:"input"`
-	Dimensions int      `json:"dimensions,omitempty"`
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 type embeddingResponsePayload struct {
@@ -37,6 +36,12 @@ type embeddingResponsePayload struct {
 func (c *Client) createEmbedding(ctx context.Context, payload *embeddingPayload) (*embeddingResponsePayload, error) {
 	if c.baseURL == "" {
 		c.baseURL = defaultBaseURL
+	}
+	if c.Model == "" {
+		payload.Model = c.EmbeddingModel
+	}
+	if payload.Model == "" {
+		payload.Model = defaultEmbeddingModel
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -63,10 +68,10 @@ func (c *Client) createEmbedding(ctx context.Context, payload *embeddingPayload)
 		// status code.
 		var errResp errorMessage
 		if err := json.NewDecoder(r.Body).Decode(&errResp); err != nil {
-			return nil, errors.New(msg)
+			return nil, errors.New(msg) // nolint:goerr113
 		}
 
-		return nil, fmt.Errorf("%s: %s", msg, errResp.Error.Message)
+		return nil, fmt.Errorf("%s: %s", msg, errResp.Error.Message) // nolint:goerr113
 	}
 
 	var response embeddingResponsePayload
