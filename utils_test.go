@@ -1,8 +1,11 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -163,4 +166,65 @@ func TestShortenProviderModel(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestEnsureOllamaConfiguredMissingBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ollama is not expected on Windows hosts")
+	}
+
+	emptyDir := t.TempDir()
+	t.Setenv("PATH", emptyDir)
+
+	err := ensureOllamaConfigured("http://127.0.0.1:12345")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "ollama CLI not found")
+}
+
+func TestEnsureOllamaConfiguredSuccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ollama is not expected on Windows hosts")
+	}
+
+	fakePath := prepareFakeOllama(t)
+	t.Setenv("PATH", fakePath)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/version", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+		_, writeErr := w.Write([]byte(`{"version":"test"}`))
+		require.NoError(t, writeErr)
+	}))
+	t.Cleanup(server.Close)
+
+	err := ensureOllamaConfigured(server.URL)
+	require.NoError(t, err)
+}
+
+func TestEnsureOllamaConfiguredServerError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ollama is not expected on Windows hosts")
+	}
+
+	fakePath := prepareFakeOllama(t)
+	t.Setenv("PATH", fakePath)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/version", r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	err := ensureOllamaConfigured(server.URL)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "returned status 500")
+}
+
+func prepareFakeOllama(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	binaryPath := filepath.Join(dir, "ollama")
+	require.NoError(t, os.WriteFile(binaryPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	return dir
 }
