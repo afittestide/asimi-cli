@@ -27,6 +27,9 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
+// IMPORTANT: We have some changes pending for langchaingo, go to keep this
+replace github.com/tmc/langchaingo => /Users/daonb/src/langchaingo
+
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	cloud.google.com/go v0.116.0 // indirect
