@@ -171,7 +171,7 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 
 		maxSessions := 50
 		maxAgeDays := 30
-		listLimit := 0 // 0 means no limit, show all sessions
+		listLimit := 10
 
 		if config.Session.MaxSessions > 0 {
 			maxSessions = config.Session.MaxSessions
@@ -179,8 +179,7 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 		if config.Session.MaxAgeDays > 0 {
 			maxAgeDays = config.Session.MaxAgeDays
 		}
-		// Allow explicit configuration of list limit (0 means unlimited)
-		if config.Session.ListLimit >= 0 {
+		if config.Session.ListLimit > 0 {
 			listLimit = config.Session.ListLimit
 		}
 
