@@ -24,11 +24,12 @@ import (
 )
 
 type PodmanShellRunner struct {
-	imageName     string
-	containerName string
-	allowFallback bool
-	mu            sync.Mutex
-	conn          context.Context
+	imageName        string
+	containerName    string
+	allowFallback    bool
+	mu               sync.Mutex
+	conn             context.Context
+	containerStarted bool // tracks if container has been successfully started
 	// Fields for container attachment
 	stdinPipe  io.WriteCloser
 	stdoutPipe io.ReadCloser
@@ -49,9 +50,10 @@ type commandOutput struct {
 }
 
 func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
+	pid := os.Getpid()
 	return &PodmanShellRunner{
 		imageName:     "localhost/asimi-shell:latest",
-		containerName: "asimi-shell-workspace",
+		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
@@ -82,9 +84,45 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		slog.Debug("podman connection established")
 	}
 
-	// Step 2: Ensure container is running
-	if err := r.startContainer(ctx); err != nil {
-		return err
+	// Step 2: Ensure container is running (if not already started)
+	r.mu.Lock()
+	if !r.containerStarted {
+		r.mu.Unlock()
+		slog.Debug("ensuring container for this instance", "containerName", r.containerName)
+
+		// Check if container already exists
+		inspectData, err := containers.Inspect(r.conn, r.containerName, nil)
+		if err == nil {
+			// Container exists, check if it's running
+			if inspectData.State.Running {
+				slog.Debug("container already running", "containerName", r.containerName)
+				r.mu.Lock()
+				r.containerStarted = true
+				r.mu.Unlock()
+			} else {
+				// Container exists but not running, start it
+				slog.Debug("starting existing container", "containerName", r.containerName)
+				if err := containers.Start(r.conn, r.containerName, nil); err != nil {
+					return fmt.Errorf("failed to start existing container: %w", err)
+				}
+				slog.Debug("existing container started", "containerName", r.containerName)
+				r.mu.Lock()
+				r.containerStarted = true
+				r.mu.Unlock()
+			}
+		} else {
+			// Container doesn't exist, create it
+			slog.Debug("container doesn't exist, creating new one", "containerName", r.containerName)
+			if err := r.createContainer(ctx); err != nil {
+				return err
+			}
+			r.mu.Lock()
+			r.containerStarted = true
+			r.mu.Unlock()
+		}
+	} else {
+		r.mu.Unlock()
+		slog.Debug("container already started, skipping checks", "containerName", r.containerName)
 	}
 
 	// Step 3: Attach to container if needed
@@ -94,9 +132,48 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 
 	if !hasAttachment {
 		slog.Debug("attaching to container")
-		if err := r.attachToContainer(ctx); err != nil {
-			return err
-		}
+
+		// Create pipes for stdin, stdout, and stderr
+		slog.Debug("creating pipes for stdin, stdout, stderr")
+		stdinReader, stdinWriter := io.Pipe()
+		stdoutReader, stdoutWriter := io.Pipe()
+		stderrReader, stderrWriter := io.Pipe()
+
+		// Attach to the container in a goroutine so it doesn't block
+		slog.Debug("starting Attach goroutine")
+		go func() {
+			slog.Debug("Attach goroutine started", "containerName", r.containerName)
+			if err := containers.Attach(r.conn, r.containerName, stdinReader, stdoutWriter, stderrWriter, nil, nil); err != nil {
+				slog.Error("error attaching to container", "error", err)
+				fmt.Fprintf(os.Stderr, "Error attaching to container: %v\n", err)
+				// Handle error: close pipes and reset
+				stdinReader.Close()
+				stdoutWriter.Close()
+				stderrWriter.Close()
+				r.mu.Lock()
+				r.stdinPipe = nil
+				r.stdoutPipe = nil
+				r.stderrPipe = nil
+				r.mu.Unlock()
+				slog.Debug("container attachment reset after error")
+			} else {
+				slog.Debug("Attach completed successfully")
+			}
+		}()
+
+		r.mu.Lock()
+		r.stdinPipe = stdinWriter
+		r.stdoutPipe = stdoutReader
+		r.stderrPipe = stderrReader
+		r.mu.Unlock()
+
+		slog.Debug("container pipes configured")
+
+		// Start persistent reader loops for stdout and stderr
+		slog.Debug("starting persistent reader loops")
+		go r.readStream(stdoutReader, true)  // true = stdout
+		go r.readStream(stderrReader, false) // false = stderr
+
 		slog.Debug("container attachment established")
 	}
 
@@ -153,82 +230,6 @@ func (r *PodmanShellRunner) establishConnection(ctx context.Context) (context.Co
 	return conn, nil
 }
 
-// startContainer ensures the container is running
-func (r *PodmanShellRunner) startContainer(ctx context.Context) error {
-	slog.Debug("ensuring container is running", "containerName", r.containerName)
-
-	// Check if container exists and is running
-	slog.Debug("inspecting container", "containerName", r.containerName)
-	inspectData, err := containers.Inspect(r.conn, r.containerName, nil)
-	if err == nil {
-		// Container exists, check if it's running
-		if inspectData.State.Running {
-			slog.Debug("container is already running")
-			return nil
-		}
-
-		// Container exists but not running, start it
-		slog.Debug("starting stopped container")
-		if err := containers.Start(r.conn, r.containerName, nil); err != nil {
-			return fmt.Errorf("failed to start container: %w", err)
-		}
-		slog.Debug("container started successfully")
-		return nil
-	}
-
-	// Container doesn't exist, create and start it
-	slog.Debug("container does not exist, creating new container")
-	return r.createContainer(ctx)
-}
-
-// attachToContainer attaches to the running container's stdin/stdout/stderr
-func (r *PodmanShellRunner) attachToContainer(ctx context.Context) error {
-	slog.Debug("attaching to container")
-
-	// Create pipes for stdin, stdout, and stderr
-	slog.Debug("creating pipes for stdin, stdout, stderr")
-	stdinReader, stdinWriter := io.Pipe()
-	stdoutReader, stdoutWriter := io.Pipe()
-	stderrReader, stderrWriter := io.Pipe()
-
-	// Attach to the container in a goroutine so it doesn't block
-	slog.Debug("starting Attach goroutine")
-	go func() {
-		slog.Debug("Attach goroutine started", "containerName", r.containerName)
-		if err := containers.Attach(r.conn, r.containerName, stdinReader, stdoutWriter, stderrWriter, nil, nil); err != nil {
-			slog.Error("error attaching to container", "error", err)
-			fmt.Fprintf(os.Stderr, "Error attaching to container: %v\n", err)
-			// Handle error: close pipes and reset
-			stdinReader.Close()
-			stdoutWriter.Close()
-			stderrWriter.Close()
-			r.mu.Lock()
-			r.stdinPipe = nil
-			r.stdoutPipe = nil
-			r.stderrPipe = nil
-			r.mu.Unlock()
-			slog.Debug("container attachment reset after error")
-		} else {
-			slog.Debug("Attach completed successfully")
-		}
-	}()
-
-	r.mu.Lock()
-	r.stdinPipe = stdinWriter
-	r.stdoutPipe = stdoutReader
-	r.stderrPipe = stderrReader
-	r.mu.Unlock()
-
-	slog.Debug("container pipes configured")
-
-	// Start persistent reader loops for stdout and stderr
-	slog.Debug("starting persistent reader loops")
-	go r.readStream(stdoutReader, true)  // true = stdout
-	go r.readStream(stderrReader, false) // false = stderr
-
-	return nil
-}
-
 // readStream continuously reads from a stream looking for command markers
 // and populates the outputs map when complete command outputs are found
 func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
@@ -246,6 +247,7 @@ func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
 	var output strings.Builder
 	inCommand := false
 
+	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
 		line := scanner.Text()
 		slog.Debug("stream reader line", "stream", streamName, "line", line)
@@ -496,21 +498,14 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	return output, nil
 }
 
-// Close closes the container attachment and its associated pipes.
+// Close closes the container attachment, stops and removes the container.
 func (r *PodmanShellRunner) Close(ctx context.Context) error {
-	slog.Debug("closing container attachment")
+	slog.Debug("closing podman shell runner")
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.stdinPipe == nil {
-		slog.Debug("no active attachment to close")
-		return nil // No attachment to close
-	}
-
-	slog.Debug("closing pipes")
-
-	// Close the pipes
+	// Close the pipes first
 	if r.stdinPipe != nil {
 		slog.Debug("closing stdin pipe")
 		r.stdinPipe.Close()
@@ -528,7 +523,21 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 	r.stdoutPipe = nil
 	r.stderrPipe = nil
 
-	slog.Debug("container attachment closed successfully")
+	// Stop and remove the container if we have a connection
+	if r.conn != nil {
+		slog.Debug("stopping container", "containerName", r.containerName)
+		timeout := uint(5)
+		if err := containers.Stop(r.conn, r.containerName, &containers.StopOptions{Timeout: &timeout}); err != nil {
+			slog.Warn("failed to stop container", "error", err)
+		}
 
+		slog.Debug("removing container", "containerName", r.containerName)
+		force := true
+		if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{Force: &force}); err != nil {
+			slog.Warn("failed to remove container", "error", err)
+		}
+	}
+
+	slog.Debug("podman shell runner closed successfully")
 	return nil
 }
