@@ -1,7 +1,7 @@
 FROM golang:latest
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git curl && \
+    apt-get install -y --no-install-recommends git curl ripgrep && \
     rm -rf /var/lib/apt/lists/*
 
 # Install just from GitHub releases

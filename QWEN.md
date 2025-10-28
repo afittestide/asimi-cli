@@ -22,6 +22,7 @@ IMPORTANT: Write idiomatic Go code. Avoid unnecessary abstractions and wrapper f
 - Do not add build tags
 
 ## Libraries
+- slog for logging - to see debug message neet to activate with `--debug`
 - bubbletea for the UI
 - koanf for configuration management
 - kong for CLI
