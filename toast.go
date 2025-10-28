@@ -22,8 +22,8 @@ type ToastManager struct {
 }
 
 // NewToastManager creates a new toast manager
-func NewToastManager() ToastManager {
-	return ToastManager{
+func NewToastManager() *ToastManager {
+	return &ToastManager{
 		Toasts: make([]Toast, 0),
 		Style: lipgloss.NewStyle().
 			Background(lipgloss.Color("62")).
@@ -63,7 +63,7 @@ func (tm *ToastManager) Clear() {
 }
 
 // Update handles updating the toast manager (e.g., removing expired toasts)
-func (tm ToastManager) Update() ToastManager {
+func (tm *ToastManager) Update() {
 	now := time.Now()
 	activeToasts := make([]Toast, 0)
 
@@ -75,7 +75,6 @@ func (tm ToastManager) Update() ToastManager {
 	}
 
 	tm.Toasts = activeToasts
-	return tm
 }
 
 // View renders the active toasts

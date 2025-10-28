@@ -634,8 +634,8 @@ func TestToastManager(t *testing.T) {
 	// Test updating (removing expired toasts)
 	toastManager.AddToast(message, tostType, 1*time.Millisecond)
 	time.Sleep(2 * time.Millisecond) // Wait for toast to expire
-	updatedManager := toastManager.Update()
-	require.Empty(t, updatedManager.Toasts)
+	toastManager.Update()
+	require.Empty(t, toastManager.Toasts)
 }
 
 // TestTUIModelUpdateFileCompletions tests the file completion functionality with multiple files

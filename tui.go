@@ -26,7 +26,7 @@ type TUIModel struct {
 	prompt              PromptComponent
 	chat                ChatComponent
 	completions         CompletionDialog
-	toastManager        ToastManager
+	toastManager        *ToastManager
 	modal               *BaseModal
 	providerModal       *ProviderSelectionModal
 	codeInputModal      *CodeInputModal
@@ -333,6 +333,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.ctrlCPressed = true
 		if m.streamingActive {
 			m.cancelStreaming()
+			m.stopStreaming()
 			m.toastManager.AddToast("Streaming canceled. Press CTRL-C again to exit.", "error", 5*time.Second)
 		} else {
 			m.toastManager.AddToast("Press CTRL-C again to exit.", "error", 5*time.Second)
