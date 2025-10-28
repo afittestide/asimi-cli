@@ -368,6 +368,18 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// Handle modal close with 'q' or 'esc'
+	if m.modal != nil && (keyStr == "q" || keyStr == "esc") {
+		m.modal = nil
+		// If esc was pressed, continue to handleEscape to clear completion dialog
+		if keyStr == "esc" {
+			// Don't return early - let handleEscape() also process this
+		} else {
+			// For 'q', return immediately
+			return m, nil
+		}
+	}
+
 	// Handle escape key for vi mode transitions BEFORE other escape handling
 	// ESC in Insert mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViInsertMode() {
@@ -541,6 +553,35 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.completionMode = "command"
 		m.completions.SetOptions(viCommands)
 		m.completions.Show()
+		return m, nil
+	case "?":
+		// Show help modal
+		helpText := "Vi Mode Keybindings:\n\n"
+		helpText += "Navigation:\n"
+		helpText += "  h/←     - Move cursor left\n"
+		helpText += "  j/↓     - Move cursor down / Next history\n"
+		helpText += "  k/↑     - Move cursor up / Previous history\n"
+		helpText += "  l/→     - Move cursor right\n\n"
+		helpText += "Editing:\n"
+		helpText += "  i       - Insert mode at cursor\n"
+		helpText += "  I       - Insert mode at line start\n"
+		helpText += "  a       - Insert mode after cursor\n"
+		helpText += "  A       - Insert mode at line end\n"
+		helpText += "  o       - Open new line below\n"
+		helpText += "  O       - Open new line above\n\n"
+		helpText += "Visual Mode:\n"
+		helpText += "  v       - Enter visual mode\n"
+		helpText += "  V       - Enter visual line mode\n\n"
+		helpText += "Commands:\n"
+		helpText += "  :       - Enter command mode\n"
+		helpText += "  ?       - Show this help\n\n"
+		helpText += "Available Commands:\n"
+		for _, cmd := range m.commandRegistry.GetAllCommands() {
+			helpText += fmt.Sprintf("  :%s - %s\n", strings.TrimPrefix(cmd.Name, "/"), cmd.Description)
+		}
+		helpText += "\nPress ESC or q to close this help"
+
+		m.modal = NewBaseModal("Vi Mode Help", helpText, 80, 30)
 		return m, nil
 	default:
 		// Pass other keys to the textarea for navigation
