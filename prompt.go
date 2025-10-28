@@ -16,6 +16,7 @@ const (
 	ViModeNormal      = "normal"
 	ViModeVisual      = "visual"
 	ViModeCommandLine = "command"
+	ViModeLearning    = "learning"
 )
 
 // PromptComponent represents the user input text area
@@ -241,6 +242,24 @@ func (p PromptComponent) IsViCommandLineMode() bool {
 	return p.ViMode && p.ViCurrentMode == ViModeCommandLine
 }
 
+// EnterViLearningMode switches to vi learning mode
+func (p *PromptComponent) EnterViLearningMode() {
+	if !p.ViMode {
+		return
+	}
+	p.ViCurrentMode = ViModeLearning
+	p.viPendingOp = ""
+	// Use normal keymap for learning mode editing
+	p.TextArea.KeyMap = p.normalKeyMap
+	p.TextArea.Placeholder = "Enter learning note (will be appended to AGENTS.md)..."
+	p.updateViModeStyle()
+}
+
+// IsViLearningMode returns true if in vi learning mode
+func (p PromptComponent) IsViLearningMode() bool {
+	return p.ViMode && p.ViCurrentMode == ViModeLearning
+}
+
 // ViModeStatus returns current vi mode status for display components
 func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending string) {
 	return p.ViMode, p.ViCurrentMode, p.viPendingOp
@@ -266,6 +285,9 @@ func (p *PromptComponent) updateViModeStyle() {
 	case ViModeCommandLine:
 		// Command-line mode: magenta border
 		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
+	case ViModeLearning:
+		// Learning mode: orange border
+		p.Style = p.Style.BorderForeground(lipgloss.Color("#FFA500")) // Orange
 	}
 }
 

@@ -400,6 +400,12 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.completionMode = ""
 		return m, nil
 	}
+	// ESC in Learning mode -> Normal mode
+	if keyStr == "esc" && m.prompt.IsViLearningMode() {
+		m.prompt.EnterViNormalMode()
+		m.prompt.SetValue("")
+		return m, nil
+	}
 
 	// Handle escape key after modals have had a chance to process it
 	if keyStr == "esc" {
@@ -582,6 +588,11 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		helpText += "\nPress ESC or q to close this help"
 
 		m.modal = NewBaseModal("Vi Mode Help", helpText, 80, 30)
+		return m, nil
+	case "#":
+		// Enter learning mode
+		m.prompt.EnterViLearningMode()
+		m.prompt.SetValue("#")
 		return m, nil
 	default:
 		// Pass other keys to the textarea for navigation
@@ -869,6 +880,32 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 
 	content := m.prompt.Value()
 	if content == "" {
+		return m, nil
+	}
+
+	// Handle learning mode - append to AGENTS.md
+	if m.prompt.IsViLearningMode() {
+		// Remove the leading "#" and trim whitespace
+		learningNote := strings.TrimSpace(strings.TrimPrefix(content, "#"))
+		if learningNote != "" {
+			// Append to AGENTS.md
+			agentsPath := "AGENTS.md"
+			f, err := os.OpenFile(agentsPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+			if err != nil {
+				m.toastManager.AddToast(fmt.Sprintf("Failed to open AGENTS.md: %v", err), "error", time.Second*3)
+			} else {
+				defer f.Close()
+				_, err = f.WriteString("\n" + learningNote + "\n")
+				if err != nil {
+					m.toastManager.AddToast(fmt.Sprintf("Failed to write to AGENTS.md: %v", err), "error", time.Second*3)
+				} else {
+					m.toastManager.AddToast("Added to AGENTS.md", "success", time.Second*2)
+				}
+			}
+		}
+		// Return to normal mode
+		m.prompt.EnterViNormalMode()
+		m.prompt.SetValue("")
 		return m, nil
 	}
 
