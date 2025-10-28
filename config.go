@@ -142,7 +142,7 @@ func defaultConfig() Config {
 			MaxSessions:  50,
 			MaxAgeDays:   30,
 			ListLimit:    0,
-			AutoSave:     false,
+			AutoSave:     true,
 			SaveInterval: 300,
 		},
 	}
