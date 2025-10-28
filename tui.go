@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -994,28 +993,6 @@ func (m TUIModel) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd
 	m.height = msg.Height
 	m.updateComponentDimensions()
 
-	// Trigger async renderer recreation for the new width
-	// This avoids blocking on glamour renderer recreation during resize
-	if m.chat.markdownRenderer != nil {
-		go func() {
-			width := m.width - 2
-			if width < 20 {
-				width = 20
-			}
-			renderer, err := glamour.NewTermRenderer(
-				glamour.WithAutoStyle(),
-				glamour.WithWordWrap(width-4),
-			)
-			if err != nil {
-				slog.Error("Failed to recreate markdown renderer on resize", "error", err)
-				return
-			}
-			if program != nil {
-				program.Send(markdownRendererReadyMsg{renderer: renderer})
-			}
-		}()
-	}
-
 	return m, nil
 }
 
@@ -1307,11 +1284,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("LLM initialization failed", "error", msg.err)
 		m.toastManager.AddToast(fmt.Sprintf("Warning: Running without AI capabilities: %v", msg.err), "warning", 5000)
 
-	case markdownRendererReadyMsg:
-		// Markdown renderer is ready - assign it to the chat component
-		// UpdateContent will be called naturally on the next message
-		slog.Debug("Markdown renderer ready")
-		m.chat.markdownRenderer = msg.renderer
 	}
 
 	var chatCmd tea.Cmd

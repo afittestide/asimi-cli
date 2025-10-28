@@ -1,7 +1,9 @@
 package main
 
 import (
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +36,27 @@ func NewChatComponent(width, height int) ChatComponent {
 	vp := viewport.New(width, height)
 	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
 
+	// Get the initial width from the TUI model
+	if width == 0 {
+		width = 80 // Default width
+	}
+
+	rendererStart := time.Now()
+	// Create the renderer (this is the expensive operation, done async)
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width-4),
+	)
+
+	slog.Debug("[TIMING] Markdown renderer initialized in %v\n", "load time", time.Since(rendererStart), "err", err)
+
+	/* TODO: Change the return values to *ChatComponent, err and return an err if failed
+	if err != nil {
+		slog.Error("Failed to initialize markdown renderer", "error", err)
+		return nil, err
+	}
+	*/
+
 	return ChatComponent{
 		Viewport:         vp,
 		Messages:         []string{"Welcome to Asimi CLI! Send a message to start chatting."},
@@ -43,8 +66,8 @@ func NewChatComponent(width, height int) ChatComponent {
 		UserScrolled:     false, // User hasn't scrolled yet
 		TouchStartY:      0,     // Initialize touch tracking
 		TouchDragging:    false,
-		TouchScrollSpeed: 3,   // Lines to scroll per touch movement unit
-		markdownRenderer: nil, // Will be initialized asynchronously via message
+		TouchScrollSpeed: 3,        // Lines to scroll per touch movement unit
+		markdownRenderer: renderer, // Will be initialized asynchronously via message
 		Style: lipgloss.NewStyle().
 			Background(lipgloss.Color("#11051E")). // Terminal7 chat background
 			Width(width).
@@ -58,9 +81,18 @@ func (c *ChatComponent) SetWidth(width int) {
 	c.Style = c.Style.Width(width)
 	c.Viewport.Width = width
 
-	// Don't recreate the renderer synchronously on resize - it's expensive
-	// The renderer will be recreated asynchronously via handleWindowSizeMsg
-	// For now, just update the content with current renderer
+	rendererStart := time.Now()
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width-4),
+	)
+	if err != nil {
+		slog.Warn("Failed to initialize renderer", "error", err)
+	} else {
+		slog.Debug("[TIMING] Markdown renderer initialized in %v\n", "load time", time.Since(rendererStart), "err", err)
+		c.markdownRenderer = renderer
+	}
+
 	c.UpdateContent()
 }
 
