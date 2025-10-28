@@ -261,11 +261,12 @@ func TestSession_ContextFiles(t *testing.T) {
 	sess, err := NewSession(llm, &Config{}, func(any) {})
 	assert.NoError(t, err)
 
-	// Test HasContextFiles - should be true if AGENTS.md exists, false otherwise
+	// Test HasContextFiles - should be false initially (AGENTS.md is in system prompt, not ContextFiles)
 	initialHasContext := sess.HasContextFiles()
+	assert.False(t, initialHasContext, "ContextFiles should be empty initially")
 	initialFiles := sess.GetContextFiles()
 	initialCount := len(initialFiles)
-	// AGENTS.md may or may not be present depending on whether the file exists
+	assert.Equal(t, 0, initialCount, "ContextFiles should be empty initially")
 
 	// Add context files
 	content1, err := os.ReadFile(contextFile1)
@@ -290,18 +291,18 @@ func TestSession_ContextFiles(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, out, "CONTEXT:context1.txt,context2.txt")
 
-	// Verify dynamically added context was cleared after Ask, but AGENTS.md persists
+	// Verify dynamically added context was cleared after Ask
 	contextFiles = sess.GetContextFiles()
-	assert.Len(t, contextFiles, initialCount)
-	assert.Equal(t, initialHasContext, sess.HasContextFiles())
+	assert.Len(t, contextFiles, 0, "ContextFiles should be empty after Ask")
+	assert.False(t, sess.HasContextFiles(), "HasContextFiles should be false after Ask")
 
-	// Test ClearContext explicitly - should preserve AGENTS.md
+	// Test ClearContext explicitly - should clear all context
 	sess.AddContextFile("test.txt", "test content")
 	assert.True(t, sess.HasContextFiles())
 	sess.ClearContext()
-	assert.Equal(t, initialHasContext, sess.HasContextFiles())
+	assert.False(t, sess.HasContextFiles(), "HasContextFiles should be false after ClearContext")
 	contextFiles = sess.GetContextFiles()
-	assert.Len(t, contextFiles, initialCount)
+	assert.Len(t, contextFiles, 0, "ContextFiles should be empty after ClearContext")
 }
 
 // sessionMockLLMContext verifies that context files are included in prompts

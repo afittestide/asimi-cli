@@ -184,6 +184,12 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 	}
 	parts = append(parts, llms.TextPart(sys))
 
+	// Add AGENTS.md to system message if it exists
+	projectContext := readProjectContext()
+	if projectContext != "" {
+		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Context from: AGENTS.md ---\n%s\n--- End of Context from: AGENTS.md ---", projectContext)))
+	}
+
 	s.messages = append(s.messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeSystem,
 		Parts: parts,
@@ -195,12 +201,6 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 	s.scheduler = NewCoreToolScheduler(s.notify)
 	s.ContextFiles = make(map[string]string)
 	s.startTime = time.Now()
-
-	// Add AGENTS.md as a persistent context file if it exists
-	projectContext := readProjectContext()
-	if projectContext != "" {
-		s.ContextFiles["AGENTS.md"] = projectContext
-	}
 	return s, nil
 }
 
@@ -209,17 +209,12 @@ func (s *Session) AddContextFile(path, content string) {
 	s.ContextFiles[path] = content
 }
 
-// ClearContext removes all file content from the context except AGENTS.md
+// ClearContext removes all dynamically added file content from the context
 func (s *Session) ClearContext() {
-	// Preserve AGENTS.md if it exists
-	agentsContent, hasAgents := s.ContextFiles["AGENTS.md"]
 	s.ContextFiles = make(map[string]string)
-	if hasAgents {
-		s.ContextFiles["AGENTS.md"] = agentsContent
-	}
 }
 
-// ClearHistory clears the conversation history but keeps the system message and AGENTS.md
+// ClearHistory clears the conversation history but keeps the system message
 func (s *Session) ClearHistory() {
 	// Keep only the system message (first message)
 	if len(s.messages) > 0 && s.messages[0].Role == llms.ChatMessageTypeSystem {

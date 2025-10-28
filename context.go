@@ -128,7 +128,7 @@ func (s *Session) getModelContextSize() int {
 }
 
 // CountSystemPromptTokens counts tokens in the system prompt.
-// This includes the base system prompt template (AGENTS.md is now in Memory files).
+// This includes the base system prompt template and AGENTS.md content if it exists.
 func (s *Session) CountSystemPromptTokens() int {
 	if len(s.Messages) == 0 {
 		return 0
@@ -162,8 +162,8 @@ func (s *Session) CountSystemToolsTokens() int {
 	return s.countTokens(string(toolsJSON))
 }
 
-// CountMemoryFilesTokens counts tokens in context files.
-// This includes AGENTS.md and any files dynamically added via AddContextFile().
+// CountMemoryFilesTokens counts tokens in dynamically added context files.
+// Files are added via AddContextFile() and cleared after each prompt.
 func (s *Session) CountMemoryFilesTokens() int {
 	if len(s.ContextFiles) == 0 {
 		return 0

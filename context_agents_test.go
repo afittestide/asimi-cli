@@ -6,33 +6,34 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestAGENTSmdInMemoryFiles verifies that AGENTS.md content is counted in Memory files, not System prompt
-func TestAGENTSmdInMemoryFiles(t *testing.T) {
+// TestAGENTSmdInSystemPrompt verifies that AGENTS.md content is included in the system prompt
+func TestAGENTSmdInSystemPrompt(t *testing.T) {
 	llm := &sessionMockLLMContext{}
 	sess, err := NewSession(llm, &Config{}, func(any) {})
 	assert.NoError(t, err)
 
 	info := sess.GetContextInfo()
 
-	// If AGENTS.md exists, it should be in Memory files
-	if sess.HasContextFiles() {
-		contextFiles := sess.GetContextFiles()
-		agentsContent, hasAgents := contextFiles["AGENTS.md"]
+	// AGENTS.md should NOT be in ContextFiles anymore
+	contextFiles := sess.GetContextFiles()
+	_, hasAgents := contextFiles["AGENTS.md"]
+	assert.False(t, hasAgents, "AGENTS.md should not be in ContextFiles (it's in the system prompt)")
 
-		if hasAgents {
-			t.Logf("AGENTS.md found with %d characters", len(agentsContent))
+	// System prompt should include AGENTS.md content if it exists
+	// Check if AGENTS.md exists by trying to read it
+	projectContext := readProjectContext()
+	if projectContext != "" {
+		t.Logf("AGENTS.md found with %d characters", len(projectContext))
 
-			// Memory files should have tokens (from AGENTS.md)
-			assert.Greater(t, info.MemoryFilesTokens, 0, "AGENTS.md should contribute to Memory files tokens")
+		// System prompt tokens should include AGENTS.md
+		assert.Greater(t, info.SystemPromptTokens, 0, "System prompt should have tokens including AGENTS.md")
 
-			// Verify AGENTS.md is in the context files
-			assert.Contains(t, contextFiles, "AGENTS.md")
-
-			t.Logf("Context breakdown:")
-			t.Logf("  System prompt: %d tokens", info.SystemPromptTokens)
-			t.Logf("  System tools: %d tokens", info.SystemToolsTokens)
-			t.Logf("  Memory files: %d tokens (includes AGENTS.md)", info.MemoryFilesTokens)
-			t.Logf("  Messages: %d tokens", info.MessagesTokens)
-		}
+		t.Logf("Context breakdown:")
+		t.Logf("  System prompt: %d tokens (includes AGENTS.md)", info.SystemPromptTokens)
+		t.Logf("  System tools: %d tokens", info.SystemToolsTokens)
+		t.Logf("  Memory files: %d tokens", info.MemoryFilesTokens)
+		t.Logf("  Messages: %d tokens", info.MessagesTokens)
+	} else {
+		t.Log("AGENTS.md not found in project directory")
 	}
 }
