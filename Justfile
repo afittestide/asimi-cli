@@ -98,3 +98,11 @@ profile-mem: profile
 # open execution trace viewer
 profile-trace: profile
     go tool trace profiles/trace.out
+
+# measure run_in_shell tool performance
+measure:
+    @echo "=== Measuring run_in_shell Tool Performance ==="
+    @echo ""
+    @echo "Sending performance test prompt to asimi..."
+    @echo ""
+    go run . -p 'Performance test: Execute exactly 12 run_in_shell commands in a SINGLE function_calls block (all at once, not sequentially): 1. First command: date +%s%N, 2-11. Ten commands: : (colon command, does nothing), 12. Last command: date +%s%N. After receiving all results, calculate the elapsed time by subtracting the first timestamp from the last.'
