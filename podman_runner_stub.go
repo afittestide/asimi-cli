@@ -36,7 +36,3 @@ func (r *PodmanShellRunner) ensureContainer(ctx context.Context) error {
 func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	return fmt.Errorf("podman not available in this build")
 }
-
-func composeShellCommand(userCommand string) string {
-	return "cd /workspace && just bootstrap && " + userCommand
-}

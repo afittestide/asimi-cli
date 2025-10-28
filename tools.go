@@ -348,7 +348,8 @@ type RunInShellInput struct {
 
 // RunInShellOutput is the output of the RunInShell tool
 type RunInShellOutput struct {
-	Output   string `json:"output"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
 	ExitCode string `json:"exitCode"`
 }
 
@@ -487,14 +488,9 @@ func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInSh
 
 	runErr := cmd.Run()
 
-	// Combine stdout and stderr into a single output field
-	output.Output = stdout.String()
-	if stderr.Len() > 0 {
-		if output.Output != "" {
-			output.Output += "\n"
-		}
-		output.Output += stderr.String()
-	}
+	// Populate stdout and stderr separately
+	output.Stdout = stdout.String()
+	output.Stderr = stderr.String()
 
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {

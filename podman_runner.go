@@ -14,11 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
-	dockerContainer "github.com/docker/docker/api/types/container"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/containers/podman/v5/pkg/api/handlers"
 	"github.com/containers/podman/v5/pkg/bindings"
 	"github.com/containers/podman/v5/pkg/bindings/containers"
 	"github.com/containers/podman/v5/pkg/specgen"
@@ -30,11 +29,23 @@ type PodmanShellRunner struct {
 	allowFallback bool
 	mu            sync.Mutex
 	conn          context.Context
-	// New fields for persistent session
-	execSessionID string
-	stdinPipe     io.WriteCloser
-	stdoutPipe    io.ReadCloser
-	stderrPipe    io.ReadCloser
+	// Fields for container attachment
+	stdinPipe  io.WriteCloser
+	stdoutPipe io.ReadCloser
+	stderrPipe io.ReadCloser
+	// Command output storage
+	outputs       map[int]*commandOutput
+	outputsMu     sync.Mutex
+	nextCommandID int
+}
+
+type commandOutput struct {
+	stdout     string
+	stderr     string
+	exitCode   string
+	ready      chan struct{} // closed when both stdout and stderr are complete
+	stdoutDone bool
+	stderrDone bool
 }
 
 func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
@@ -42,10 +53,11 @@ func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
 		imageName:     "localhost/asimi-shell:latest",
 		containerName: "asimi-shell-workspace",
 		allowFallback: allowFallback,
-		execSessionID: "",
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
 		stderrPipe:    nil,
+		outputs:       make(map[int]*commandOutput),
+		nextCommandID: 1,
 	}
 }
 
@@ -75,17 +87,17 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		return err
 	}
 
-	// Step 3: Establish bash session if needed
+	// Step 3: Attach to container if needed
 	r.mu.Lock()
-	hasSession := r.execSessionID != ""
+	hasAttachment := r.stdinPipe != nil
 	r.mu.Unlock()
 
-	if !hasSession {
-		slog.Debug("establishing persistent bash session")
-		if err := r.createBashSession(ctx); err != nil {
+	if !hasAttachment {
+		slog.Debug("attaching to container")
+		if err := r.attachToContainer(ctx); err != nil {
 			return err
 		}
-		slog.Debug("bash session established")
+		slog.Debug("container attachment established")
 	}
 
 	slog.Debug("initialization complete")
@@ -169,30 +181,9 @@ func (r *PodmanShellRunner) startContainer(ctx context.Context) error {
 	return r.createContainer(ctx)
 }
 
-// createBashSession establishes a persistent interactive bash session
-func (r *PodmanShellRunner) createBashSession(ctx context.Context) error {
-	slog.Debug("creating new bash session")
-
-	// Create exec configuration for an interactive bash session
-	slog.Debug("creating exec configuration for interactive bash")
-	execConfig := &handlers.ExecCreateConfig{
-		ExecOptions: dockerContainer.ExecOptions{
-			Cmd:          []string{"bash", "-i"}, // Start interactive bash
-			WorkingDir:   "/workspace",
-			AttachStdin:  true,
-			AttachStdout: true,
-			AttachStderr: true,
-			Tty:          true, // Enable TTY for interactive session
-		},
-	}
-
-	// Create the exec session
-	slog.Debug("calling ExecCreate")
-	sessionID, err := containers.ExecCreate(r.conn, r.containerName, execConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create persistent exec session: %w", err)
-	}
-	slog.Debug("exec session created", "sessionID", sessionID)
+// attachToContainer attaches to the running container's stdin/stdout/stderr
+func (r *PodmanShellRunner) attachToContainer(ctx context.Context) error {
+	slog.Debug("attaching to container")
 
 	// Create pipes for stdin, stdout, and stderr
 	slog.Debug("creating pipes for stdin, stdout, stderr")
@@ -200,65 +191,166 @@ func (r *PodmanShellRunner) createBashSession(ctx context.Context) error {
 	stdoutReader, stdoutWriter := io.Pipe()
 	stderrReader, stderrWriter := io.Pipe()
 
-	execStartOptions := new(containers.ExecStartAndAttachOptions)
-	execStartOptions.WithInputStream(*bufio.NewReader(stdinReader))
-	execStartOptions.WithOutputStream(stdoutWriter)
-	execStartOptions.WithErrorStream(stderrWriter)
-	execStartOptions.WithAttachInput(true)
-	execStartOptions.WithAttachOutput(true)
-	execStartOptions.WithAttachError(true)
-
-	// Start the exec session in a goroutine so it doesn't block
-	slog.Debug("starting ExecStartAndAttach goroutine")
+	// Attach to the container in a goroutine so it doesn't block
+	slog.Debug("starting Attach goroutine")
 	go func() {
-		slog.Debug("ExecStartAndAttach goroutine started", "sessionID", sessionID)
-		if err := containers.ExecStartAndAttach(r.conn, sessionID, execStartOptions); err != nil {
-			slog.Error("error attaching to persistent exec session", "error", err)
-			fmt.Fprintf(os.Stderr, "Error attaching to persistent exec session: %v\n", err)
-			// Handle error: close pipes and reset session
+		slog.Debug("Attach goroutine started", "containerName", r.containerName)
+		if err := containers.Attach(r.conn, r.containerName, stdinReader, stdoutWriter, stderrWriter, nil, nil); err != nil {
+			slog.Error("error attaching to container", "error", err)
+			fmt.Fprintf(os.Stderr, "Error attaching to container: %v\n", err)
+			// Handle error: close pipes and reset
 			stdinReader.Close()
 			stdoutWriter.Close()
 			stderrWriter.Close()
 			r.mu.Lock()
-			r.execSessionID = ""
 			r.stdinPipe = nil
 			r.stdoutPipe = nil
 			r.stderrPipe = nil
 			r.mu.Unlock()
-			slog.Debug("bash session reset after error")
+			slog.Debug("container attachment reset after error")
 		} else {
-			slog.Debug("ExecStartAndAttach completed successfully")
+			slog.Debug("Attach completed successfully")
 		}
 	}()
 
 	r.mu.Lock()
-	r.execSessionID = sessionID
 	r.stdinPipe = stdinWriter
 	r.stdoutPipe = stdoutReader
 	r.stderrPipe = stderrReader
 	r.mu.Unlock()
 
-	slog.Debug("bash session pipes configured", "sessionID", sessionID)
+	slog.Debug("container pipes configured")
 
-	// Initialize shell with clean prompts to avoid output pollution
-	initCmd := "export PS1=\"\"; export PS2=\"\"\n"
-	slog.Debug("initializing shell with clean prompts")
-	if _, err := stdinWriter.Write([]byte(initCmd)); err != nil {
-		slog.Error("failed to initialize shell prompts", "error", err)
-		return fmt.Errorf("failed to initialize shell prompts: %w", err)
-	}
-
-	// Consume the initial welcome message and prompt output
-	slog.Debug("consuming initial bash output")
-	discardBuf := make([]byte, 4096)
-	_, err = stdoutReader.Read(discardBuf)
-	if err != nil && err != io.EOF {
-		slog.Error("failed to read initial bash output", "error", err)
-		return fmt.Errorf("failed to read initial bash output: %w", err)
-	}
-	slog.Debug("initial bash output consumed")
+	// Start persistent reader loops for stdout and stderr
+	slog.Debug("starting persistent reader loops")
+	go r.readStream(stdoutReader, true)  // true = stdout
+	go r.readStream(stderrReader, false) // false = stderr
 
 	return nil
+}
+
+// readStream continuously reads from a stream looking for command markers
+// and populates the outputs map when complete command outputs are found
+func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
+	streamName := "stderr"
+	if isStdout {
+		streamName = "stdout"
+	}
+	slog.Debug("stream reader started", "stream", streamName)
+
+	scanner := bufio.NewScanner(reader)
+	buf := make([]byte, 1024*1024) // 1MB buffer
+	scanner.Buffer(buf, 1024*1024)
+
+	var currentID int
+	var output strings.Builder
+	inCommand := false
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		slog.Debug("stream reader line", "stream", streamName, "line", line)
+
+		// Check for start marker
+		if strings.Contains(line, "__ASIMI_STDOUT_START_") || strings.Contains(line, "__ASIMI_STDERR_START_") {
+			// Extract ID from marker
+			parts := strings.Split(line, "__ASIMI_")
+			if len(parts) >= 2 {
+				idParts := strings.Split(parts[1], "__")
+				if len(idParts) >= 1 {
+					// Extract the ID part
+					prefix := "STDOUT_START_"
+					if !isStdout {
+						prefix = "STDERR_START_"
+					}
+					if strings.HasPrefix(idParts[0], prefix) {
+						idStr := strings.TrimPrefix(idParts[0], prefix)
+						if _, err := fmt.Sscanf(idStr, "%d", &currentID); err == nil {
+							inCommand = true
+							output.Reset()
+							slog.Debug("found start marker", "stream", streamName, "id", currentID)
+							continue
+						}
+					}
+				}
+			}
+		}
+
+		// Check for end marker
+		if inCommand && (strings.HasPrefix(line, "__ASIMI_STDOUT_END_") || strings.HasPrefix(line, "__ASIMI_STDERR_END_")) {
+			// Extract exit code from marker
+			var exitCode string
+			if colonIdx := strings.Index(line, ":"); colonIdx != -1 {
+				exitCode = line[colonIdx+1:]
+			}
+			slog.Debug("found end marker", "stream", streamName, "id", currentID, "exitCode", exitCode)
+
+			// Store output
+			r.outputsMu.Lock()
+			if cmd, exists := r.outputs[currentID]; exists {
+				if isStdout {
+					cmd.stdout = output.String()
+					cmd.exitCode = exitCode
+					cmd.stdoutDone = true
+				} else {
+					cmd.stderr = output.String()
+					cmd.stderrDone = true
+				}
+				// If both streams are done, signal ready
+				if cmd.stdoutDone && cmd.stderrDone {
+					close(cmd.ready)
+					slog.Debug("command output complete", "id", currentID)
+				}
+			}
+			r.outputsMu.Unlock()
+
+			inCommand = false
+			currentID = 0
+			output.Reset()
+			continue
+		}
+
+		// Accumulate output
+		if inCommand {
+			if output.Len() > 0 {
+				output.WriteString("\n")
+			}
+			output.WriteString(line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		slog.Error("stream reader error", "stream", streamName, "error", err)
+	}
+
+	// Clean up any pending commands when reader exits
+	r.outputsMu.Lock()
+	for id, cmd := range r.outputs {
+		// Mark this stream as done and close ready if both streams are done
+		if isStdout {
+			if !cmd.stdoutDone {
+				cmd.stdoutDone = true
+				slog.Debug("marking stdout done due to reader exit", "id", id)
+			}
+		} else {
+			if !cmd.stderrDone {
+				cmd.stderrDone = true
+				slog.Debug("marking stderr done due to reader exit", "id", id)
+			}
+		}
+		// If both streams are done, close ready channel
+		if cmd.stdoutDone && cmd.stderrDone {
+			select {
+			case <-cmd.ready:
+				// Already closed
+			default:
+				close(cmd.ready)
+				slog.Debug("closed ready channel due to reader exit", "id", id)
+			}
+		}
+	}
+	r.outputsMu.Unlock()
+
+	slog.Debug("stream reader exited", "stream", streamName)
 }
 
 // createContainer creates and starts a new container
@@ -268,10 +360,14 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	s := specgen.NewSpecGenerator(r.imageName, false)
 	s.Name = r.containerName
 
-	// Set up for interactive bash session
-	s.Command = []string{"bash"}
-	stdin_open := true
-	s.Terminal = &stdin_open
+	// Disable TTY to keep stdout and stderr separate
+	terminal := false
+	s.Terminal = &terminal
+
+	// Set up bash to read from stdin
+	s.Command = []string{"bash", "-s"}
+	stdinOpen := true
+	s.Stdin = &stdinOpen
 
 	// Mount current directory to /workspace
 	cwd, err := os.Getwd()
@@ -325,62 +421,94 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 		return RunInShellOutput{}, fmt.Errorf("podman unavailable and fallback to host shell is disabled: %w", err)
 	}
 
-	// Compose the command to run in the container
-	command := composeShellCommand(params.Command) + "\n" // Add newline to execute command
-	slog.Debug("composed command", "command", command)
+	// Get next command ID
+	r.outputsMu.Lock()
+	id := r.nextCommandID
+	r.nextCommandID++
+	r.outputsMu.Unlock()
+
+	slog.Debug("generated command ID", "id", id)
+
+	// Register command in outputs map
+	cmd := &commandOutput{
+		ready: make(chan struct{}),
+	}
+	r.outputsMu.Lock()
+	r.outputs[id] = cmd
+	r.outputsMu.Unlock()
+
+	// Build command wrapped with markers for stdout and stderr
+	var cmdStr strings.Builder
+	cmdStr.WriteString(fmt.Sprintf("echo '__ASIMI_STDOUT_START_%d__'", id))
+	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDERR_START_%d__' >&2", id))
+	cmdStr.WriteString("; " + params.Command)
+	cmdStr.WriteString("; __EXIT_CODE=$?")
+	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDOUT_END_%d__:'$__EXIT_CODE", id))
+	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDERR_END_%d__:'$__EXIT_CODE >&2", id))
+	cmdStr.WriteString("\n")
+
+	command := cmdStr.String()
+	slog.Debug("wrapped command", "command", command)
 
 	// Write the command to the persistent session's stdin
 	slog.Debug("writing command to stdin")
 	_, err := r.stdinPipe.Write([]byte(command))
 	if err != nil {
 		slog.Error("failed to write to stdin", "error", err)
+		// Clean up map entry
+		r.outputsMu.Lock()
+		delete(r.outputs, id)
+		r.outputsMu.Unlock()
 		return RunInShellOutput{}, fmt.Errorf("failed to write command to persistent session: %w", err)
 	}
 	slog.Debug("command written to stdin successfully")
 
-	// Read output from stdout and stderr
-	output := RunInShellOutput{}
+	// Get timeout from config or use default of 120 seconds
+	timeout := 120 * time.Second
+	// TODO: Use config.LLM.PodmanShellTimeoutMs when available
+	slog.Debug("using timeout", "timeout", timeout)
 
-	// Read from stdout with a timeout or until we get the exit code marker
-	slog.Debug("reading from stdout")
-	outputBytes := make([]byte, 4096)
-	n, err := r.stdoutPipe.Read(outputBytes)
-	slog.Debug("read from stdout completed", "bytesRead", n, "error", err)
-	if err != nil && err != io.EOF {
-		slog.Error("failed to read from stdout", "error", err)
-		return RunInShellOutput{}, fmt.Errorf("failed to read from stdout: %w", err)
+	// Wait for output to be ready with timeout
+	select {
+	case <-cmd.ready:
+		slog.Debug("command output ready", "id", id)
+	case <-time.After(timeout):
+		slog.Error("timeout waiting for command output", "id", id)
+		// Clean up map entry
+		r.outputsMu.Lock()
+		delete(r.outputs, id)
+		r.outputsMu.Unlock()
+		return RunInShellOutput{}, fmt.Errorf("timeout waiting for command output")
 	}
 
-	output.Output = string(outputBytes[:n])
-	slog.Debug("output read", "outputLength", len(output.Output))
+	// Retrieve output from map
+	r.outputsMu.Lock()
+	output := RunInShellOutput{
+		Stdout:   cmd.stdout,
+		Stderr:   cmd.stderr,
+		ExitCode: cmd.exitCode,
+	}
+	// Clean up map entry
+	delete(r.outputs, id)
+	r.outputsMu.Unlock()
 
-	// Parse exit code from the output (it's appended by composeShellCommand)
-	// The format is "**Exit Code**: <number>"
-	lines := strings.Split(output.Output, "\n")
-	l := len(lines) - 1
-	output.ExitCode = lines[l]
-	slog.Debug("exit code extracted", "exitCode", output.ExitCode)
-	// Clearing the last line to help the GC
-	lines[l] = ""
-	lines = lines[:l]
-	output.Output = strings.Join(lines, "\n")
 	slog.Debug("Run completed successfully")
 	return output, nil
 }
 
-// Close closes the persistent bash session and its associated pipes.
+// Close closes the container attachment and its associated pipes.
 func (r *PodmanShellRunner) Close(ctx context.Context) error {
-	slog.Debug("closing bash session")
+	slog.Debug("closing container attachment")
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.execSessionID == "" {
-		slog.Debug("no active session to close")
-		return nil // No session to close
+	if r.stdinPipe == nil {
+		slog.Debug("no active attachment to close")
+		return nil // No attachment to close
 	}
 
-	slog.Debug("closing pipes", "sessionID", r.execSessionID)
+	slog.Debug("closing pipes")
 
 	// Close the pipes
 	if r.stdinPipe != nil {
@@ -396,23 +524,11 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 		r.stderrPipe.Close()
 	}
 
-	// Optionally, stop the exec session in Podman.
-	// This might not be strictly necessary as closing pipes should eventually
-	// lead to the session terminating, but it's good practice for explicit cleanup.
-	// However, there isn't a direct `ExecStop` in the Podman bindings.
-	// The session will eventually be garbage collected by Podman when the container
-	// is stopped or the exec process exits.
-
-	r.execSessionID = ""
 	r.stdinPipe = nil
 	r.stdoutPipe = nil
 	r.stderrPipe = nil
 
-	slog.Debug("bash session closed successfully")
+	slog.Debug("container attachment closed successfully")
 
 	return nil
-}
-
-func composeShellCommand(userCommand string) string {
-	return userCommand + "; echo $?"
 }
