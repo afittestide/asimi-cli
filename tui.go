@@ -39,8 +39,9 @@ type TUIModel struct {
 	rawMode              bool // Toggle between chat and raw session view
 
 	// Streaming state
-	streamingActive bool
-	streamingCancel context.CancelFunc
+	streamingActive     bool
+	streamingCancel     context.CancelFunc
+	projectInitializing bool
 
 	// Exit confirmation
 	ctrlCPressed bool // Track if CTRL-C was pressed once
@@ -1168,6 +1169,10 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
 		slog.Debug("streamCompleteMsg", "messages_count", len(m.chat.Messages))
 		m.stopStreaming()
+		if m.projectInitializing && m.session != nil {
+			m.session.ClearHistory()
+			m.projectInitializing = false
+		}
 		m.saveSession()
 		refreshGitInfo()
 
@@ -1177,6 +1182,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Debug("streamInterruptedMsg", "partial_content_length", len(msg.partialContent))
 		m.chat.AddMessage("\nESC")
 		m.stopStreaming()
+		if m.projectInitializing {
+			m.projectInitializing = false
+		}
 		refreshGitInfo()
 
 	case streamErrorMsg:
@@ -1184,6 +1192,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Error("streamErrorMsg", "error", msg.err)
 		m.chat.AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
 		m.stopStreaming()
+		if m.projectInitializing {
+			if m.session != nil {
+				m.session.ClearHistory()
+			}
+			m.projectInitializing = false
+		}
 		refreshGitInfo()
 
 	case streamMaxTurnsExceededMsg:
@@ -1192,6 +1206,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("streamMaxTurnsExceededMsg", "max_turns", msg.maxTurns)
 		m.chat.AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
 		m.stopStreaming()
+		if m.projectInitializing {
+			if m.session != nil {
+				m.session.ClearHistory()
+			}
+			m.projectInitializing = false
+		}
 		refreshGitInfo()
 
 	case streamMaxTokensReachedMsg:
@@ -1200,6 +1220,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("streamMaxTokensReachedMsg", "content_length", len(msg.content))
 		m.chat.AddMessage("\n\n⚠️  Response truncated due to length limit")
 		m.stopStreaming()
+		if m.projectInitializing {
+			if m.session != nil {
+				m.session.ClearHistory()
+			}
+			m.projectInitializing = false
+		}
 		refreshGitInfo()
 
 	case showHelpMsg:
@@ -1378,6 +1404,39 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// LLM initialization failed
 		slog.Warn("LLM initialization failed", "error", msg.err)
 		m.toastManager.AddToast(fmt.Sprintf("Warning: Running without AI capabilities: %v", msg.err), "warning", 5000)
+
+	case initializeProjectMsg:
+		// Handle project initialization
+		slog.Debug("got initializeProjectMsg")
+		if m.session == nil {
+			m.toastManager.AddToast("No LLM session available for initialization", "error", 4000)
+			return m, nil
+		}
+		// Clear any existing conversation to start fresh
+		// m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
+		// m.session.ClearHistory()
+		m.projectInitializing = true
+		m.toolCallMessageIndex = make(map[string]int)
+
+		// Add a message to show we're starting initialization
+		m.chat.AddMessage("🚀 Starting project initialization...")
+
+		// Send the initialization prompt to the AI
+		ctx, cancel := context.WithCancel(context.Background())
+		m.streamingCancel = cancel
+		m.sessionActive = true
+
+		if waitCmd := m.startWaitingForResponse(); waitCmd != nil {
+			// Start the initialization process
+			go func() {
+				m.session.AskStream(ctx, msg.prompt)
+			}()
+			return m, waitCmd
+		} else {
+			go func() {
+				m.session.AskStream(ctx, msg.prompt)
+			}()
+		}
 
 	}
 

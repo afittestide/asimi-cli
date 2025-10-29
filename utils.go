@@ -39,7 +39,7 @@ func GetRepoInfo() RepoInfo {
 	// Find project root - for worktrees, find the main repo root
 	var projectRoot string
 	var worktreePath string
-	
+
 	if isWorktree {
 		// Read .git file to find the main repository
 		mainRepoRoot, err := findMainRepoRoot(cwd)
@@ -153,7 +153,7 @@ func findProjectRoot(start string) string {
 // by reading the .git file and extracting the main repo path from the gitdir
 func findMainRepoRoot(worktreeDir string) (string, error) {
 	gitPath := filepath.Join(worktreeDir, ".git")
-	
+
 	// Read the .git file
 	content, err := os.ReadFile(gitPath)
 	if err != nil {
@@ -168,7 +168,7 @@ func findMainRepoRoot(worktreeDir string) (string, error) {
 	}
 
 	gitdir := strings.TrimPrefix(gitdirLine, "gitdir: ")
-	
+
 	// The gitdir points to: <main-repo>/.git/worktrees/<worktree-name>
 	// We need to extract <main-repo> from this path
 	// Split by "/.git/worktrees/" to get the main repo path
@@ -176,7 +176,7 @@ func findMainRepoRoot(worktreeDir string) (string, error) {
 	if len(parts) < 2 {
 		return "", fmt.Errorf("unexpected gitdir format: %s", gitdir)
 	}
-	
+
 	mainRepoRoot := parts[0]
 	return mainRepoRoot, nil
 }
