@@ -28,6 +28,7 @@ type PodmanShellRunner struct {
 	containerName    string
 	allowFallback    bool
 	config           *Config
+	repoInfo         RepoInfo
 	mu               sync.Mutex
 	conn             context.Context
 	containerStarted bool // tracks if container has been successfully started
@@ -57,6 +58,7 @@ func newPodmanShellRunner(allowFallback bool, config *Config) *PodmanShellRunner
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
 		config:        config,
+		repoInfo:      GetRepoInfo(),
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
 		stderrPipe:    nil,
@@ -175,7 +177,16 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		go r.readStream(stdoutReader, true)  // true = stdout
 		go r.readStream(stderrReader, false) // false = stderr
 
-		slog.Debug("container attachment established")
+		slog.Debug("container attachment established", "repoInfo", r.repoInfo)
+
+		// Navigate to worktree if we're in one
+		if r.repoInfo.WorktreePath != "" {
+			cdCmd := fmt.Sprintf("cd %s/%s\n", r.repoInfo.ProjectRoot, r.repoInfo.WorktreePath)
+			slog.Debug("navigating to worktree in container", "path", r.repoInfo.WorktreePath)
+			if _, err := r.stdinPipe.Write([]byte(cdCmd)); err != nil {
+				slog.Warn("failed to navigate to worktree", "error", err)
+			}
+		}
 	}
 
 	slog.Debug("initialization complete")
@@ -372,26 +383,21 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	stdinOpen := true
 	s.Stdin = &stdinOpen
 
-	// Mount current directory to /workspace
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	absPath, err := filepath.Abs(cwd)
+	// Mount project root at the same absolute path as on host
+	absPath, err := filepath.Abs(r.repoInfo.ProjectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	slog.Debug("mounting directory to container", "source", absPath, "destination", "/workspace")
+	slog.Debug("mounting directory to container", "source", absPath, "destination", absPath)
 
-	mount := spec.Mount{
-		Type:        "bind",
-		Source:      absPath,
-		Destination: "/workspace",
+	mounts := []spec.Mount{
+		{
+			Type:        "bind",
+			Source:      absPath,
+			Destination: absPath,
+		},
 	}
-	mounts := []spec.Mount{mount}
-
 	// Add additional mounts from config if available
 	if r.config != nil {
 		for _, m := range r.config.Container.AdditionalMounts {

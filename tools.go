@@ -402,7 +402,7 @@ func (t RunInShell) Name() string {
 }
 
 func (t RunInShell) Description() string {
-	return "Executes a shell command in a persistent shell session inside a container. Current working directory is the same as for the last command with the worktree under work in `/workspace`. The input should be a JSON object with 'command' and optional 'description' fields."
+	return "Executes a shell command in a persistent shell session inside a container. The project root is mounted at `/workspace`, and when in a worktree, the shell automatically navigates to the worktree directory. Current working directory is maintained between commands. The input should be a JSON object with 'command' and optional 'description' fields."
 }
 
 func (t RunInShell) Call(ctx context.Context, input string) (string, error) {

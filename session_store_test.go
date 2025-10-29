@@ -303,8 +303,7 @@ func TestSessionStore_DirectoryCreation(t *testing.T) {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
 
-	cwd, _ := os.Getwd()
-	expectedSlug := projectSlug(findProjectRoot(cwd))
+	expectedSlug := projectSlug(GetRepoInfo().ProjectRoot)
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}

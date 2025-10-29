@@ -29,11 +29,7 @@ func NewHistoryStore() (*HistoryStore, error) {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
-	}
-	projectRoot := findProjectRoot(cwd)
+	projectRoot := GetRepoInfo().ProjectRoot
 	slug := projectSlug(projectRoot)
 	if slug == "" {
 		slug = defaultProjectSlug
