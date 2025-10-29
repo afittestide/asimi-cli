@@ -127,7 +127,13 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Expected indexed project slug %q, got %q", expectedSlug, sessions[0].ProjectSlug)
 	}
 
-	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), "sessions")
+	repoInfo := GetRepoInfo()
+	branchSlug := sanitizeSegment(repoInfo.Branch)
+	if branchSlug == "" {
+		branchSlug = "main"
+	}
+
+	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions")
 	if store.storageDir != expectedDir {
 		t.Fatalf("Expected storage directory %s, got %s", expectedDir, store.storageDir)
 	}
@@ -307,7 +313,13 @@ func TestSessionStore_DirectoryCreation(t *testing.T) {
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}
-	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), "sessions")
+	repoInfo := GetRepoInfo()
+	branchSlug := sanitizeSegment(repoInfo.Branch)
+	if branchSlug == "" {
+		branchSlug = "main"
+	}
+
+	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions")
 	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
 		t.Fatalf("Session directory was not created: %s", expectedDir)
 	}

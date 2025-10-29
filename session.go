@@ -180,6 +180,19 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: AGENTS.md ---\n%s\n--- End of Directions from: AGENTS.md ---", projectContext)))
 	}
 
+	if s.config != nil && s.config.Provider == "ollama" {
+		var builder strings.Builder
+		for _, part := range parts {
+			if textPart, ok := part.(llms.TextContent); ok {
+				if builder.Len() > 0 {
+					builder.WriteString("\n\n")
+				}
+				builder.WriteString(textPart.Text)
+			}
+		}
+		parts = []llms.ContentPart{llms.TextPart(builder.String())}
+	}
+
 	s.Messages = append(s.Messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeSystem,
 		Parts: parts,
@@ -300,6 +313,7 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	if streamingFunc != nil {
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
 	}
+
 	// Attempt with explicit tool choice first.
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {

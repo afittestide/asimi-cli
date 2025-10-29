@@ -27,7 +27,6 @@ type SessionSelectionModal struct {
 	sessions       []Session
 	selected       int
 	scrollOffset   int
-	maxVisible     int
 	loading        bool
 	loadingSession bool
 	err            error
@@ -41,11 +40,29 @@ func NewSessionSelectionModal() *SessionSelectionModal {
 		sessions:       []Session{},
 		selected:       0,
 		scrollOffset:   0,
-		maxVisible:     8, // Reduced to fit better in modal
 		loading:        true,
 		loadingSession: false,
 		err:            nil,
 	}
+}
+
+func (m *SessionSelectionModal) visibleSlots() int {
+	if m.BaseModal == nil {
+		return 1
+	}
+
+	contentHeight := m.BaseModal.Height - 4 // account for title and borders
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Reserve lines for instructions and spacing.
+	available := contentHeight / 3
+	if available < 1 {
+		return 1
+	}
+
+	return available
 }
 
 func (m *SessionSelectionModal) SetSessions(sessions []Session) {
@@ -214,8 +231,40 @@ func (m *SessionSelectionModal) Render() string {
 	// Total items = sessions + cancel option
 	totalItems := len(m.sessions) + 1
 
+	visible := m.visibleSlots()
+	if visible < 1 {
+		visible = 1
+	}
+	if visible > totalItems {
+		visible = totalItems
+	}
+
+	maxOffset := totalItems - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.scrollOffset > maxOffset {
+		m.scrollOffset = maxOffset
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
+	if m.selected >= totalItems {
+		m.selected = totalItems - 1
+	}
+	if visible > 0 {
+		if m.selected < m.scrollOffset {
+			m.scrollOffset = m.selected
+		} else if m.selected >= m.scrollOffset+visible {
+			m.scrollOffset = m.selected - visible + 1
+		}
+	}
+
 	start := m.scrollOffset
-	end := m.scrollOffset + m.maxVisible
+	end := m.scrollOffset + visible
 	if end > totalItems {
 		end = totalItems
 	}
@@ -301,7 +350,7 @@ func (m *SessionSelectionModal) Render() string {
 		}
 	}
 
-	if totalItems > m.maxVisible {
+	if totalItems > visible {
 		scrollInfo := fmt.Sprintf("\n%d-%d of %d items", start+1, end, totalItems)
 		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
 		content.WriteString(scrollStyle.Render(scrollInfo))
@@ -322,7 +371,15 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 	}
 
 	// Total items = sessions + cancel option
-	totalItems := len(m.sessions) + 1 //nolint:typecheck // Used in switch statement below
+	totalItems := len(m.sessions) + 1
+	visible := m.visibleSlots()
+	if visible < 1 {
+		visible = 1
+	}
+	maxOffset := totalItems - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -333,12 +390,18 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 				if m.selected < m.scrollOffset {
 					m.scrollOffset = m.selected
 				}
+				if m.scrollOffset < 0 {
+					m.scrollOffset = 0
+				}
 			}
 		case "down", "j":
 			if m.selected < totalItems-1 {
 				m.selected++
-				if m.selected >= m.scrollOffset+m.maxVisible {
-					m.scrollOffset = m.selected - m.maxVisible + 1
+				if m.selected >= m.scrollOffset+visible {
+					m.scrollOffset = m.selected - visible + 1
+				}
+				if m.scrollOffset > maxOffset {
+					m.scrollOffset = maxOffset
 				}
 			}
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -364,6 +427,10 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 }
 
 func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
+	if len(m.sessions) == 0 || m.selected < 0 || m.selected >= len(m.sessions) {
+		return func() tea.Msg { return modalCancelledMsg{} }
+	}
+
 	sessionID := m.sessions[m.selected].ID
 
 	return func() tea.Msg {

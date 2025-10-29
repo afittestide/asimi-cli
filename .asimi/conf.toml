@@ -1,8 +1,10 @@
+[container]
+[[container.additional_mounts]]
+destination = '/Users/daonb/src/langchaingo'
+source = '/Users/daonb/src/langchaingo'
+
 [llm]
+model = 'claude-sonnet-4-5-20250929'
+provider = 'anthropic'
 # provider = "ollama"
 # model = "gemma3:1b"
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-[[container.additional_mounts]]
-source = "/Users/daonb/src/langchaingo"
-destination = "/Users/daonb/src/langchaingo"

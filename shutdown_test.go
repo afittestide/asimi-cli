@@ -58,7 +58,12 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}
-	sessionFile := filepath.Join(tmpHome, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), "sessions", "session-"+session.ID, "session.json")
+	repoInfo := GetRepoInfo()
+	branchSlug := sanitizeSegment(repoInfo.Branch)
+	if branchSlug == "" {
+		branchSlug = "main"
+	}
+	sessionFile := filepath.Join(tmpHome, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions", "session-"+session.ID, "session.json")
 
 	// Give it a moment for the file system to sync
 	time.Sleep(50 * time.Millisecond)

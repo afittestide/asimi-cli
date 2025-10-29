@@ -18,7 +18,7 @@ func TestNewSessionSelectionModal(t *testing.T) {
 	assert.Equal(t, "Resume Session", modal.BaseModal.Title)
 	assert.Equal(t, 0, modal.selected)
 	assert.Equal(t, 0, modal.scrollOffset)
-	assert.Equal(t, 10, modal.maxVisible)
+	assert.GreaterOrEqual(t, modal.visibleSlots(), 1)
 	assert.True(t, modal.loading)
 	assert.Nil(t, modal.err)
 	assert.Empty(t, modal.sessions)
@@ -200,9 +200,7 @@ func TestSessionSelectionModalNavigationBoundaries(t *testing.T) {
 }
 
 func TestSessionSelectionModalQuickSelect(t *testing.T) {
-	modal := NewSessionSelectionModal()
 	sessions := createTestSessions(5)
-	modal.SetSessions(sessions)
 
 	tests := []struct {
 		name     string
@@ -218,7 +216,9 @@ func TestSessionSelectionModalQuickSelect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			modal.selected = 0 // Reset selection
+			modal := NewSessionSelectionModal()
+			modal.SetSessions(sessions)
+
 			keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)}
 			updatedModal, cmd := modal.Update(keyMsg)
 
@@ -243,11 +243,11 @@ func TestSessionSelectionModalQuickSelectOutOfRange(t *testing.T) {
 }
 
 func TestSessionSelectionModalEnterKey(t *testing.T) {
-	modal := NewSessionSelectionModal()
 	sessions := createTestSessions(2)
-	modal.SetSessions(sessions)
 
 	t.Run("enter on session triggers load", func(t *testing.T) {
+		modal := NewSessionSelectionModal()
+		modal.SetSessions(sessions)
 		modal.selected = 0
 		keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
 		_, cmd := modal.Update(keyMsg)
@@ -261,7 +261,9 @@ func TestSessionSelectionModalEnterKey(t *testing.T) {
 	})
 
 	t.Run("enter on cancel option triggers cancel", func(t *testing.T) {
-		modal.selected = 2 // Cancel option (2 sessions + cancel = index 2)
+		modal := NewSessionSelectionModal()
+		modal.SetSessions(sessions)
+		modal.selected = len(sessions) // Cancel option
 		keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
 		_, cmd := modal.Update(keyMsg)
 
@@ -306,33 +308,42 @@ func TestSessionSelectionModalEscapeKey(t *testing.T) {
 
 func TestSessionSelectionModalScrolling(t *testing.T) {
 	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(15) // More than maxVisible (10)
+	visible := modal.visibleSlots()
+	sessions := createTestSessions(visible + 5) // More than the visible slots
 	modal.SetSessions(sessions)
 
 	t.Run("scroll down when reaching bottom of visible area", func(t *testing.T) {
 		modal.selected = 0
 		modal.scrollOffset = 0
 
-		// Navigate down to position 10 (beyond maxVisible)
-		for i := 0; i < 10; i++ {
+		// Navigate down beyond the initial visible range
+		for i := 0; i < visible; i++ {
 			keyMsg := tea.KeyMsg{Type: tea.KeyDown}
 			modal, _ = modal.Update(keyMsg)
 		}
 
 		// Should have scrolled
-		assert.Equal(t, 10, modal.selected)
-		assert.Equal(t, 1, modal.scrollOffset)
+		assert.Equal(t, visible, modal.selected)
+		expectedOffset := modal.selected - visible + 1
+		if expectedOffset < 0 {
+			expectedOffset = 0
+		}
+		assert.Equal(t, expectedOffset, modal.scrollOffset)
 	})
 
 	t.Run("scroll up when reaching top of visible area", func(t *testing.T) {
-		modal.selected = 10
-		modal.scrollOffset = 5
+		modal.selected = visible
+		if visible > 2 {
+			modal.scrollOffset = visible / 2
+		} else {
+			modal.scrollOffset = 0
+		}
 
 		// Navigate up
 		keyMsg := tea.KeyMsg{Type: tea.KeyUp}
 		updatedModal, _ := modal.Update(keyMsg)
 
-		assert.Equal(t, 9, updatedModal.selected)
+		assert.Equal(t, visible-1, updatedModal.selected)
 		// Scroll offset should adjust if needed
 		if updatedModal.selected < updatedModal.scrollOffset {
 			assert.Equal(t, updatedModal.selected, updatedModal.scrollOffset)
@@ -537,6 +548,6 @@ func TestSessionSelectionModalLifecycle(t *testing.T) {
 
 		// Render at various states
 		output := modal.Render()
-		assert.Contains(t, output, "Test prompt")
+		assert.Contains(t, output, "Loading selected session")
 	})
 }

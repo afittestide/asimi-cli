@@ -92,6 +92,30 @@ func TestSession_NoTools(t *testing.T) {
 	assert.Equal(t, "Hello world", out)
 }
 
+func TestNewSessionSystemMessageSinglePart(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	cfg := &Config{
+		LLM: LLMConfig{
+			Provider: "ollama",
+			Model:    "dummy",
+		},
+	}
+
+	sess, err := NewSession(llm, cfg, func(any) {})
+	assert.NoError(t, err)
+
+	if assert.NotEmpty(t, sess.Messages) {
+		systemMsg := sess.Messages[0]
+		assert.Equal(t, llms.ChatMessageTypeSystem, systemMsg.Role)
+		if assert.Len(t, systemMsg.Parts, 1) {
+			_, ok := systemMsg.Parts[0].(llms.TextContent)
+			assert.True(t, ok)
+		}
+	}
+}
+
 // sessionMockLLMReAct returns textual ReAct-style tool usage; Session must parse and execute.
 type sessionMockLLMReAct struct{ llms.Model }
 

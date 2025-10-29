@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Detecting missing or idle Ollama installs on macOS and explaining how to start the local service before using the provider
 - Arrow keys now cycle through prompt history in vi normal mode, making history navigation consistent across all modes
 - Removing Podman build tag so the shell runner always uses the host shell fallback, simplifying the build process
+- Preventing Ollama sessions from failing with `expecting a single Text content` errors by merging the system prompt into a single message part when using Ollama
 
 ### Changed
 - Reorganized persistent data under `~/.local/share/asimi/repo/<slug>/` so each repository has isolated history and session storage with automatic migration from the legacy layout
