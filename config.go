@@ -33,6 +33,7 @@ type Config struct {
 	Hooks      HooksConfig      `koanf:"hooks"`
 	StatusLine StatusLineConfig `koanf:"statusline"`
 	Session    SessionConfig    `koanf:"session"`
+	Container  ContainerConfig  `koanf:"container"`
 }
 
 // ServerConfig holds server configuration
@@ -178,6 +179,17 @@ type SessionConfig struct {
 	ListLimit    int  `koanf:"list_limit"`
 	AutoSave     bool `koanf:"auto_save"`
 	SaveInterval int  `koanf:"save_interval"`
+}
+
+// ContainerMount represents a mount point for the container
+type ContainerMount struct {
+	Source      string `koanf:"source"`
+	Destination string `koanf:"destination"`
+}
+
+// ContainerConfig holds container configuration
+type ContainerConfig struct {
+	AdditionalMounts []ContainerMount `koanf:"additional_mounts"`
 }
 
 // LoadConfig loads configuration from multiple sources

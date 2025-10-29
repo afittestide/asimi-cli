@@ -13,7 +13,7 @@ type PodmanShellRunner struct {
 	allowFallback bool
 }
 
-func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
+func newPodmanShellRunner(allowFallback bool, config *Config) *PodmanShellRunner {
 	return &PodmanShellRunner{
 		imageName:     "localhost/asimi-shell:latest",
 		allowFallback: allowFallback,

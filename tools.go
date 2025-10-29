@@ -380,15 +380,15 @@ func initShellRunner(config *Config) {
 	defer shellRunnerMu.Unlock()
 
 	// Initialize podman shell runner with config
-	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback)
+	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config)
 }
 
 func getShellRunner() shellRunner {
 	shellRunnerOnce.Do(func() {
 		shellRunnerMu.Lock()
 		if currentShellRunner == nil {
-			// Default to podman runner with fallback disabled
-			currentShellRunner = newPodmanShellRunner(false)
+			// Default to podman runner with fallback disabled and nil config
+			currentShellRunner = newPodmanShellRunner(false, nil)
 		}
 		shellRunnerMu.Unlock()
 	})

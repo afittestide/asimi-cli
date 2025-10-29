@@ -27,6 +27,7 @@ type PodmanShellRunner struct {
 	imageName        string
 	containerName    string
 	allowFallback    bool
+	config           *Config
 	mu               sync.Mutex
 	conn             context.Context
 	containerStarted bool // tracks if container has been successfully started
@@ -49,12 +50,13 @@ type commandOutput struct {
 	stderrDone bool
 }
 
-func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
+func newPodmanShellRunner(allowFallback bool, config *Config) *PodmanShellRunner {
 	pid := os.Getpid()
 	return &PodmanShellRunner{
 		imageName:     "localhost/asimi-shell:latest",
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
+		config:        config,
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
 		stderrPipe:    nil,
@@ -145,7 +147,6 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 			slog.Debug("Attach goroutine started", "containerName", r.containerName)
 			if err := containers.Attach(r.conn, r.containerName, stdinReader, stdoutWriter, stderrWriter, nil, nil); err != nil {
 				slog.Error("error attaching to container", "error", err)
-				fmt.Fprintf(os.Stderr, "Error attaching to container: %v\n", err)
 				// Handle error: close pipes and reset
 				stdinReader.Close()
 				stdoutWriter.Close()
@@ -389,7 +390,21 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 		Source:      absPath,
 		Destination: "/workspace",
 	}
-	s.Mounts = []spec.Mount{mount}
+	mounts := []spec.Mount{mount}
+
+	// Add additional mounts from config if available
+	if r.config != nil {
+		for _, m := range r.config.Container.AdditionalMounts {
+			slog.Debug("adding additional mount", "source", m.Source, "destination", m.Destination)
+			mounts = append(mounts, spec.Mount{
+				Type:        "bind",
+				Source:      m.Source,
+				Destination: m.Destination,
+			})
+		}
+	}
+
+	s.Mounts = mounts
 
 	// Create the container
 	slog.Debug("calling CreateWithSpec")

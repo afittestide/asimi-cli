@@ -8,7 +8,7 @@ import (
 
 func TestPodmanRunnerStub(t *testing.T) {
 	// Test that the stub implementation works
-	runner := newPodmanShellRunner(true)
+	runner := newPodmanShellRunner(true, nil)
 	require.NotNil(t, runner)
 	require.Equal(t, "localhost/asimi-shell:latest", runner.imageName)
 	require.True(t, runner.allowFallback)

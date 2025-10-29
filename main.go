@@ -100,13 +100,13 @@ func (r *runCmd) Run() error {
 	}
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] Terminal check completed in %v\n", time.Since(startTime))
+		slog.Debug("[TIMING] Terminal check completed", "duration", time.Since(startTime))
 	}
 
 	configStart := time.Now()
 	config, err := LoadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Using defaults due to config load failure: %v\n", err)
+		slog.Debug("Warning: Using defaults due to config load failure", "error", err)
 		// Continue with default config
 		config = &Config{
 			Server: ServerConfig{
@@ -134,7 +134,7 @@ func (r *runCmd) Run() error {
 	}
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] LoadConfig() completed in %v\n", time.Since(configStart))
+		slog.Debug("[TIMING] LoadConfig() completed", "duration", time.Since(configStart))
 	}
 
 	// Initialize shell runner with config
@@ -145,7 +145,7 @@ func (r *runCmd) Run() error {
 	tuiModel := NewTUIModel(config)
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] NewTUIModel() completed in %v\n", time.Since(tuiStart))
+		slog.Debug("[TIMING] NewTUIModel() completed", "duration", time.Since(tuiStart))
 	}
 
 	// Create the program but don't start it yet
@@ -153,7 +153,7 @@ func (r *runCmd) Run() error {
 	program = tea.NewProgram(tuiModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] tea.NewProgram() completed in %v\n", time.Since(programStart))
+		slog.Debug("[TIMING] tea.NewProgram() completed", "duration", time.Since(programStart))
 	}
 
 	// Initialize LLM and session asynchronously to avoid blocking startup
@@ -161,7 +161,7 @@ func (r *runCmd) Run() error {
 		llmStart := time.Now()
 		llm, err := getLLMClient(config)
 		if cli.Debug {
-			fmt.Fprintf(os.Stderr, "[TIMING] getLLMClient() completed in %v\n", time.Since(llmStart))
+			slog.Debug("[TIMING] getLLMClient() completed", "duration", time.Since(llmStart))
 		}
 
 		if err != nil {
@@ -179,7 +179,7 @@ func (r *runCmd) Run() error {
 				}
 			})
 			if cli.Debug {
-				fmt.Fprintf(os.Stderr, "[TIMING] NewSession() completed in %v\n", time.Since(sessStart))
+				slog.Debug("[TIMING] NewSession() completed", "duration", time.Since(sessStart))
 			}
 
 			if sessErr != nil {
@@ -212,7 +212,7 @@ func (r *runCmd) Run() error {
 		)
 
 		if cli.Debug {
-			fmt.Fprintf(os.Stderr, "[TIMING] Markdown renderer initialized in %v\n", time.Since(rendererStart))
+			slog.Debug("[TIMING] Markdown renderer initialized", "duration", time.Since(rendererStart))
 		}
 
 		if err != nil {
@@ -231,7 +231,7 @@ func (r *runCmd) Run() error {
 		go func() {
 			time.Sleep(time.Duration(cli.ProfileExitMs) * time.Millisecond)
 			if cli.Debug {
-				fmt.Fprintf(os.Stderr, "[TIMING] Auto-exiting after %dms for profiling\n", cli.ProfileExitMs)
+				slog.Debug("[TIMING] Auto-exiting after N ms for profiling", "ms", cli.ProfileExitMs)
 			}
 			if program != nil {
 				program.Send(tea.Quit())
@@ -240,7 +240,7 @@ func (r *runCmd) Run() error {
 	}
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] About to start program.Run() at %v from start\n", time.Since(startTime))
+		slog.Debug("[TIMING] About to start program.Run()", "duration_from_start", time.Since(startTime))
 	}
 
 	runStart := time.Now()
@@ -249,8 +249,8 @@ func (r *runCmd) Run() error {
 	}
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] program.Run() completed in %v\n", time.Since(runStart))
-		fmt.Fprintf(os.Stderr, "[TIMING] Total Run() time: %v\n", time.Since(startTime))
+		slog.Debug("[TIMING] program.Run() completed", "duration", time.Since(runStart))
+		slog.Debug("[TIMING] Total Run() time", "duration", time.Since(startTime))
 	}
 
 	return nil
@@ -282,42 +282,42 @@ func main() {
 	if cli.CPUProfile != "" {
 		f, err := os.Create(cli.CPUProfile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Could not create CPU profile: %v\n", err)
+			slog.Debug("Could not create CPU profile", "error", err)
 			os.Exit(1)
 		}
 		defer f.Close()
 		if err := pprof.StartCPUProfile(f); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not start CPU profile: %v\n", err)
+			slog.Debug("Could not start CPU profile", "error", err)
 			os.Exit(1)
 		}
 		defer pprof.StopCPUProfile()
-		fmt.Fprintf(os.Stderr, "CPU profiling enabled, writing to %s\n", cli.CPUProfile)
+		slog.Debug("CPU profiling enabled", "file", cli.CPUProfile)
 	}
 
 	if cli.Trace != "" {
 		f, err := os.Create(cli.Trace)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Could not create trace file: %v\n", err)
+			slog.Debug("Could not create trace file", "error", err)
 			os.Exit(1)
 		}
 		defer f.Close()
 		if err := trace.Start(f); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not start trace: %v\n", err)
+			slog.Debug("Could not start trace", "error", err)
 			os.Exit(1)
 		}
 		defer trace.Stop()
-		fmt.Fprintf(os.Stderr, "Execution tracing enabled, writing to %s\n", cli.Trace)
+		slog.Debug("Execution tracing enabled", "file", cli.Trace)
 	}
 
 	// Log startup timing
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] main() started at %v\n", startTime)
+		slog.Debug("[TIMING] main() started", "time", startTime)
 	}
 
 	initLogger()
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] initLogger() completed in %v\n", time.Since(startTime))
+		slog.Debug("[TIMING] initLogger() completed", "duration", time.Since(startTime))
 	}
 
 	if cli.Prompt != "" {
@@ -368,20 +368,20 @@ func main() {
 	if cli.MemProfile != "" {
 		f, err := os.Create(cli.MemProfile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Could not create memory profile: %v\n", err)
+			slog.Debug("Could not create memory profile", "error", err)
 			os.Exit(1)
 		}
 		defer f.Close()
 		runtime.GC() // get up-to-date statistics
 		if err := pprof.WriteHeapProfile(f); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not write memory profile: %v\n", err)
+			slog.Debug("Could not write memory profile", "error", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "Memory profile written to %s\n", cli.MemProfile)
+		slog.Debug("Memory profile written", "file", cli.MemProfile)
 	}
 
 	if cli.Debug {
-		fmt.Fprintf(os.Stderr, "[TIMING] Total execution time: %v\n", time.Since(startTime))
+		slog.Debug("[TIMING] Total execution time", "duration", time.Since(startTime))
 	}
 }
 

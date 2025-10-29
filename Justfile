@@ -6,13 +6,11 @@ modules:
 
 # build the asimi development container
 infrabuild:
-    podman machine init --disk-size 30
-    podman machine start
     podman build -t asimi-shell:latest -f .asimi/Dockerfile .
 
 infraclean:
-    podman machine stop
-    podman machine rm
+    # podman machine stop
+    # podman machine rm
     podman system prune --all --volumes --force 
 
 # run the tests
@@ -36,7 +34,7 @@ bootstrap:
             echo "Starting podman machine..."; \
             if ! podman machine list | grep -q "podman-machine-default"; then \
                 echo "Initializing podman machine..."; \
-                podman machine init; \
+                podman machine init --disk-size 30; \
             fi; \
             podman machine start; \
             echo "Podman machine started successfully"; \
