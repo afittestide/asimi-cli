@@ -176,11 +176,12 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		go r.readStream(stdoutReader, true)  // true = stdout
 		go r.readStream(stderrReader, false) // false = stderr
 
-		slog.Debug("container attachment established")
+		slog.Debug("container attachment established", "repoInfo", r.repoInfo)
 
 		// Navigate to worktree if we're in one
-		if r.repoInfo.IsWorktree && r.repoInfo.WorktreePath != "" {
-			cdCmd := fmt.Sprintf("cd /workspace/%s\n", r.repoInfo.WorktreePath)
+
+		if r.repoInfo.WorktreePath != "" {
+			cdCmd := fmt.Sprintf("cd %s/%s\n", r.repoInfo.ProjectRoot, r.repoInfo.WorktreePath)
 			slog.Debug("navigating to worktree in container", "path", r.repoInfo.WorktreePath)
 			if _, err := r.stdinPipe.Write([]byte(cdCmd)); err != nil {
 				slog.Warn("failed to navigate to worktree", "error", err)
@@ -382,20 +383,23 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	stdinOpen := true
 	s.Stdin = &stdinOpen
 
-	// Mount project root to /workspace
+	// Mount project root at the same absolute path as on host
 	absPath, err := filepath.Abs(r.repoInfo.ProjectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	slog.Debug("mounting directory to container", "source", absPath, "destination", "/workspace")
+	slog.Debug("mounting directory to container", "source", absPath, "destination", absPath)
 
-	mount := spec.Mount{
-		Type:        "bind",
-		Source:      absPath,
-		Destination: "/workspace",
+	mounts := []spec.Mount{
+		{
+			Type:        "bind",
+			Source:      absPath,
+			Destination: absPath,
+		},
 	}
-	s.Mounts = []spec.Mount{mount}
+
+	s.Mounts = mounts
 
 	// Create the container
 	slog.Debug("calling CreateWithSpec")

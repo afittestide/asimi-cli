@@ -31,26 +31,37 @@ func GetRepoInfo() RepoInfo {
 		return RepoInfo{}
 	}
 
-	// Find project root
-	projectRoot := findProjectRoot(cwd)
-
 	// Detect if we're in a worktree by checking if .git is a file vs directory
 	gitPath := filepath.Join(cwd, ".git")
 	info, err := os.Stat(gitPath)
 	isWorktree := err == nil && !info.IsDir()
 
-	// Calculate relative worktree path when in a worktree
-	worktreePath := ""
+	// Find project root - for worktrees, find the main repo root
+	var projectRoot string
+	var worktreePath string
+	
 	if isWorktree {
-		relPath, err := filepath.Rel(projectRoot, cwd)
-		if err == nil && relPath != "." {
-			worktreePath = relPath
+		// Read .git file to find the main repository
+		mainRepoRoot, err := findMainRepoRoot(cwd)
+		if err == nil && mainRepoRoot != "" {
+			projectRoot = mainRepoRoot
+			// Calculate worktree path relative to main repo
+			relPath, err := filepath.Rel(projectRoot, cwd)
+			if err == nil && relPath != "." {
+				worktreePath = relPath
+			}
+		} else {
+			// Fallback to current directory if we can't find main repo
+			projectRoot = cwd
 		}
+	} else {
+		// Not a worktree, use standard project root finding
+		projectRoot = findProjectRoot(cwd)
 	}
 
 	// Get current branch using go-git
 	branch := ""
-	repo, err := gogit.PlainOpenWithOptions(projectRoot, &gogit.PlainOpenOptions{
+	repo, err := gogit.PlainOpenWithOptions(cwd, &gogit.PlainOpenOptions{
 		DetectDotGit: true,
 	})
 	if err == nil {
@@ -65,6 +76,9 @@ func GetRepoInfo() RepoInfo {
 			// go-git doesn't fully support worktrees, try reading HEAD directly
 			branch = readBranchFromWorktree()
 		}
+	} else if isWorktree {
+		// go-git failed, try reading branch directly from worktree
+		branch = readBranchFromWorktree()
 	}
 
 	// Detect if branch is main/master
@@ -133,6 +147,38 @@ func findProjectRoot(start string) string {
 		}
 		dir = parent
 	}
+}
+
+// findMainRepoRoot finds the main repository root when in a worktree
+// by reading the .git file and extracting the main repo path from the gitdir
+func findMainRepoRoot(worktreeDir string) (string, error) {
+	gitPath := filepath.Join(worktreeDir, ".git")
+	
+	// Read the .git file
+	content, err := os.ReadFile(gitPath)
+	if err != nil {
+		return "", err
+	}
+
+	// Parse gitdir: path
+	// Example: gitdir: /Users/daonb/src/asimi-cli/.git/worktrees/GH33-fix-worktrees
+	gitdirLine := strings.TrimSpace(string(content))
+	if !strings.HasPrefix(gitdirLine, "gitdir: ") {
+		return "", fmt.Errorf("invalid .git file format")
+	}
+
+	gitdir := strings.TrimPrefix(gitdirLine, "gitdir: ")
+	
+	// The gitdir points to: <main-repo>/.git/worktrees/<worktree-name>
+	// We need to extract <main-repo> from this path
+	// Split by "/.git/worktrees/" to get the main repo path
+	parts := strings.Split(gitdir, "/.git/worktrees/")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("unexpected gitdir format: %s", gitdir)
+	}
+	
+	mainRepoRoot := parts[0]
+	return mainRepoRoot, nil
 }
 
 // getCurrentGitBranch returns the current git branch name
