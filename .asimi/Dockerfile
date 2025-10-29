@@ -11,5 +11,4 @@ RUN JUST_VERSION=1.40.0 && \
     tar xz -C /usr/local/bin just && \
     chmod +x /usr/local/bin/just
 
-WORKDIR /workspace
 ENV GO111MODULE=on

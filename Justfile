@@ -6,8 +6,8 @@ modules:
 
 # build the asimi development container
 infrabuild:
-    podman machine init --disk-size 30
-    podman machine start
+    @podman machine init --disk-size 30 2>/dev/null || true
+    @podman machine start 2>/dev/null || true
     podman build -t asimi-shell:latest -f .asimi/Dockerfile .
 
 infraclean:
