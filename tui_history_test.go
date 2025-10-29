@@ -270,7 +270,7 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 
 	// Simulate submitting the historical prompt
 	chatLenBefore := len(model.chat.Messages)
-	sessionLenBefore := len(model.session.messages)
+	sessionLenBefore := len(model.session.Messages)
 
 	// The handleEnterKey function should detect historySaved and roll back
 	// We'll test the rollback logic directly
@@ -281,10 +281,10 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	}
 
 	// Verify rollback occurred
-	require.Equal(t, 1, len(model.session.messages), "Session should be rolled back to system message")
+	require.Equal(t, 1, len(model.session.Messages), "Session should be rolled back to system message")
 	require.Equal(t, 0, len(model.chat.Messages), "Chat should be rolled back to empty")
 	require.Less(t, len(model.chat.Messages), chatLenBefore)
-	require.Equal(t, len(model.session.messages), sessionLenBefore) // Session didn't change in this test
+	require.Equal(t, len(model.session.Messages), sessionLenBefore) // Session didn't change in this test
 }
 
 // TestNewSessionCommand_ResetsHistory tests that /new command resets history

@@ -24,37 +24,58 @@ type sessionResumeErrorMsg struct {
 
 type SessionSelectionModal struct {
 	*BaseModal
-	sessions     []Session
-	selected     int
-	scrollOffset int
-	maxVisible   int
-	loading      bool
-	err          error
+	sessions       []Session
+	selected       int
+	scrollOffset   int
+	loading        bool
+	loadingSession bool
+	err            error
 }
 
 func NewSessionSelectionModal() *SessionSelectionModal {
-	baseModal := NewBaseModal("Resume Session", "", 70, 20)
+	baseModal := NewBaseModal("Resume Session", "", 70, 15)
 
 	return &SessionSelectionModal{
-		BaseModal:    baseModal,
-		sessions:     []Session{},
-		selected:     0,
-		scrollOffset: 0,
-		maxVisible:   10,
-		loading:      true,
-		err:          nil,
+		BaseModal:      baseModal,
+		sessions:       []Session{},
+		selected:       0,
+		scrollOffset:   0,
+		loading:        true,
+		loadingSession: false,
+		err:            nil,
 	}
+}
+
+func (m *SessionSelectionModal) visibleSlots() int {
+	if m.BaseModal == nil {
+		return 1
+	}
+
+	contentHeight := m.BaseModal.Height - 4 // account for title and borders
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+
+	// Reserve lines for instructions and spacing.
+	available := contentHeight / 3
+	if available < 1 {
+		return 1
+	}
+
+	return available
 }
 
 func (m *SessionSelectionModal) SetSessions(sessions []Session) {
 	m.sessions = sessions
 	m.loading = false
+	m.loadingSession = false
 	m.err = nil
 }
 
 func (m *SessionSelectionModal) SetError(err error) {
 	m.err = err
 	m.loading = false
+	m.loadingSession = false
 }
 
 func sessionTitlePreview(session Session) string {
@@ -181,6 +202,13 @@ func (m *SessionSelectionModal) Render() string {
 		return m.BaseModal.Render()
 	}
 
+	if m.loadingSession {
+		content.WriteString("Loading selected session...\n")
+		content.WriteString("Please wait...")
+		m.BaseModal.Content = content.String()
+		return m.BaseModal.Render()
+	}
+
 	if m.err != nil {
 		content.WriteString(fmt.Sprintf("Error loading sessions: %v\n\n", m.err))
 		content.WriteString("Press Esc to close")
@@ -203,8 +231,40 @@ func (m *SessionSelectionModal) Render() string {
 	// Total items = sessions + cancel option
 	totalItems := len(m.sessions) + 1
 
+	visible := m.visibleSlots()
+	if visible < 1 {
+		visible = 1
+	}
+	if visible > totalItems {
+		visible = totalItems
+	}
+
+	maxOffset := totalItems - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.scrollOffset > maxOffset {
+		m.scrollOffset = maxOffset
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
+	if m.selected >= totalItems {
+		m.selected = totalItems - 1
+	}
+	if visible > 0 {
+		if m.selected < m.scrollOffset {
+			m.scrollOffset = m.selected
+		} else if m.selected >= m.scrollOffset+visible {
+			m.scrollOffset = m.selected - visible + 1
+		}
+	}
+
 	start := m.scrollOffset
-	end := m.scrollOffset + m.maxVisible
+	end := m.scrollOffset + visible
 	if end > totalItems {
 		end = totalItems
 	}
@@ -290,7 +350,7 @@ func (m *SessionSelectionModal) Render() string {
 		}
 	}
 
-	if totalItems > m.maxVisible {
+	if totalItems > visible {
 		scrollInfo := fmt.Sprintf("\n%d-%d of %d items", start+1, end, totalItems)
 		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
 		content.WriteString(scrollStyle.Render(scrollInfo))
@@ -301,7 +361,7 @@ func (m *SessionSelectionModal) Render() string {
 }
 
 func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea.Cmd) {
-	if m.loading || m.err != nil || len(m.sessions) == 0 {
+	if m.loading || m.loadingSession || m.err != nil || len(m.sessions) == 0 {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "esc" || keyMsg.String() == "q" {
 				return m, func() tea.Msg { return modalCancelledMsg{} }
@@ -311,7 +371,15 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 	}
 
 	// Total items = sessions + cancel option
-	totalItems := len(m.sessions) + 1 //nolint:typecheck // Used in switch statement below
+	totalItems := len(m.sessions) + 1
+	visible := m.visibleSlots()
+	if visible < 1 {
+		visible = 1
+	}
+	maxOffset := totalItems - visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -322,18 +390,25 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 				if m.selected < m.scrollOffset {
 					m.scrollOffset = m.selected
 				}
+				if m.scrollOffset < 0 {
+					m.scrollOffset = 0
+				}
 			}
 		case "down", "j":
 			if m.selected < totalItems-1 {
 				m.selected++
-				if m.selected >= m.scrollOffset+m.maxVisible {
-					m.scrollOffset = m.selected - m.maxVisible + 1
+				if m.selected >= m.scrollOffset+visible {
+					m.scrollOffset = m.selected - visible + 1
+				}
+				if m.scrollOffset > maxOffset {
+					m.scrollOffset = maxOffset
 				}
 			}
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			num := int(msg.String()[0] - '1')
 			if num < len(m.sessions) {
 				m.selected = num
+				m.loadingSession = true
 				return m, m.loadSelectedSession()
 			}
 		case "enter":
@@ -341,6 +416,7 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 			if m.selected == len(m.sessions) {
 				return m, func() tea.Msg { return modalCancelledMsg{} }
 			}
+			m.loadingSession = true
 			return m, m.loadSelectedSession()
 		case "esc", "q":
 			return m, func() tea.Msg { return modalCancelledMsg{} }
@@ -351,6 +427,10 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 }
 
 func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
+	if len(m.sessions) == 0 || m.selected < 0 || m.selected >= len(m.sessions) {
+		return func() tea.Msg { return modalCancelledMsg{} }
+	}
+
 	sessionID := m.sessions[m.selected].ID
 
 	return func() tea.Msg {
@@ -372,10 +452,16 @@ func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to create session store: %w", err)}
 		}
+		defer store.Close()
 
+		// Load the session
 		session, err := store.LoadSession(sessionID)
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load session: %w", err)}
+		}
+
+		if session == nil {
+			return sessionResumeErrorMsg{err: fmt.Errorf("session %s not found", sessionID)}
 		}
 
 		return sessionSelectedMsg{session: session}

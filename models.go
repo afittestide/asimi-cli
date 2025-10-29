@@ -94,6 +94,8 @@ type ModelSelectionModal struct {
 	*BaseModal
 	models        []AnthropicModel
 	selected      int
+	scrollOffset  int
+	maxVisible    int
 	confirmed     bool
 	selectedModel *AnthropicModel
 	currentModel  string
@@ -109,6 +111,8 @@ func NewModelSelectionModal(currentModel string) *ModelSelectionModal {
 		BaseModal:     baseModal,
 		models:        []AnthropicModel{},
 		selected:      0,
+		scrollOffset:  0,
+		maxVisible:    8,
 		confirmed:     false,
 		selectedModel: nil,
 		currentModel:  currentModel,
@@ -135,7 +139,14 @@ func (m *ModelSelectionModal) Render() string {
 		if len(m.models) == 0 {
 			content += "No models available"
 		} else {
-			for i, model := range m.models {
+			start := m.scrollOffset
+			end := m.scrollOffset + m.maxVisible
+			if end > len(m.models) {
+				end = len(m.models)
+			}
+
+			for i := start; i < end; i++ {
+				model := m.models[i]
 				prefix := "  "
 				suffix := ""
 
@@ -162,6 +173,13 @@ func (m *ModelSelectionModal) Render() string {
 				line := fmt.Sprintf("%s%s%s", prefix, displayText, suffix)
 				content += style.Render(line) + "\n"
 			}
+
+			// Show scroll indicator if needed
+			if len(m.models) > m.maxVisible {
+				scrollInfo := fmt.Sprintf("\n%d-%d of %d models", start+1, end, len(m.models))
+				scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
+				content += scrollStyle.Render(scrollInfo)
+			}
 		}
 	}
 
@@ -187,10 +205,16 @@ func (m *ModelSelectionModal) Update(msg tea.Msg) (*ModelSelectionModal, tea.Cmd
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
+				if m.selected < m.scrollOffset {
+					m.scrollOffset = m.selected
+				}
 			}
 		case "down", "j":
 			if m.selected < len(m.models)-1 {
 				m.selected++
+				if m.selected >= m.scrollOffset+m.maxVisible {
+					m.scrollOffset = m.selected - m.maxVisible + 1
+				}
 			}
 		case "enter":
 			if len(m.models) > 0 {
@@ -215,6 +239,10 @@ func (m *ModelSelectionModal) SetModels(models []AnthropicModel) {
 	for i, model := range models {
 		if model.ID == m.currentModel {
 			m.selected = i
+			// Adjust scroll offset to show the current model
+			if m.selected >= m.maxVisible {
+				m.scrollOffset = m.selected - m.maxVisible + 1
+			}
 			break
 		}
 	}

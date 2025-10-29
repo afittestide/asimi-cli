@@ -58,13 +58,13 @@ func TestSession_RollbackTo(t *testing.T) {
 
 	// Rollback to after first message
 	sess.RollbackTo(snapshot1)
-	assert.Equal(t, snapshot1, len(sess.messages))
+	assert.Equal(t, snapshot1, len(sess.Messages))
 
 	// Verify we can continue from rolled back state
 	_, err = sess.Ask(context.Background(), "new second message")
 	assert.NoError(t, err)
 	// Should add user + ai + ai = 3 more messages
-	assert.Equal(t, snapshot1+3, len(sess.messages))
+	assert.Equal(t, snapshot1+3, len(sess.Messages))
 }
 
 // TestSession_RollbackToZero tests rollback with invalid snapshot
@@ -80,11 +80,11 @@ func TestSession_RollbackToZero(t *testing.T) {
 
 	// Rollback to 0 should preserve system message
 	sess.RollbackTo(0)
-	assert.Equal(t, 1, len(sess.messages), "Should preserve system message")
+	assert.Equal(t, 1, len(sess.Messages), "Should preserve system message")
 
 	// Rollback to negative should preserve system message
 	sess.RollbackTo(-5)
-	assert.Equal(t, 1, len(sess.messages), "Should preserve system message")
+	assert.Equal(t, 1, len(sess.Messages), "Should preserve system message")
 }
 
 // TestSession_RollbackBeyondLength tests rollback with snapshot beyond current length
@@ -97,11 +97,11 @@ func TestSession_RollbackBeyondLength(t *testing.T) {
 
 	_, err = sess.Ask(context.Background(), "test message")
 	assert.NoError(t, err)
-	currentLen := len(sess.messages)
+	currentLen := len(sess.Messages)
 
 	// Rollback to beyond current length should not change anything
 	sess.RollbackTo(currentLen + 10)
-	assert.Equal(t, currentLen, len(sess.messages))
+	assert.Equal(t, currentLen, len(sess.Messages))
 }
 
 // TestSession_RollbackResetsToolLoopDetection tests that rollback resets tool loop state
@@ -176,16 +176,16 @@ func TestSession_RollbackWithToolCalls(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should have: system + user + assistant(tool call) + tool response + assistant(final)
-	assert.Greater(t, len(sess.messages), snapshot1)
+	assert.Greater(t, len(sess.Messages), snapshot1)
 
 	// Rollback to before the tool call
 	sess.RollbackTo(snapshot1)
-	assert.Equal(t, snapshot1, len(sess.messages))
+	assert.Equal(t, snapshot1, len(sess.Messages))
 
 	// Verify we can execute a different command
 	_, err = sess.Ask(context.Background(), "different command")
 	assert.NoError(t, err)
-	assert.Greater(t, len(sess.messages), snapshot1)
+	assert.Greater(t, len(sess.Messages), snapshot1)
 }
 
 // TestSession_MultipleToolMessagesPerCall tests the new one-message-per-tool-call structure
@@ -196,7 +196,7 @@ func TestSession_MultipleToolMessagesPerCall(t *testing.T) {
 	sess, err := NewSession(llm, &Config{}, func(any) {})
 	assert.NoError(t, err)
 
-	initialLen := len(sess.messages)
+	initialLen := len(sess.Messages)
 
 	// Execute a request that triggers multiple tool calls
 	_, err = sess.Ask(context.Background(), "read two files")
@@ -204,11 +204,11 @@ func TestSession_MultipleToolMessagesPerCall(t *testing.T) {
 
 	// Count tool messages
 	toolMessageCount := 0
-	for i := initialLen; i < len(sess.messages); i++ {
-		if sess.messages[i].Role == llms.ChatMessageTypeTool {
+	for i := initialLen; i < len(sess.Messages); i++ {
+		if sess.Messages[i].Role == llms.ChatMessageTypeTool {
 			toolMessageCount++
 			// Each tool message should have exactly one part
-			assert.Equal(t, 1, len(sess.messages[i].Parts),
+			assert.Equal(t, 1, len(sess.Messages[i].Parts),
 				"Each tool message should have exactly one part")
 		}
 	}
@@ -227,8 +227,8 @@ func TestSession_RollbackPreservesSystemPrompt(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Get the system message
-	assert.Equal(t, 1, len(sess.messages))
-	systemMsg := sess.messages[0]
+	assert.Equal(t, 1, len(sess.Messages))
+	systemMsg := sess.Messages[0]
 	assert.Equal(t, llms.ChatMessageTypeSystem, systemMsg.Role)
 
 	// Add some messages
@@ -239,14 +239,14 @@ func TestSession_RollbackPreservesSystemPrompt(t *testing.T) {
 
 	// Rollback to 0 (should preserve system message)
 	sess.RollbackTo(0)
-	assert.Equal(t, 1, len(sess.messages))
-	assert.Equal(t, llms.ChatMessageTypeSystem, sess.messages[0].Role)
-	assert.Equal(t, systemMsg, sess.messages[0])
+	assert.Equal(t, 1, len(sess.Messages))
+	assert.Equal(t, llms.ChatMessageTypeSystem, sess.Messages[0].Role)
+	assert.Equal(t, systemMsg, sess.Messages[0])
 
 	// Rollback to 1 (should preserve system message)
 	_, err = sess.Ask(context.Background(), "test3")
 	assert.NoError(t, err)
 	sess.RollbackTo(1)
-	assert.Equal(t, 1, len(sess.messages))
-	assert.Equal(t, llms.ChatMessageTypeSystem, sess.messages[0].Role)
+	assert.Equal(t, 1, len(sess.Messages))
+	assert.Equal(t, llms.ChatMessageTypeSystem, sess.Messages[0].Role)
 }

@@ -179,13 +179,16 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 
 		slog.Debug("container attachment established", "repoInfo", r.repoInfo)
 
+		var cdCmd string
 		// Navigate to worktree if we're in one
 		if r.repoInfo.WorktreePath != "" {
-			cdCmd := fmt.Sprintf("cd %s/%s\n", r.repoInfo.ProjectRoot, r.repoInfo.WorktreePath)
-			slog.Debug("navigating to worktree in container", "path", r.repoInfo.WorktreePath)
-			if _, err := r.stdinPipe.Write([]byte(cdCmd)); err != nil {
-				slog.Warn("failed to navigate to worktree", "error", err)
-			}
+			cdCmd = fmt.Sprintf("cd %s/%s\n", r.repoInfo.ProjectRoot, r.repoInfo.WorktreePath)
+		} else {
+			cdCmd = fmt.Sprintf("cd %s\n", r.repoInfo.ProjectRoot)
+		}
+		slog.Debug("navigating to path in the container", "path", r.repoInfo.WorktreePath)
+		if _, err := r.stdinPipe.Write([]byte(cdCmd)); err != nil {
+			slog.Error("failed to navigate to worktree", "error", err)
 		}
 	}
 
