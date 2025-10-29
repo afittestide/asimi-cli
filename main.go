@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
@@ -629,15 +630,14 @@ func getLLMClient(config *Config) (llms.Model, error) {
 		}
 	}
 
-	// Check if we have any authentication
-	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" && config.LLM.Provider != "fake" {
-		return nil, fmt.Errorf("no authentication configured for %s provider. Use '/login' in interactive mode to authenticate", config.LLM.Provider)
-	}
 	switch config.LLM.Provider {
 	case "fake":
 		llm := fake.NewFakeLLM([]string{})
 		return llm, nil
 	case "ollama":
+		if err := ensureOllamaConfigured(config.LLM.BaseURL); err != nil {
+			return nil, err
+		}
 		// For Ollama, we can use default options or customize based on config
 		opts := []ollama.Option{
 			ollama.WithModel(config.LLM.Model),
@@ -715,6 +715,57 @@ func getLLMClient(config *Config) (llms.Model, error) {
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", config.LLM.Provider)
 	}
+}
+
+func ensureOllamaConfigured(rawBaseURL string) error {
+	baseURL := rawBaseURL
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:11434"
+	} else if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "http://" + baseURL
+	}
+
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("invalid ollama base URL %q: %w", rawBaseURL, err)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("invalid ollama base URL %q: host is empty", rawBaseURL)
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	isLocalHost := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if isLocalHost {
+		if _, err := exec.LookPath("ollama"); err != nil {
+			installHint := "Install Ollama from https://ollama.com/download."
+			if runtime.GOOS == "darwin" {
+				installHint = "Install Ollama on macOS via https://ollama.com/download or Homebrew (`brew install ollama`)."
+			}
+			return fmt.Errorf("ollama CLI not found in PATH: %w. %s", err, installHint)
+		}
+	}
+
+	versionURL := parsed.ResolveReference(&url.URL{Path: "/api/version"})
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(versionURL.String())
+	if err != nil {
+		startHint := fmt.Sprintf("Ensure the Ollama service is reachable at %s.", parsed.Host)
+		if isLocalHost {
+			startHint = "Ensure the Ollama service is running (start it with `ollama serve`)."
+			if runtime.GOOS == "darwin" {
+				startHint = "Launch the Ollama app or run `ollama serve` to start the background service."
+			}
+		}
+		return fmt.Errorf("unable to reach ollama at %s: %w. %s", versionURL.String(), err, startHint)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("ollama at %s returned status %d", versionURL.String(), resp.StatusCode)
+	}
+
+	return nil
 }
 
 // anthropicOAuthTransport adds OAuth headers for Anthropic API
