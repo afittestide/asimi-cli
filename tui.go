@@ -1326,9 +1326,26 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessionModal = nil
 		if msg.session != nil {
 			if m.session != nil {
+				// Copy all persisted fields from loaded session to existing session
+				m.session.ID = msg.session.ID
+				m.session.CreatedAt = msg.session.CreatedAt
+				m.session.LastUpdated = msg.session.LastUpdated
+				m.session.FirstPrompt = msg.session.FirstPrompt
+				m.session.Provider = msg.session.Provider
+				m.session.Model = msg.session.Model
+				m.session.WorkingDir = msg.session.WorkingDir
+				m.session.ProjectSlug = msg.session.ProjectSlug
 				m.session.Messages = msg.session.Messages
 				m.session.ContextFiles = msg.session.ContextFiles
+				// Sync internal messages state
+				m.session.syncMessages()
+			} else {
+				// No active session - set the loaded session directly
+				m.session = msg.session
+				slog.Warn("Resumed session without active LLM - some features may be limited")
 			}
+
+			// Rebuild chat UI from messages
 			m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
 			for _, msgContent := range msg.session.Messages {
 				if msgContent.Role == "user" || msgContent.Role == "assistant" {

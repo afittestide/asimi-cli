@@ -187,7 +187,7 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 	// Add AGENTS.md to system message if it exists
 	projectContext := readProjectContext()
 	if projectContext != "" {
-		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Context from: AGENTS.md ---\n%s\n--- End of Context from: AGENTS.md ---", projectContext)))
+		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: AGENTS.md ---\n%s\n--- End of Directions from: AGENTS.md ---", projectContext)))
 	}
 
 	s.messages = append(s.messages, llms.MessageContent{
