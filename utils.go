@@ -15,6 +15,70 @@ import (
 
 var claudeVersionPattern = regexp.MustCompile(`\d+(\.\d+)?`)
 
+// RepoInfo contains information about the git repository and worktree
+type RepoInfo struct {
+	ProjectRoot  string
+	WorktreePath string
+	Branch       string
+	IsWorktree   bool
+	IsMain       bool
+}
+
+// GetRepoInfo returns information about the current git repository and worktree
+func GetRepoInfo() RepoInfo {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return RepoInfo{}
+	}
+
+	// Find project root
+	projectRoot := findProjectRoot(cwd)
+
+	// Detect if we're in a worktree by checking if .git is a file vs directory
+	gitPath := filepath.Join(cwd, ".git")
+	info, err := os.Stat(gitPath)
+	isWorktree := err == nil && !info.IsDir()
+
+	// Calculate relative worktree path when in a worktree
+	worktreePath := ""
+	if isWorktree {
+		relPath, err := filepath.Rel(projectRoot, cwd)
+		if err == nil && relPath != "." {
+			worktreePath = relPath
+		}
+	}
+
+	// Get current branch using go-git
+	branch := ""
+	repo, err := gogit.PlainOpenWithOptions(projectRoot, &gogit.PlainOpenOptions{
+		DetectDotGit: true,
+	})
+	if err == nil {
+		ref, err := repo.Head()
+		if err == nil {
+			if ref.Name().IsBranch() {
+				branch = ref.Name().Short()
+			} else {
+				branch = ref.Hash().String()[:7]
+			}
+		} else if isWorktree {
+			// go-git doesn't fully support worktrees, try reading HEAD directly
+			branch = readBranchFromWorktree()
+		}
+	}
+
+	// Detect if branch is main/master
+	isMain := branch == "main" || branch == "master"
+
+	return RepoInfo{
+		ProjectRoot:  projectRoot,
+		WorktreePath: worktreePath,
+		Branch:       branch,
+		IsWorktree:   isWorktree,
+		IsMain:       isMain,
+	}
+}
+
 func getFileTree(root string) ([]string, error) {
 	var files []string
 	// Directories to ignore at any level
@@ -159,12 +223,7 @@ func (m *gitInfoManager) readRepositoryState() (string, string, *gogit.Repositor
 }
 
 func (m *gitInfoManager) ensureRepository() (*gogit.Repository, string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, "", err
-	}
-
-	root := findProjectRoot(cwd)
+	root := GetRepoInfo().ProjectRoot
 
 	m.mu.RLock()
 	repo := m.repo
@@ -175,7 +234,7 @@ func (m *gitInfoManager) ensureRepository() (*gogit.Repository, string, error) {
 		return repo, repoPath, nil
 	}
 
-	repo, err = gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{
+	repo, err := gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{
 		DetectDotGit: true,
 	})
 	if err != nil {

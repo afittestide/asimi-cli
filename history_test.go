@@ -21,8 +21,7 @@ func TestHistoryStore_NewHistoryStore(t *testing.T) {
 	require.NotEmpty(t, store.filePath)
 	require.Equal(t, 1000, store.maxSize)
 
-	cwd, _ := os.Getwd()
-	expectedSlug := projectSlug(findProjectRoot(cwd))
+	expectedSlug := projectSlug(GetRepoInfo().ProjectRoot)
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}

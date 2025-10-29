@@ -701,7 +701,8 @@ func sessBuildEnvBlock() string {
 		home = "(unknown)"
 	}
 
-	root := findProjectRoot(cwd)
+	repoInfo := GetRepoInfo()
+	root := repoInfo.ProjectRoot
 	if root == "" {
 		root = "(unknown)"
 	}
@@ -711,7 +712,8 @@ func sessBuildEnvBlock() string {
 		shell = "bash"
 	}
 
-	return fmt.Sprintf(`- **OS:** %s
+	var result strings.Builder
+	result.WriteString(fmt.Sprintf(`- **OS:** %s
 - **Shell:** %s
 - **Paths:**
   - **cwd:** %s
@@ -721,7 +723,21 @@ func sessBuildEnvBlock() string {
 		shell,
 		cwd,
 		root,
-		home)
+		home))
+
+	// Add branch information if available
+	if repoInfo.Branch != "" {
+		result.WriteString(fmt.Sprintf("\n- **Branch:** %s", repoInfo.Branch))
+	}
+
+	// Add worktree information if we're in a worktree
+	if repoInfo.IsWorktree && repoInfo.Branch != "" {
+		result.WriteString(fmt.Sprintf("\n\n**IMPORTANT:** We're working on worktree '%s' at '%s'. Changes will be squashed before merging so commit frequently.",
+			repoInfo.Branch,
+			cwd))
+	}
+
+	return result.String()
 }
 
 func asimiVersion() string {
@@ -956,11 +972,7 @@ func NewSessionStore(maxSessions, maxAgeDays int) (*SessionStore, error) {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get working directory: %w", err)
-	}
-	projectRoot := findProjectRoot(cwd)
+	projectRoot := GetRepoInfo().ProjectRoot
 	slug := projectSlug(projectRoot)
 	if slug == "" {
 		slug = defaultProjectSlug

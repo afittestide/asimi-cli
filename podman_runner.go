@@ -27,6 +27,7 @@ type PodmanShellRunner struct {
 	imageName        string
 	containerName    string
 	allowFallback    bool
+	repoInfo         RepoInfo
 	mu               sync.Mutex
 	conn             context.Context
 	containerStarted bool // tracks if container has been successfully started
@@ -55,6 +56,7 @@ func newPodmanShellRunner(allowFallback bool) *PodmanShellRunner {
 		imageName:     "localhost/asimi-shell:latest",
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
+		repoInfo:      GetRepoInfo(),
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
 		stderrPipe:    nil,
@@ -175,6 +177,15 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		go r.readStream(stderrReader, false) // false = stderr
 
 		slog.Debug("container attachment established")
+
+		// Navigate to worktree if we're in one
+		if r.repoInfo.IsWorktree && r.repoInfo.WorktreePath != "" {
+			cdCmd := fmt.Sprintf("cd /workspace/%s\n", r.repoInfo.WorktreePath)
+			slog.Debug("navigating to worktree in container", "path", r.repoInfo.WorktreePath)
+			if _, err := r.stdinPipe.Write([]byte(cdCmd)); err != nil {
+				slog.Warn("failed to navigate to worktree", "error", err)
+			}
+		}
 	}
 
 	slog.Debug("initialization complete")
@@ -371,13 +382,8 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	stdinOpen := true
 	s.Stdin = &stdinOpen
 
-	// Mount current directory to /workspace
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
-	}
-
-	absPath, err := filepath.Abs(cwd)
+	// Mount project root to /workspace
+	absPath, err := filepath.Abs(r.repoInfo.ProjectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}

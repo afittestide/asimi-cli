@@ -30,7 +30,7 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 		FirstPrompt:  "Test prompt",
 		Provider:     "test",
 		Model:        "test-model",
-		WorkingDir:   findProjectRoot("."),
+		WorkingDir:   GetRepoInfo().ProjectRoot,
 		ContextFiles: make(map[string]string),
 	}
 
@@ -54,8 +54,7 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 	}
 
 	// Verify the session was saved
-	cwd, _ := os.Getwd()
-	expectedSlug := projectSlug(findProjectRoot(cwd))
+	expectedSlug := projectSlug(GetRepoInfo().ProjectRoot)
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}
