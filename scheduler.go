@@ -60,7 +60,7 @@ func NewCoreToolScheduler(toolNotify func(any)) *CoreToolScheduler {
 
 // Schedule adds a new tool call to the scheduler and returns a channel for the result
 func (s *CoreToolScheduler) Schedule(tool tools.Tool, input string) <-chan ToolCallResult {
-	slog.Info("scheduler.enqueue", "tool", tool.Name())
+	slog.Debug("scheduler.enqueue", "tool", tool.Name())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -87,7 +87,7 @@ func (s *CoreToolScheduler) Schedule(tool tools.Tool, input string) <-chan ToolC
 
 func (s *CoreToolScheduler) processQueue() {
 	if s.isBusy || len(s.queue) == 0 {
-		slog.Info("scheduler.idle_or_empty", "busy", s.isBusy, "queued", len(s.queue))
+		slog.Debug("scheduler.idle_or_empty", "busy", s.isBusy, "queued", len(s.queue))
 		return
 	}
 	s.isBusy = true
@@ -104,7 +104,7 @@ func (s *CoreToolScheduler) processQueue() {
 		// NOTE: We are calling the tool's Call method directly here.
 		// The toolWrapper's Call method is what schedules the tool.
 		// This means the tool passed to Schedule should be the unwrapped tool.
-		slog.Info("scheduler.exec", "tool", call.Tool.Name())
+		slog.Debug("scheduler.exec", "tool", call.Tool.Name())
 		output, err := call.Tool.Call(context.Background(), call.Input)
 
 		s.mu.Lock()

@@ -66,7 +66,7 @@ func (c *CompletionDialog) Hide() {
 
 // SelectNext moves selection to the next item
 func (c *CompletionDialog) SelectNext() {
-	slog.Info("Select Next")
+	slog.Debug("Select Next")
 	if len(c.Options) == 0 {
 		return
 	}
@@ -75,7 +75,7 @@ func (c *CompletionDialog) SelectNext() {
 		return
 	}
 	effectiveHeight := c.getEffectiveHeight()
-	slog.Info(">>>", "next", next, "offset", c.Offset, "height", effectiveHeight)
+	slog.Debug(">>>", "next", next, "offset", c.Offset, "height", effectiveHeight)
 	if next >= c.Offset+effectiveHeight-c.ScrollMargin {
 		if c.Offset < len(c.Options)-effectiveHeight {
 			c.Offset++
@@ -86,10 +86,10 @@ func (c *CompletionDialog) SelectNext() {
 
 // SelectPrev moves selection to the previous item
 func (c *CompletionDialog) SelectPrev() {
-	slog.Info("Select Prev")
+	slog.Debug("Select Prev")
 	if c.Selected > 0 {
 		c.Selected--
-		slog.Info(">>>", "selected", c.Selected, "offset", c.Offset)
+		slog.Debug(">>>", "selected", c.Selected, "offset", c.Offset)
 		if c.Selected < c.Offset+c.ScrollMargin {
 			if c.Offset > 0 {
 				c.Offset--
@@ -119,7 +119,7 @@ func (c CompletionDialog) getEffectiveHeight() int {
 
 // View renders the completion dialog
 func (c CompletionDialog) View() string {
-	slog.Info("view")
+	slog.Debug("view")
 	if !c.Visible || len(c.Options) == 0 {
 		return ""
 	}
@@ -133,7 +133,7 @@ func (c CompletionDialog) View() string {
 		end = len(c.Options)
 	}
 
-	slog.Info(">>>", "start", start, "end", end)
+	slog.Debug(">>>", "start", start, "end", end)
 	lines := make([]string, 0, effectiveHeight)
 
 	// Only add actual options, no "..." padding
@@ -146,7 +146,7 @@ func (c CompletionDialog) View() string {
 		}
 	}
 
-	slog.Info("lines", "len", len(lines))
+	slog.Debug("lines", "len", len(lines))
 	// Join the lines and render with style
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return c.Style.Render(content)

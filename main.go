@@ -283,31 +283,31 @@ func main() {
 	if cli.CPUProfile != "" {
 		f, err := os.Create(cli.CPUProfile)
 		if err != nil {
-			slog.Debug("Could not create CPU profile", "error", err)
+			slog.Error("Could not create CPU profile", "error", err)
 			os.Exit(1)
 		}
 		defer f.Close()
 		if err := pprof.StartCPUProfile(f); err != nil {
-			slog.Debug("Could not start CPU profile", "error", err)
+			slog.Error("Could not start CPU profile", "error", err)
 			os.Exit(1)
 		}
 		defer pprof.StopCPUProfile()
-		slog.Debug("CPU profiling enabled", "file", cli.CPUProfile)
+		slog.Error("CPU profiling enabled", "file", cli.CPUProfile)
 	}
 
 	if cli.Trace != "" {
 		f, err := os.Create(cli.Trace)
 		if err != nil {
-			slog.Debug("Could not create trace file", "error", err)
+			slog.Error("Could not create trace file", "error", err)
 			os.Exit(1)
 		}
 		defer f.Close()
 		if err := trace.Start(f); err != nil {
-			slog.Debug("Could not start trace", "error", err)
+			slog.Error("Could not start trace", "error", err)
 			os.Exit(1)
 		}
 		defer trace.Stop()
-		slog.Debug("Execution tracing enabled", "file", cli.Trace)
+		slog.Info("Execution tracing enabled", "writing to", cli.Trace)
 	}
 
 	// Log startup timing
@@ -369,21 +369,19 @@ func main() {
 	if cli.MemProfile != "" {
 		f, err := os.Create(cli.MemProfile)
 		if err != nil {
-			slog.Debug("Could not create memory profile", "error", err)
+			slog.Error("Could not create memory profile", "error", err)
 			os.Exit(1)
 		}
 		defer f.Close()
 		runtime.GC() // get up-to-date statistics
 		if err := pprof.WriteHeapProfile(f); err != nil {
-			slog.Debug("Could not write memory profile", "error", err)
+			slog.Error("Could not write memory profile", "error", err)
 			os.Exit(1)
 		}
-		slog.Debug("Memory profile written", "file", cli.MemProfile)
+		slog.Info("Memory profile written", "file", cli.MemProfile)
 	}
 
-	if cli.Debug {
-		slog.Debug("[TIMING] Total execution time", "duration", time.Since(startTime))
-	}
+	slog.Debug("[TIMING] Total execution time", "duration", time.Since(startTime))
 }
 
 // formatToolCall formats a tool call according to the spec: two lines with ⏺ and ⎿ symbols
@@ -421,14 +419,14 @@ func consoleStreamingNotify(done chan struct{}, finalResponse *strings.Builder, 
 			}
 			activeToolCalls[v.Call.ID] = display
 			display.show()
-			slog.Info("tool.scheduled", "tool", v.Call.Tool.Name(), "input", v.Call.Input)
+			slog.Debug("tool.scheduled", "tool", v.Call.Tool.Name(), "input", v.Call.Input)
 		case ToolCallExecutingMsg:
 			// Update to half-filled circle
 			if display, exists := activeToolCalls[v.Call.ID]; exists {
 				display.status = "executing"
 				display.update()
 			}
-			slog.Info("tool.executing", "tool", v.Call.Tool.Name(), "input", v.Call.Input)
+			slog.Debug("tool.executing", "tool", v.Call.Tool.Name(), "input", v.Call.Input)
 		case ToolCallSuccessMsg:
 			// Update to full circle and show result
 			if display, exists := activeToolCalls[v.Call.ID]; exists {
@@ -437,7 +435,7 @@ func consoleStreamingNotify(done chan struct{}, finalResponse *strings.Builder, 
 				display.complete()
 				delete(activeToolCalls, v.Call.ID)
 			}
-			slog.Info("tool.success", "tool", v.Call.Tool.Name(), "input", v.Call.Input, "output", v.Call.Result)
+			slog.Debug("tool.success", "tool", v.Call.Tool.Name(), "input", v.Call.Input, "output", v.Call.Result)
 		case ToolCallErrorMsg:
 			// Update to X and show error
 			if display, exists := activeToolCalls[v.Call.ID]; exists {
