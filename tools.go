@@ -402,7 +402,7 @@ func (t RunInShell) Name() string {
 }
 
 func (t RunInShell) Description() string {
-	return "Executes a shell command in a persistent shell session inside a container. Current working directory is the same as for the last command with the worktree under work in `/worktree`. The input should be a JSON object with 'command' and optional 'description' fields."
+	return "Executes a shell command in a persistent shell session inside a container. Current working directory is the same as for the last command with the worktree under work in `/workspace`. The input should be a JSON object with 'command' and optional 'description' fields."
 }
 
 func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
@@ -940,7 +940,7 @@ func (t WebSearchTool) Call(ctx context.Context, input string) (string, error) {
 
 	// Format results as JSON
 	output := struct {
-		Query   string          `json:"query"`
+		Query   string         `json:"query"`
 		Results []SearchResult `json:"results"`
 	}{
 		Query:   params.Query,
