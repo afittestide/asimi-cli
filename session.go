@@ -43,7 +43,6 @@ type Session struct {
 
 	Messages     []llms.MessageContent `json:"messages"`
 	ContextFiles map[string]string     `json:"context_files"`
-	messages     []llms.MessageContent `json:"-"`
 
 	llm                     llms.Model              `json:"-"`
 	toolCatalog             map[string]lctools.Tool `json:"-"`
@@ -78,16 +77,7 @@ func (s *Session) formatMetadata(exportType ExportType, exportedAt time.Time) st
 	return b.String()
 }
 
-// syncMessages keeps the exported and internal message slices referencing the same data.
-func (s *Session) syncMessages() {
-	if s.messages == nil && len(s.Messages) > 0 {
-		s.messages = s.Messages
-	}
-	if s.messages == nil {
-		s.messages = make([]llms.MessageContent, 0)
-	}
-	s.Messages = s.messages
-}
+// No syncMessages method needed anymore - we only use Messages
 
 // resetStreamBuffer safely resets the accumulated content buffer
 func (s *Session) resetStreamBuffer() {
@@ -190,11 +180,10 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: AGENTS.md ---\n%s\n--- End of Directions from: AGENTS.md ---", projectContext)))
 	}
 
-	s.messages = append(s.messages, llms.MessageContent{
+	s.Messages = append(s.Messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeSystem,
 		Parts: parts,
 	})
-	s.syncMessages()
 
 	// Build tool schema for the model and execution catalog for the scheduler.
 	s.toolDefs, s.toolCatalog = buildLLMTools()
@@ -217,12 +206,11 @@ func (s *Session) ClearContext() {
 // ClearHistory clears the conversation history but keeps the system message
 func (s *Session) ClearHistory() {
 	// Keep only the system message (first message)
-	if len(s.messages) > 0 && s.messages[0].Role == llms.ChatMessageTypeSystem {
-		s.messages = s.messages[:1]
+	if len(s.Messages) > 0 && s.Messages[0].Role == llms.ChatMessageTypeSystem {
+		s.Messages = s.Messages[:1]
 	} else {
-		s.messages = []llms.MessageContent{}
+		s.Messages = []llms.MessageContent{}
 	}
-	s.syncMessages()
 
 	// Reset tool call tracking
 	s.lastToolCallKey = ""
@@ -292,11 +280,10 @@ func (s *Session) checkToolCallLoop(name, argsJSON string) bool {
 // prepareUserMessage builds the prompt with context and adds it to the message history
 func (s *Session) prepareUserMessage(prompt string) {
 	fullPrompt := s.buildPromptWithContext(prompt)
-	s.messages = append(s.messages, llms.MessageContent{
+	s.Messages = append(s.Messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeHuman,
 		Parts: []llms.ContentPart{llms.TextPart(fullPrompt)},
 	})
-	s.syncMessages()
 }
 
 func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ctx context.Context, chunk []byte) error) (*llms.ContentChoice, error) {
@@ -314,7 +301,7 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
 	}
 	// Attempt with explicit tool choice first.
-	resp, err := s.llm.GenerateContent(ctx, s.messages, callOptsWithChoice...)
+	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {
 		return nil, err
 	}
@@ -346,11 +333,10 @@ func (s *Session) appendMessages(content string, toolCalls []llms.ToolCall) {
 
 	// Only add the assistant message if we have content or tool calls
 	if len(parts) > 0 {
-		s.messages = append(s.messages, llms.MessageContent{
+		s.Messages = append(s.Messages, llms.MessageContent{
 			Role:  llms.ChatMessageTypeAI,
 			Parts: parts,
 		})
-		s.syncMessages()
 	}
 }
 
@@ -384,7 +370,7 @@ func (s *Session) executeToolCall(ctx context.Context, tool lctools.Tool, tc llm
 
 // GetMessageSnapshot returns the current size of the message history for rollback purposes
 func (s *Session) GetMessageSnapshot() int {
-	return len(s.messages)
+	return len(s.Messages)
 }
 
 // RollbackTo truncates the message history back to the provided snapshot index
@@ -392,12 +378,11 @@ func (s *Session) RollbackTo(snapshot int) {
 	if snapshot < 1 {
 		snapshot = 1 // always preserve the system prompt
 	}
-	if snapshot > len(s.messages) {
-		snapshot = len(s.messages)
+	if snapshot > len(s.Messages) {
+		snapshot = len(s.Messages)
 	}
-	if snapshot < len(s.messages) {
-		s.messages = s.messages[:snapshot]
-		s.syncMessages()
+	if snapshot < len(s.Messages) {
+		s.Messages = s.Messages[:snapshot]
 	}
 
 	// Reset tool loop detection state when rolling back
@@ -506,8 +491,7 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		// Process tool calls and add responses
 		toolMessages, shouldReturn := s.processToolCalls(ctx, choice.ToolCalls)
 		if len(toolMessages) > 0 {
-			s.messages = append(s.messages, toolMessages...)
-			s.syncMessages()
+			s.Messages = append(s.Messages, toolMessages...)
 		}
 
 		if shouldReturn {
@@ -638,8 +622,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 			// Process tool calls and add responses
 			toolMessages, shouldReturn := s.processToolCalls(ctx, choice.ToolCalls)
 			if len(toolMessages) > 0 {
-				s.messages = append(s.messages, toolMessages...)
-				s.syncMessages()
+				s.Messages = append(s.Messages, toolMessages...)
 			}
 
 			if shouldReturn {
@@ -972,15 +955,27 @@ func NewSessionStore(maxSessions, maxAgeDays int) (*SessionStore, error) {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	projectRoot := GetRepoInfo().ProjectRoot
+	repoInfo := GetRepoInfo()
+	projectRoot := repoInfo.ProjectRoot
 	slug := projectSlug(projectRoot)
 	if slug == "" {
 		slug = defaultProjectSlug
 	}
 
+	// Get current branch name, sanitize it for use in path
+	branch := repoInfo.Branch
+	if branch == "" {
+		branch = "main" // Default branch name
+	}
+	branchSlug := sanitizeSegment(branch)
+	if branchSlug == "" {
+		branchSlug = "main"
+	}
+
 	repoBase := filepath.Join(homeDir, ".local", "share", "asimi", "repo")
 	projectDir := filepath.Join(repoBase, filepath.FromSlash(slug))
-	storageDir := filepath.Join(projectDir, "sessions")
+	branchDir := filepath.Join(projectDir, branchSlug)
+	storageDir := filepath.Join(branchDir, "sessions")
 	if err := os.MkdirAll(storageDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create session storage directory: %w", err)
 	}
@@ -1164,8 +1159,6 @@ func (store *SessionStore) saveSessionSync(session *Session) error {
 	if session == nil {
 		return fmt.Errorf("cannot save nil session")
 	}
-
-	session.syncMessages()
 
 	hasUserMessage := false
 	for _, msg := range session.Messages {
@@ -1451,8 +1444,6 @@ func (store *SessionStore) LoadSession(id string) (*Session, error) {
 		}
 		session.Messages = append(session.Messages, restored)
 	}
-	session.messages = session.Messages
-	session.syncMessages()
 
 	return session, nil
 }

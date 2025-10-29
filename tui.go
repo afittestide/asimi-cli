@@ -1335,10 +1335,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.session.Model = msg.session.Model
 				m.session.WorkingDir = msg.session.WorkingDir
 				m.session.ProjectSlug = msg.session.ProjectSlug
-				m.session.Messages = msg.session.Messages
 				m.session.ContextFiles = msg.session.ContextFiles
-				// Sync internal messages state
-				m.session.syncMessages()
+				
+				// Copy messages - need to make a proper copy
+				m.session.Messages = make([]llms.MessageContent, len(msg.session.Messages))
+				copy(m.session.Messages, msg.session.Messages)
 			} else {
 				// No active session - set the loaded session directly
 				m.session = msg.session
@@ -1347,13 +1348,18 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Rebuild chat UI from messages
 			m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
-			for _, msgContent := range msg.session.Messages {
-				if msgContent.Role == "user" || msgContent.Role == "assistant" {
+			for _, msgContent := range m.session.Messages {
+				// Skip system messages
+				if msgContent.Role == llms.ChatMessageTypeSystem {
+					continue
+				}
+				
+				if msgContent.Role == llms.ChatMessageTypeHuman || msgContent.Role == llms.ChatMessageTypeAI {
 					for _, part := range msgContent.Parts {
 						if textPart, ok := part.(llms.TextContent); ok {
 							prefix := "You: "
-							if msgContent.Role == "assistant" {
-								prefix = "AI: "
+							if msgContent.Role == llms.ChatMessageTypeAI {
+								prefix = "Asimi: "
 							}
 							m.chat.AddMessage(prefix + textPart.Text)
 						}

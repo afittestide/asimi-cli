@@ -24,37 +24,41 @@ type sessionResumeErrorMsg struct {
 
 type SessionSelectionModal struct {
 	*BaseModal
-	sessions     []Session
-	selected     int
-	scrollOffset int
-	maxVisible   int
-	loading      bool
-	err          error
+	sessions       []Session
+	selected       int
+	scrollOffset   int
+	maxVisible     int
+	loading        bool
+	loadingSession bool
+	err            error
 }
 
 func NewSessionSelectionModal() *SessionSelectionModal {
-	baseModal := NewBaseModal("Resume Session", "", 70, 20)
+	baseModal := NewBaseModal("Resume Session", "", 70, 15)
 
 	return &SessionSelectionModal{
-		BaseModal:    baseModal,
-		sessions:     []Session{},
-		selected:     0,
-		scrollOffset: 0,
-		maxVisible:   10,
-		loading:      true,
-		err:          nil,
+		BaseModal:      baseModal,
+		sessions:       []Session{},
+		selected:       0,
+		scrollOffset:   0,
+		maxVisible:     8, // Reduced to fit better in modal
+		loading:        true,
+		loadingSession: false,
+		err:            nil,
 	}
 }
 
 func (m *SessionSelectionModal) SetSessions(sessions []Session) {
 	m.sessions = sessions
 	m.loading = false
+	m.loadingSession = false
 	m.err = nil
 }
 
 func (m *SessionSelectionModal) SetError(err error) {
 	m.err = err
 	m.loading = false
+	m.loadingSession = false
 }
 
 func sessionTitlePreview(session Session) string {
@@ -181,6 +185,13 @@ func (m *SessionSelectionModal) Render() string {
 		return m.BaseModal.Render()
 	}
 
+	if m.loadingSession {
+		content.WriteString("Loading selected session...\n")
+		content.WriteString("Please wait...")
+		m.BaseModal.Content = content.String()
+		return m.BaseModal.Render()
+	}
+
 	if m.err != nil {
 		content.WriteString(fmt.Sprintf("Error loading sessions: %v\n\n", m.err))
 		content.WriteString("Press Esc to close")
@@ -301,7 +312,7 @@ func (m *SessionSelectionModal) Render() string {
 }
 
 func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea.Cmd) {
-	if m.loading || m.err != nil || len(m.sessions) == 0 {
+	if m.loading || m.loadingSession || m.err != nil || len(m.sessions) == 0 {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			if keyMsg.String() == "esc" || keyMsg.String() == "q" {
 				return m, func() tea.Msg { return modalCancelledMsg{} }
@@ -334,6 +345,7 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 			num := int(msg.String()[0] - '1')
 			if num < len(m.sessions) {
 				m.selected = num
+				m.loadingSession = true
 				return m, m.loadSelectedSession()
 			}
 		case "enter":
@@ -341,6 +353,7 @@ func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea
 			if m.selected == len(m.sessions) {
 				return m, func() tea.Msg { return modalCancelledMsg{} }
 			}
+			m.loadingSession = true
 			return m, m.loadSelectedSession()
 		case "esc", "q":
 			return m, func() tea.Msg { return modalCancelledMsg{} }
@@ -372,10 +385,16 @@ func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to create session store: %w", err)}
 		}
+		defer store.Close()
 
+		// Load the session
 		session, err := store.LoadSession(sessionID)
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load session: %w", err)}
+		}
+
+		if session == nil {
+			return sessionResumeErrorMsg{err: fmt.Errorf("session %s not found", sessionID)}
 		}
 
 		return sessionSelectedMsg{session: session}
