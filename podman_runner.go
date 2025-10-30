@@ -499,7 +499,7 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	case <-cmd.ready:
 		slog.Debug("command output ready", "id", id)
 	case <-time.After(timeout):
-		slog.Error("timeout waiting for command output", "id", id)
+		slog.Error("timeout waiting for command output", "id", id, "cmd", params.Command)
 		// Clean up map entry
 		r.outputsMu.Lock()
 		delete(r.outputs, id)

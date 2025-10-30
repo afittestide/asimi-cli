@@ -126,8 +126,6 @@ func TestSessionSelectionModalRenderWithSessions(t *testing.T) {
 	assert.Contains(t, output, "First test prompt")
 	assert.Contains(t, output, "Second test prompt")
 	assert.Contains(t, output, "1 msg")
-	assert.Contains(t, output, "gpt-4")
-	assert.Contains(t, output, "claude-3")
 
 	// Check for Cancel option
 	assert.Contains(t, output, "Cancel")

@@ -562,32 +562,20 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "?":
 		// Show help modal
-		helpText := "Vi Mode Keybindings:\n\n"
-		helpText += "Navigation:\n"
-		helpText += "  h/←     - Move cursor left\n"
-		helpText += "  j/↓     - Move cursor down / Next history\n"
-		helpText += "  k/↑     - Move cursor up / Previous history\n"
-		helpText += "  l/→     - Move cursor right\n\n"
-		helpText += "Editing:\n"
+		helpText := "\n\n"
+		helpText += "  j/↓     - Next history\n"
+		helpText += "  k/↑     -  Previous history\n"
+		helpText += "  :       - Enter command mode\n"
 		helpText += "  i       - Insert mode at cursor\n"
 		helpText += "  I       - Insert mode at line start\n"
 		helpText += "  a       - Insert mode after cursor\n"
 		helpText += "  A       - Insert mode at line end\n"
 		helpText += "  o       - Open new line below\n"
-		helpText += "  O       - Open new line above\n\n"
-		helpText += "Visual Mode:\n"
+		helpText += "  O       - Open new line above\n"
 		helpText += "  v       - Enter visual mode\n"
-		helpText += "  V       - Enter visual line mode\n\n"
-		helpText += "Commands:\n"
-		helpText += "  :       - Enter command mode\n"
+		helpText += "  V       - Enter visual line mode\n"
 		helpText += "  ?       - Show this help\n\n"
-		helpText += "Available Commands:\n"
-		for _, cmd := range m.commandRegistry.GetAllCommands() {
-			helpText += fmt.Sprintf("  :%s - %s\n", strings.TrimPrefix(cmd.Name, "/"), cmd.Description)
-		}
-		helpText += "\nPress ESC or q to close this help"
-
-		m.modal = NewBaseModal("Vi Mode Help", helpText, 80, 30)
+		m.modal = NewBaseModal("Shortcuts Help", helpText, 80, 30)
 		return m, nil
 	case "#":
 		// Enter learning mode
@@ -1336,7 +1324,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.session.WorkingDir = msg.session.WorkingDir
 				m.session.ProjectSlug = msg.session.ProjectSlug
 				m.session.ContextFiles = msg.session.ContextFiles
-				
+
 				// Copy messages - need to make a proper copy
 				m.session.Messages = make([]llms.MessageContent, len(msg.session.Messages))
 				copy(m.session.Messages, msg.session.Messages)
@@ -1353,7 +1341,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if msgContent.Role == llms.ChatMessageTypeSystem {
 					continue
 				}
-				
+
 				if msgContent.Role == llms.ChatMessageTypeHuman || msgContent.Role == llms.ChatMessageTypeAI {
 					for _, part := range msgContent.Parts {
 						if textPart, ok := part.(llms.TextContent); ok {
@@ -1521,7 +1509,13 @@ func (m TUIModel) View() string {
 	viEnabled, viMode, viPending := m.prompt.ViModeStatus()
 	m.status.SetViMode(viEnabled, viMode, viPending)
 
-	mainContent := m.renderMainContent()
+	// Calculate modal height if present
+	modalHeight := 0
+	if m.modal != nil {
+		modalHeight = lipgloss.Height(m.modal.Render())
+	}
+
+	mainContent := m.renderMainContent(modalHeight)
 	promptView := m.prompt.View()
 	viModeToastLine := m.renderViModeAndToast()
 
@@ -1534,8 +1528,9 @@ func (m TUIModel) View() string {
 	return m.applyModalOverlays(view)
 }
 
-func (m TUIModel) renderMainContent() string {
-	contentHeight := m.height - 6 // Account for prompt and status
+func (m TUIModel) renderMainContent(modalHeight int) string {
+	// Account for prompt, status, vi mode/toast line, and modal if present
+	contentHeight := m.height - 6 - modalHeight
 
 	switch {
 	case m.rawMode:
@@ -1543,11 +1538,30 @@ func (m TUIModel) renderMainContent() string {
 	case !m.sessionActive:
 		return m.renderHomeView(m.width, contentHeight)
 	default:
+		// Dynamically adjust chat height if modal is present
+		if modalHeight > 0 {
+			// Temporarily adjust chat viewport height
+			adjustedChat := m.chat
+			adjustedChat.SetHeight(contentHeight)
+			return adjustedChat.View()
+		}
 		return m.chat.View()
 	}
 }
 
 func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine string) string {
+	// If help modal is active, insert it above the prompt
+	if m.modal != nil {
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			mainContent,
+			m.modal.Render(),
+			promptView,
+			viModeToastLine,
+			m.status.View(),
+		)
+	}
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		mainContent,
@@ -1594,9 +1608,8 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, viModeToastLine 
 func (m TUIModel) applyModalOverlays(view string) string {
 	result := view
 
-	if m.modal != nil {
-		result = lipgloss.JoinVertical(lipgloss.Left, result, m.modal.Render())
-	}
+	// Note: m.modal (help modal) is now rendered in composeBaseView above the prompt
+	// Only apply centered overlays for other modals here
 
 	if m.providerModal != nil {
 		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.providerModal.Render())

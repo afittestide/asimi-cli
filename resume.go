@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -56,8 +55,8 @@ func (m *SessionSelectionModal) visibleSlots() int {
 		contentHeight = 1
 	}
 
-	// Reserve lines for instructions and spacing.
-	available := contentHeight / 3
+	// Reserve lines for instructions and spacing (2 lines for instructions + 1 line for scroll info)
+	available := contentHeight - 3
 	if available < 1 {
 		return 1
 	}
@@ -288,8 +287,8 @@ func (m *SessionSelectionModal) Render() string {
 				lineStyle = lineStyle.Foreground(lipgloss.Color("62")).Bold(true)
 			}
 
-			content.WriteString("\n")
 			content.WriteString(lineStyle.Render(line.String()))
+			content.WriteString("\n")
 			continue
 		}
 
@@ -301,53 +300,24 @@ func (m *SessionSelectionModal) Render() string {
 		}
 
 		timeStr := formatRelativeTime(session.LastUpdated)
-
 		title := sessionTitlePreview(session)
 		messageCount := formatMessageCount(session.Messages)
-		modelName := shortenModelName(session.Model)
-
-		var detailParts []string
-		if messageCount != "" {
-			detailParts = append(detailParts, messageCount)
-		}
-		if modelName != "" {
-			detailParts = append(detailParts, modelName)
-		}
-
-		currentDir, _ := os.Getwd()
-		if session.WorkingDir != "" && session.WorkingDir != currentDir {
-			shortPath := session.WorkingDir
-			homeDir, _ := os.UserHomeDir()
-			if homeDir != "" {
-				shortPath = strings.Replace(shortPath, homeDir, "~", 1)
-			}
-			detailParts = append(detailParts, shortPath)
-		}
 
 		var line strings.Builder
 		line.WriteString(prefix)
 		line.WriteString(fmt.Sprintf("[%s] %s", timeStr, title))
-
-		detailLine := strings.Join(detailParts, " • ")
+		
+		if messageCount != "" {
+			line.WriteString(fmt.Sprintf(" (%s)", messageCount))
+		}
 
 		lineStyle := lipgloss.NewStyle()
-		detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-
 		if isSelected {
 			lineStyle = lineStyle.Foreground(lipgloss.Color("62")).Bold(true)
-			detailStyle = detailStyle.Foreground(lipgloss.Color("62"))
 		}
 
 		content.WriteString(lineStyle.Render(line.String()))
-		if detailLine != "" {
-			content.WriteString("\n")
-			content.WriteString(detailStyle.Render("    " + detailLine))
-		}
 		content.WriteString("\n")
-
-		if i < end-1 {
-			content.WriteString("\n")
-		}
 	}
 
 	if totalItems > visible {
