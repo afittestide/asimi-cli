@@ -1,3 +1,6 @@
+list:
+    just -l
+
 run: modules
     go run .
 
