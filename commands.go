@@ -1,12 +1,16 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+//go:embed prompts/initialize.txt
+var initializePrompt string
 
 // Command represents a slash command
 type Command struct {
@@ -276,15 +280,8 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			}
 		}
 
-		// Load the initialization prompt
-		promptPath := "prompts/initialize.txt"
-		promptContent, err := os.ReadFile(promptPath)
-		if err != nil {
-			return showContextMsg{content: fmt.Sprintf("Failed to load initialization prompt: %v", err)}
-		}
-
-		// Create the initialization prompt with context
-		initPrompt := string(promptContent)
+		// Use the embedded initialization prompt
+		initPrompt := initializePrompt
 
 		if forceMode {
 			initPrompt += "\nNote: Force mode enabled - regenerate all infrastructure files even if they exist.\n"
