@@ -47,8 +47,8 @@ var cli struct {
 	Run           runCmd     `cmd:"" default:"1" help:"Run the interactive application"`
 }
 
-// version holds the application version. Overwrite via -ldflags "-X main.version=x.y.z".
-var version = "dev"
+// Update the version as part of the version release process
+var version = "0.1.0"
 
 func initLogger() {
 	homeDir, err := os.UserHomeDir()
