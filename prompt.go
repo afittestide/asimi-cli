@@ -19,6 +19,11 @@ const (
 	ViModeLearning    = "learning"
 )
 
+// Placeholder text constants
+const (
+	PlaceholderDefault = "Type your message here. Enter to send, ESC to exit insert mode"
+)
+
 // PromptComponent represents the user input text area
 type PromptComponent struct {
 	TextArea       textarea.Model
@@ -37,7 +42,7 @@ type PromptComponent struct {
 // NewPromptComponent creates a new prompt component
 func NewPromptComponent(width, height int) PromptComponent {
 	ta := textarea.New()
-	ta.Placeholder = "Type your message here..."
+	ta.Placeholder = PlaceholderDefault
 	ta.ShowLineNumbers = false
 	ta.Focus()
 
@@ -161,14 +166,14 @@ func (p *PromptComponent) SetViMode(enabled bool) {
 		p.ViCurrentMode = ViModeInsert
 		p.TextArea.KeyMap = p.viInsertKeyMap
 		p.viPendingOp = ""
-		p.TextArea.Placeholder = "Type your message here..."
+		p.TextArea.Placeholder = PlaceholderDefault
 		p.updateViModeStyle()
 	} else {
 		// Return to normal keymap
 		p.ViCurrentMode = ""
 		p.TextArea.KeyMap = p.normalKeyMap
 		p.viPendingOp = ""
-		p.TextArea.Placeholder = "Type your message here..."
+		p.TextArea.Placeholder = PlaceholderDefault
 		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
 	}
 }
@@ -205,7 +210,7 @@ func (p *PromptComponent) EnterViInsertMode() {
 	p.ViCurrentMode = ViModeInsert
 	p.viPendingOp = ""
 	p.TextArea.KeyMap = p.viInsertKeyMap
-	p.TextArea.Placeholder = "Type your message here..."
+	p.TextArea.Placeholder = PlaceholderDefault
 	p.updateViModeStyle()
 }
 

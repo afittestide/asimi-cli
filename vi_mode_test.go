@@ -129,7 +129,7 @@ func TestViModePlaceholderText(t *testing.T) {
 
 	// Enable vi mode
 	prompt.SetViMode(true)
-	assert.Equal(t, "Type your message here...", prompt.TextArea.Placeholder, "Insert mode should have default placeholder")
+	assert.Equal(t, PlaceholderDefault, prompt.TextArea.Placeholder, "Insert mode should have default placeholder")
 
 	// Switch to normal mode
 	prompt.EnterViNormalMode()
@@ -145,11 +145,11 @@ func TestViModePlaceholderText(t *testing.T) {
 
 	// Switch back to insert mode
 	prompt.EnterViInsertMode()
-	assert.Equal(t, "Type your message here...", prompt.TextArea.Placeholder, "Insert mode should have default placeholder")
+	assert.Equal(t, PlaceholderDefault, prompt.TextArea.Placeholder, "Insert mode should have default placeholder")
 
 	// Disable vi mode
 	prompt.SetViMode(false)
-	assert.Equal(t, "Type your message here...", prompt.TextArea.Placeholder, "Disabled vi mode should have default placeholder")
+	assert.Equal(t, PlaceholderDefault, prompt.TextArea.Placeholder, "Disabled vi mode should have default placeholder")
 }
 
 func TestViModeHistoryNavigation(t *testing.T) {
