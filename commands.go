@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -36,6 +38,7 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/clear-history", "Clear all prompt history", handleClearHistoryCommand)
 	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
+	registry.RegisterCommand("/init", "Initialize project with missing infrastructure files (AGENTS.md, Justfile, Dockerfile)", handleInitCommand)
 
 	return registry
 }
@@ -235,4 +238,86 @@ func handleExportCommand(model *TUIModel, args []string) tea.Cmd {
 		model.toastManager.AddToast(fmt.Sprintf("Conversation exported successfully (%s).", exportType), "success", 3000)
 		return nil
 	})
+}
+
+func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
+	if model.session == nil {
+		return func() tea.Msg {
+			return showContextMsg{content: "No active session. Use /login to configure a provider and start chatting."}
+		}
+	}
+
+	return func() tea.Msg {
+		// Check if user wants to force regeneration
+		forceMode := len(args) > 0 && args[0] == "force"
+
+		// Check for missing infrastructure files
+		missingFiles := checkMissingInfraFiles()
+
+		if len(missingFiles) == 0 {
+			if !forceMode {
+				return showContextMsg{content: "All infrastructure files already exist:\n✓ AGENTS.md\n✓ Justfile\n✓ infra/Dockerfile\n\nUse `:init force` to regenerate them."}
+			}
+
+			if program != nil {
+				program.Send(showContextMsg{content: "Force regenerating infrastructure files..."})
+			}
+		} else if !forceMode {
+			var message strings.Builder
+			message.WriteString("Missing infrastructure files detected:\n")
+			for _, file := range missingFiles {
+				message.WriteString(fmt.Sprintf("✗ %s\n", file))
+			}
+			message.WriteString("\nStarting initialization process...")
+
+			// Show the missing files message first
+			if program != nil {
+				program.Send(showContextMsg{content: message.String()})
+			}
+		}
+
+		// Load the initialization prompt
+		promptPath := "prompts/initialize.txt"
+		promptContent, err := os.ReadFile(promptPath)
+		if err != nil {
+			return showContextMsg{content: fmt.Sprintf("Failed to load initialization prompt: %v", err)}
+		}
+
+		// Create the initialization prompt with context
+		initPrompt := string(promptContent)
+
+		if forceMode {
+			initPrompt += "\nNote: Force mode enabled - regenerate all infrastructure files even if they exist.\n"
+		}
+
+		// Send the initialization prompt to the session
+		return initializeProjectMsg{prompt: initPrompt}
+	}
+}
+
+// initializeProjectMsg is sent when the init command is executed
+type initializeProjectMsg struct {
+	prompt string
+}
+
+// checkMissingInfraFiles checks which infrastructure files are missing
+func checkMissingInfraFiles() []string {
+	var missing []string
+
+	// Check for AGENTS.md
+	if _, err := os.Stat("AGENTS.md"); os.IsNotExist(err) {
+		missing = append(missing, "AGENTS.md")
+	}
+
+	// Check for Justfile
+	if _, err := os.Stat("Justfile"); os.IsNotExist(err) {
+		missing = append(missing, "Justfile")
+	}
+
+	// Check for infra/Dockerfile
+	if _, err := os.Stat("infra/Dockerfile"); os.IsNotExist(err) {
+		missing = append(missing, "infra/Dockerfile")
+	}
+
+	return missing
 }

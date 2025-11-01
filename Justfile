@@ -1,28 +1,45 @@
-list:
-    just -l
+default:
+    @just --list
 
-run: modules
-    go run .
+# Install dependencies
+install: modules
 
+# Vendor dependencies
 modules:
     go mod vendor
 
-# build the asimi development container
-infrabuild:
-    @podman machine init --disk-size 30 2>/dev/null || true
-    @podman machine start 2>/dev/null || true
-    podman build -t asimi-shell:latest -f .asimi/Dockerfile .
+# Run the application
+run: modules
+    go run .
 
-infraclean:
-    # podman machine stop
-    # podman machine rm
-    podman system prune --all --volumes --force 
+# Build the binary
+build: modules
+    go build -o asimi .
 
-# run the tests
+# Run all tests
 test: modules
 	go test -v ./...
 
-# install development tools
+# Run tests with coverage
+test-coverage: modules
+	go test -v -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+
+# Run linters
+lint:
+    golangci-lint run ./...
+
+# Format code
+fmt:
+    go fmt ./...
+
+# Clean build artifacts
+clean:
+    rm -f asimi
+    rm -f coverage.out coverage.html
+    rm -rf profiles/
+
+# Install development tools
 bootstrap:
     @echo "Installing golangci-lint..."
     @curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
@@ -48,26 +65,39 @@ bootstrap:
         fi; \
     fi
 
-# run linters
-lint:
-    golangci-lint run ./...
+# Build the development container
+infrabuild:
+    @mkdir -p infra
+    @podman machine init --disk-size 30 2>/dev/null || true
+    @podman machine start 2>/dev/null || true
+    podman build -t asimi-dev:latest -f infra/Dockerfile .
 
-build: modules
-    go build -o asimi .
+# Build production container
+build-container:
+    @mkdir -p infra
+    podman build -t asimi:latest -f infra/Dockerfile .
 
+# Clean up container resources
+infraclean:
+    # podman machine stop
+    # podman machine rm
+    podman system prune --all --volumes --force 
+
+# Install delve debugger
 dlv:
     go install github.com/go-delve/delve/cmd/dlv@latest
 
+# Debug the application
 debug: dlv
     dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./asimi -- --config config/default.toml
 
-# profile startup performance
+# Profile startup performance
 profile: build
     @echo "=== Profiling Asimi Startup ==="
     @echo ""
     @mkdir -p profiles
     @rm -f profiles/*
-    @echo "Running with profiling (auto-exits after 2 seconds)..."
+    @echo "Running with profiling (auto-exits after 7 seconds)..."
     @echo ""
     ./asimi --debug --cpu-profile=profiles/cpu.prof --mem-profile=profiles/mem.prof --trace=profiles/trace.out --profile-exit-ms=7000 2>&1 | tee profiles/timing.log || true
     @echo ""
@@ -90,19 +120,19 @@ profile: build
     @echo "  go tool pprof -http=:8080 profiles/mem.prof"
     @echo "  go tool trace profiles/trace.out"
 
-# open CPU profile in web browser
+# Open CPU profile in web browser
 profile-cpu: profile
     go tool pprof -http=:8080 profiles/cpu.prof
 
-# open memory profile in web browser
+# Open memory profile in web browser
 profile-mem: profile
     go tool pprof -http=:8080 profiles/mem.prof
 
-# open execution trace viewer
+# Open execution trace viewer
 profile-trace: profile
     go tool trace profiles/trace.out
 
-# measure run_in_shell tool performance
+# Measure run_in_shell tool performance
 measure:
     @echo "=== Measuring run_in_shell Tool Performance ==="
     @echo ""

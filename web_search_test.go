@@ -26,17 +26,17 @@ func TestWebSearchTool_Description(t *testing.T) {
 
 func TestWebSearchTool_CallWithJSON(t *testing.T) {
 	tool := WebSearchTool{}
-	
+
 	// Skip test if we can't reach DuckDuckGo
 	t.Skip("Skipping web search test to avoid network dependency")
-	
+
 	input := `{"query": "golang testing", "max_results": 3}`
 	result, err := tool.Call(context.Background(), input)
-	
+
 	if err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
-	
+
 	if result == "" {
 		t.Error("Result should not be empty")
 	}
@@ -44,10 +44,10 @@ func TestWebSearchTool_CallWithJSON(t *testing.T) {
 
 func TestWebSearchTool_CallWithEmptyQuery(t *testing.T) {
 	tool := WebSearchTool{}
-	
+
 	input := `{"query": ""}`
 	_, err := tool.Call(context.Background(), input)
-	
+
 	if err == nil {
 		t.Error("Expected error for empty query")
 	}
@@ -55,12 +55,12 @@ func TestWebSearchTool_CallWithEmptyQuery(t *testing.T) {
 
 func TestWebSearchTool_Format(t *testing.T) {
 	tool := WebSearchTool{}
-	
+
 	input := `{"query": "test query"}`
 	result := `{"query": "test query", "results": [{"title": "Test", "url": "http://example.com", "snippet": "test"}]}`
-	
+
 	formatted := tool.Format(input, result, nil)
-	
+
 	if !contains(formatted, "Web Search") {
 		t.Error("Formatted output should contain 'Web Search'")
 	}
@@ -74,12 +74,12 @@ func TestWebSearchTool_Format(t *testing.T) {
 
 func TestWebSearchTool_FormatWithError(t *testing.T) {
 	tool := WebSearchTool{}
-	
+
 	input := `{"query": "test"}`
 	err := fmt.Errorf("search failed")
-	
+
 	formatted := tool.Format(input, "", err)
-	
+
 	if !contains(formatted, "Error") {
 		t.Error("Formatted error should contain 'Error'")
 	}
@@ -107,7 +107,7 @@ func TestCleanHTML(t *testing.T) {
 			expected: "Hello  world\"", // Note: double space from &nbsp; and removed tags
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := cleanHTML(tt.input)

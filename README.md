@@ -4,7 +4,7 @@
 
 Asimi is an opinionated command-line interface that brings AI-powered coding assistance directly to your terminal. Built with modern Go libraries and a focus on developer experience, Asimi helps you write better code faster.
 
-> TLDR; `just run`
+> TLDR; `just run`, `:init`
 
 ## ✨ Features
 
