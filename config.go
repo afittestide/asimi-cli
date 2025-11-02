@@ -34,6 +34,7 @@ type Config struct {
 	StatusLine StatusLineConfig `koanf:"statusline"`
 	Session    SessionConfig    `koanf:"session"`
 	Container  ContainerConfig  `koanf:"container"`
+	RunInShell RunInShellConfig `koanf:"run_in_shell"`
 }
 
 // ServerConfig holds server configuration
@@ -150,6 +151,7 @@ func defaultConfig() Config {
 }
 
 // PermissionConfig holds permission configuration
+// TODO: Ensure we're not using it and remove
 type PermissionConfig struct {
 	Allow                        []string `koanf:"allow"`
 	Ask                          []string `koanf:"ask"`
@@ -190,6 +192,13 @@ type ContainerMount struct {
 // ContainerConfig holds container configuration
 type ContainerConfig struct {
 	AdditionalMounts []ContainerMount `koanf:"additional_mounts"`
+}
+
+// RunInShellConfig holds configuration for the run_in_shell tool
+type RunInShellConfig struct {
+	// RunOnHost is a list of regex patterns for commands that should run on the host
+	// instead of in the container
+	RunOnHost []string `koanf:"run_on_host"`
 }
 
 // LoadConfig loads configuration from multiple sources

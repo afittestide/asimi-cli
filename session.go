@@ -199,7 +199,7 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 	})
 
 	// Build tool schema for the model and execution catalog for the scheduler.
-	s.toolDefs, s.toolCatalog = buildLLMTools()
+	s.toolDefs, s.toolCatalog = buildLLMTools(cfg)
 	s.scheduler = NewCoreToolScheduler(s.notify)
 	s.ContextFiles = make(map[string]string)
 	s.startTime = time.Now()
@@ -799,11 +799,14 @@ func readProjectContext() string {
 }
 
 // buildLLMTools returns the LLM tool/function definitions and a catalog by name for execution.
-func buildLLMTools() ([]llms.Tool, map[string]lctools.Tool) {
+func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
+	// Get tools with config
+	tools := getAvailableTools(cfg)
+	
 	// Map our concrete tools by name for execution.
 	execCatalog := map[string]lctools.Tool{}
-	for i := range availableTools {
-		tool := availableTools[i]
+	for i := range tools {
+		tool := tools[i]
 		//nolint:typecheck // Tool interface is correctly defined in tools.go
 		execCatalog[tool.Name()] = tool
 	}

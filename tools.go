@@ -338,7 +338,9 @@ func (t ReplaceTextTool) Format(input, result string, err error) string {
 }
 
 // RunInShell is a tool for running shell commands in a persistent shell
-type RunInShell struct{}
+type RunInShell struct {
+	config *Config
+}
 
 // RunInShellInput is the input for the RunInShell tool
 type RunInShellInput struct {
@@ -397,6 +399,26 @@ func getShellRunner() shellRunner {
 	return currentShellRunner
 }
 
+// shouldRunOnHost checks if a command matches any of the run_on_host patterns
+func (t RunInShell) shouldRunOnHost(command string) bool {
+	if t.config == nil || len(t.config.RunInShell.RunOnHost) == 0 {
+		return false
+	}
+
+	for _, pattern := range t.config.RunInShell.RunOnHost {
+		matched, err := regexp.MatchString(pattern, command)
+		if err != nil {
+			// Log warning but continue checking other patterns
+			continue
+		}
+		if matched {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (t RunInShell) Name() string {
 	return "run_in_shell"
 }
@@ -412,10 +434,18 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 		return "", fmt.Errorf("invalid input: %w", err)
 	}
 
-	runner := getShellRunner()
-	output, runErr := runner.Run(ctx, params)
-	if runErr != nil {
-		return "", runErr
+	var output RunInShellOutput
+	// Check if command should run on host based on config patterns
+	if t.shouldRunOnHost(params.Command) {
+		// Run directly on host
+		output, err = hostShellRunner{}.Run(ctx, params)
+	} else {
+		runner := getShellRunner()
+		output, err = runner.Run(ctx, params)
+	}
+
+	if err != nil {
+		return "", err
 	}
 
 	outputBytes, err := json.Marshal(output)
@@ -1042,13 +1072,19 @@ type Tool interface {
 	Format(input, result string, err error) string
 }
 
-var availableTools = []Tool{
-	ReadFileTool{},
-	WriteFileTool{},
-	ListDirectoryTool{},
-	ReplaceTextTool{},
-	RunInShell{},
-	ReadManyFilesTool{},
-	MergeTool{},
-	WebSearchTool{},
+func getAvailableTools(config *Config) []Tool {
+	return []Tool{
+		ReadFileTool{},
+		WriteFileTool{},
+		ListDirectoryTool{},
+		ReplaceTextTool{},
+		RunInShell{config: config},
+		ReadManyFilesTool{},
+		MergeTool{},
+		WebSearchTool{},
+	}
 }
+
+// availableTools is a package-level variable for backward compatibility
+// It will be initialized with nil config by default
+var availableTools = getAvailableTools(nil)
