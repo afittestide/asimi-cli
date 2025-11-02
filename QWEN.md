@@ -1,55 +1,77 @@
-# Asimi CLI Project Context
+# Asimi CLI - Agent Guide
 
-This file provides context for the Asimi CLI project, a CLI coding agent written in Go.
-Our mission is to have a tool that is safe, fun and produces high quality code
+**Mission**: Build a safe, fun coding agent that produces high-quality code.
 
-IMPORTANT: Keep the directory tree flat. Try and add your changes to existing files and if that does not makes sense - create as little new files as possible and always get your consent when creating directories and files
+## Quick Commands
 
-- to search: `rg`
-- to test: `go test ./...`
-- to build:`just build`
-- to update dependecies: `just modules`
-- use present progressive in commit messages
+```bash
+# Development
+just run              # Run the application
+just build            # Build binary
+just test             # Run all tests
+just test-coverage    # Run tests with coverage
+just lint             # Run golangci-lint
+just fmt              # Format code
+just modules          # Vendor dependencies
+
+# Infrastructure
+just bootstrap        # Install dev tools (golangci-lint, podman)
+just infrabuild       # Build dev container
+just infraclean       # Clean container resources
+
+# Profiling
+just profile          # Profile startup performance
+just measure          # Measure run_in_shell performance
+```
 
 ## Code Style
 
-IMPORTANT: Write idiomatic Go code. Avoid unnecessary abstractions and wrapper functions. Keep it simple and direct.
-- Name should be short and meaningful
-- Don't create wrapper methods that just call another function
-- Don't use "queueing" patterns unless actually implementing concurrent queues
-- Prefer direct function calls over indirection
-- Keep code flat and readable
-- Do not add build tags
+**Write idiomatic Go** - Keep it simple, flat, and direct.
+
+- **Naming**: Short and meaningful
+- **No wrappers**: Avoid unnecessary abstractions
+- **No build tags**: Keep builds simple
+- **Inline comments**: Only for non-trivial code
+- **Flat structure**: Avoid creating new directories/files
 
 ## Libraries
-- slog for logging - to see debug message neet to activate with `--debug`
-- bubbletea for the UI
-- koanf for configuration management
-- kong for CLI
-- langchaingo for llm communications, tools, chains and more
-- go-git for git commands IMPORTANT: Never run git commands, use go-git instead
-- podman and docker libraries for managing containers - NEVER run them from the shell
+
+- `slog` - Logging (use `--debug` flag)
+- `bubbletea` - Terminal UI
+- `koanf` - Configuration
+- `kong` - CLI parsing
+- `langchaingo` - LLM communications
+- `go-git` - Git operations (NEVER shell out to git)
+- `podman/docker` - Container management (NEVER shell out)
+
+## Testing
+
+- Run tests: `go test ./...`
+- Coverage: `just test-coverage`
+- Search code: `rg <pattern>`
 
 ## Release Management
 
-- We follow SemVER
-- We keep a CHANGELOG.md where each version has a section with subsections for all user notable changes broken into: Fixed, Changed & Added
-- We use git tags to sync the code and the changelog
+- Follow **SemVer**
+- Update **CHANGELOG.md** with: Fixed, Changed, Added
+- Use git tags to sync code and changelog
+- Commit messages: Use present progressive ("adding feature", not "added feature")
 
-## Coding style
-- Add inline comments only when for non trivial code blocks
+## Workflow
 
-## Kanaban
+Tasks are tracked in:
+1. Git worktrees (`git worktree list`)
+2. CHANGELOG.md (Unreleased section + TODOs)
+3. GitHub issues (`gh` CLI)
 
-The tasks are spread across 3 places:
-1. in progress work - use git's library to run "git worktree list" to get it
-1. the TODOs and `Unreleased` section of CHANGELOG.md 
-2. github issues, available using `gh` cli
+**Task states**: TBP (To Be Planned) → TBI (To Be Implemented) → Done
 
-Our tasks can be in one of 3 bins: To Be Planned aka TBP, To Be Implemented aka TBI and Done. TBI are pretty simple. They start with a git worktree of a new branch and ends when the user approves the change.
-Commits are then squashed and if it's a notable change the changelog is updated: A new line is added to the `Fixed`, `Changed` or `Added` sections of `Unreleased` version. 
+- Each task gets a git worktree on a new branch
+- Commit liberally (will be squashed)
+- Update CHANGELOG.md for user-notable changes
+- **DON'T MERGE** - ask user for approval
 
-IMPORTANT: Keep the changelog top notch accurately and succinctly covering all user notable changes
+## Logs & Config
 
-When a task is in progress it should have a git worktree with all the changes. When working on a branch we are liberal in our commits as they will be squashed after approval but DON'T MERGE yourself - ask the user.
-- the log file is in ~/.local/share/asimi/asimi.log
+- Logs: `~/.local/share/asimi/asimi.log`
+- Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`
