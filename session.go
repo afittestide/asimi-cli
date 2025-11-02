@@ -290,8 +290,44 @@ func (s *Session) checkToolCallLoop(name, argsJSON string) bool {
 	return false
 }
 
+// removeUnmatchedToolCalls removes any trailing assistant messages with tool calls
+// that don't have corresponding tool responses. This prevents errors when the agent
+// is interrupted mid-execution.
+func (s *Session) removeUnmatchedToolCalls() {
+	if len(s.Messages) == 0 {
+		return
+	}
+
+	// Check if the last message is an assistant message with tool calls
+	lastMsg := s.Messages[len(s.Messages)-1]
+	if lastMsg.Role != llms.ChatMessageTypeAI {
+		return
+	}
+
+	// Check if this message has any tool calls
+	hasToolCalls := false
+	for _, part := range lastMsg.Parts {
+		if _, ok := part.(llms.ToolCall); ok {
+			hasToolCalls = true
+			break
+		}
+	}
+
+	if !hasToolCalls {
+		return
+	}
+
+	// If we have tool calls but no subsequent tool response message, remove this message
+	// (it's an unmatched tool call from an interrupted execution)
+	slog.Debug("removing unmatched tool call from context")
+	s.Messages = s.Messages[:len(s.Messages)-1]
+}
+
 // prepareUserMessage builds the prompt with context and adds it to the message history
 func (s *Session) prepareUserMessage(prompt string) {
+	// Before adding a new user message, check for and remove any unmatched tool calls
+	s.removeUnmatchedToolCalls()
+
 	fullPrompt := s.buildPromptWithContext(prompt)
 	s.Messages = append(s.Messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeHuman,
