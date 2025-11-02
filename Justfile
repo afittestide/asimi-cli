@@ -70,12 +70,16 @@ infrabuild:
     @mkdir -p infra
     @podman machine init --disk-size 30 2>/dev/null || true
     @podman machine start 2>/dev/null || true
-    podman build -t asimi-dev:latest -f infra/Dockerfile .
+    @echo "Stopping and removing containers using asimi-dev image..."
+    @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman stop 2>/dev/null || true
+    @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman rm 2>/dev/null || true
+    @echo "Building new asimi-dev image..."
+    podman build -t asimi-dev:latest -f .asimi/Dockerfile .
 
 # Build production container
 build-container:
     @mkdir -p infra
-    podman build -t asimi:latest -f infra/Dockerfile .
+    podman build -t asimi:latest -f .asimi/Dockerfile .
 
 # Clean up container resources
 infraclean:

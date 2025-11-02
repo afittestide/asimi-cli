@@ -260,7 +260,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 
 		if len(missingFiles) == 0 {
 			if !forceMode {
-				return showContextMsg{content: "All infrastructure files already exist:\n✓ AGENTS.md\n✓ Justfile\n✓ infra/Dockerfile\n\nUse `:init force` to regenerate them."}
+				return showContextMsg{content: "All infrastructure files already exist:\n✓ AGENTS.md\n✓ Justfile\n✓ .asimi/Dockerfile\n\nUse `:init force` to regenerate them."}
 			}
 
 			if program != nil {
@@ -311,9 +311,9 @@ func checkMissingInfraFiles() []string {
 		missing = append(missing, "Justfile")
 	}
 
-	// Check for infra/Dockerfile
-	if _, err := os.Stat("infra/Dockerfile"); os.IsNotExist(err) {
-		missing = append(missing, "infra/Dockerfile")
+	// Check for .asimi/Dockerfile
+	if _, err := os.Stat(".asimi/Dockerfile"); os.IsNotExist(err) {
+		missing = append(missing, ".asimi/Dockerfile")
 	}
 
 	return missing

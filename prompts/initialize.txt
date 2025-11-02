@@ -25,7 +25,7 @@ infrabuild:
     @mkdir -p infra
     @podman machine init --disk-size 30 2>/dev/null || true
     @podman machine start 2>/dev/null || true
-    podman build -t asimi-dev:latest -f infra/Dockerfile .
+    podman build -t asimi-dev:latest -f .asimi/Dockerfile .
 
 # Clean up the development infrastructure
 infraclean:
@@ -34,7 +34,7 @@ infraclean:
     podman system prune --all --volumes --force 
 ```
 
-3. **infra/Dockerfile** - An image to used by podman to run commands in shell 
+3. **.asimi/Dockerfile** - An image to used by podman to run commands in shell 
    - Use the base of the project's primary language runtime over debian
    - Common development tools: git, curl, just, ripgrep
    - No need to copy the source in

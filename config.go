@@ -147,6 +147,9 @@ func defaultConfig() Config {
 			AutoSave:     true,
 			SaveInterval: 300,
 		},
+		RunInShell: RunInShellConfig{
+			RunOnHost: []string{`^gh\s.*`},
+		},
 	}
 }
 

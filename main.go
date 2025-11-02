@@ -335,7 +335,7 @@ func main() {
 		llm, err := getLLMClient(config)
 		if err != nil {
 			fmt.Printf("Error creating LLM client: %v\n", err)
-			fmt.Printf("Please configure authentication by running the program in interactive mode and using '/login'\n")
+			fmt.Printf("Please authenticate by running the program in interactive mode and use ':login'\n")
 			os.Exit(1)
 		}
 		// Set up streaming for non-interactive mode
@@ -594,9 +594,20 @@ func getLLMClient(config *Config) (llms.Model, error) {
 						config.LLM.AuthToken = newAccessToken
 
 						// Get updated token data from keyring (auth.access() should have saved it)
-						updatedTokenData, _ := GetTokenFromKeyring(config.LLM.Provider)
-						if updatedTokenData != nil {
+						updatedTokenData, err := GetTokenFromKeyring(config.LLM.Provider)
+						if err == nil && updatedTokenData != nil {
 							config.LLM.RefreshToken = updatedTokenData.RefreshToken
+
+							// Verify the tokens were actually saved by auth.access()
+							// If not, this is a critical issue that needs to be logged
+							if updatedTokenData.AccessToken != newAccessToken {
+								slog.Warn("Token mismatch after refresh - keyring may not have been updated",
+									"provider", config.LLM.Provider)
+							}
+						} else {
+							// This shouldn't happen - auth.access() should have saved the tokens
+							slog.Warn("Failed to retrieve updated tokens from keyring after refresh",
+								"provider", config.LLM.Provider, "error", err)
 						}
 					} else {
 						// Refresh failed - log error and fall back to API key
