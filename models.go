@@ -29,6 +29,37 @@ type AnthropicModelsResponse struct {
 
 // fetchAnthropicModels fetches available models from the Anthropic API
 func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
+	// Load credentials from keyring if not already in config
+	// This ensures worktrees can access credentials stored in the OS keyring
+	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
+		// Try OAuth tokens first
+		tokenData, err := GetTokenFromKeyring(config.LLM.Provider)
+		if err == nil && tokenData != nil {
+			if !IsTokenExpired(tokenData) {
+				// Token is still valid - use it
+				config.LLM.AuthToken = tokenData.AccessToken
+				config.LLM.RefreshToken = tokenData.RefreshToken
+			} else {
+				// Token expired - try to refresh for Anthropic
+				if config.LLM.Provider == "anthropic" {
+					auth := &AuthAnthropic{}
+					newAccessToken, refreshErr := auth.access()
+					if refreshErr == nil {
+						config.LLM.AuthToken = newAccessToken
+					}
+				}
+			}
+		}
+		
+		// If still no auth token, try API key from keyring
+		if config.LLM.AuthToken == "" {
+			apiKey, err := GetAPIKeyFromKeyring(config.LLM.Provider)
+			if err == nil && apiKey != "" {
+				config.LLM.APIKey = apiKey
+			}
+		}
+	}
+	
 	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
 		return nil, fmt.Errorf("no authentication configured for anthropic provider")
 	}
