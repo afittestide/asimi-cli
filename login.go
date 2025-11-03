@@ -485,35 +485,6 @@ func (a *AuthAnthropic) refreshToken(refreshToken string) (*AnthropicOAuthTokens
 	return &tokens, nil
 }
 
-// createAPIKey creates a permanent API key using OAuth access token
-func (a *AuthAnthropic) createAPIKey(accessToken string) (string, error) {
-	req, err := http.NewRequest("POST", anthropicAPIKeyCreateURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create API key request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to create API key: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API key creation failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response AnthropicAPIKeyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", fmt.Errorf("failed to decode API key response: %w", err)
-	}
-
-	return response.APIKey, nil
-}
 
 // Login command handler
 func handleLoginCommand(model *TUIModel, args []string) tea.Cmd {

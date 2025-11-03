@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -12,8 +11,6 @@ import (
 
 	gogit "github.com/go-git/go-git/v5"
 )
-
-var claudeVersionPattern = regexp.MustCompile(`\d+(\.\d+)?`)
 
 // RepoInfo contains information about the git repository and worktree
 type RepoInfo struct {
@@ -195,8 +192,6 @@ func getGitStatus() string {
 func isGitRepository() bool {
 	return defaultGitInfoManager.IsRepository()
 }
-
-const gitInfoRefreshInterval = 1 * time.Second
 
 var defaultGitInfoManager = newGitInfoManager()
 

@@ -699,28 +699,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 	}()
 }
 
-// parseReActAction extracts a tool name and JSON arguments from text containing lines like:
-// "Action: tool_name" and "Action Input: { ... }".
-func parseReActAction(text string) (name string, argsJSON string, ok bool) {
-	if text == "" {
-		return "", "", false
-	}
-	var tool string
-	var args string
-	lines := strings.Split(text, "\n")
-	for _, ln := range lines {
-		l := strings.TrimSpace(ln)
-		if strings.HasPrefix(strings.ToLower(l), "action:") {
-			tool = strings.TrimSpace(l[len("Action:"):])
-		} else if strings.HasPrefix(strings.ToLower(l), "action input:") {
-			args = strings.TrimSpace(l[len("Action Input:"):])
-		}
-	}
-	if tool == "" || args == "" {
-		return "", "", false
-	}
-	return tool, args, true
-}
 
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
 func sessBuildEnvBlock() string {
@@ -953,12 +931,6 @@ func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
 	}
 
 	return defs, execCatalog
-}
-
-// Utility to pretty-print any struct for debug (unused but handy during dev).
-func toJSON(v any) string {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	return string(b)
 }
 
 // GetSessionDuration returns the duration since the session started

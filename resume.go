@@ -164,33 +164,6 @@ func formatMessageCount(messages []llms.MessageContent) string {
 	return fmt.Sprintf("%d msgs", count)
 }
 
-func shortenModelName(model string) string {
-	if model == "" {
-		return ""
-	}
-
-	parts := strings.Split(model, "-")
-	if len(parts) < 2 {
-		return model
-	}
-
-	last := parts[len(parts)-1]
-	isDateSuffix := len(last) == 8
-	if isDateSuffix {
-		for _, r := range last {
-			if r < '0' || r > '9' {
-				isDateSuffix = false
-				break
-			}
-		}
-	}
-
-	if isDateSuffix {
-		return strings.Join(parts[:len(parts)-1], "-")
-	}
-
-	return model
-}
 
 func (m *SessionSelectionModal) Render() string {
 	var content strings.Builder

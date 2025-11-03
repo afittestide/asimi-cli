@@ -48,9 +48,15 @@ linters-settings:
       - name: redefines-builtin-id
   
   gosec:
-    excludes:
-      - G204  # allow subprocess with variable command
-      - G304  # allow file path from variable
+    # Disable specific security checks that are false positives for CLI tools
+    exclude:
+      - G101  # OAuth client IDs are public, not secrets
+      - G112  # Decompression needed for tar/zip handling
+      - G204  # Subprocess with variable (core CLI feature)
+      - G301  # 0755 directory permissions appropriate for CLI
+      - G302  # Chmod operations needed for file management
+      - G304  # File path from variable (core CLI feature)
+      - G306  # 0644 file permissions appropriate for user files
 
 issues:
   exclude-use-default: false

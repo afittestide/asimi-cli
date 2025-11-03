@@ -11,9 +11,6 @@ import (
 	"github.com/tmc/langchaingo/llms/fake"
 )
 
-// mockLLM is a mock LLM implementation for testing
-type mockLLM struct{}
-
 // mockConfig returns a mock configuration for testing
 func mockConfig() *Config {
 	return &Config{
