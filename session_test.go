@@ -116,32 +116,6 @@ func TestNewSessionSystemMessageSinglePart(t *testing.T) {
 	}
 }
 
-// sessionMockLLMReAct returns textual ReAct-style tool usage; Session must parse and execute.
-type sessionMockLLMReAct struct{ llms.Model }
-
-func (m *sessionMockLLMReAct) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
-	return "", nil
-}
-func (m *sessionMockLLMReAct) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	last := messages[len(messages)-1]
-	switch last.Role {
-	case llms.ChatMessageTypeHuman:
-		return &llms.ContentResponse{Choices: []*llms.ContentChoice{{
-			Content: "Action: read_file\nAction Input: { \"path\": \"testdata/test.txt\" }",
-		}}}, nil
-	case llms.ChatMessageTypeTool:
-		// Return final answer echoing the tool output
-		var out string
-		for i := len(last.Parts) - 1; i >= 0; i-- {
-			if tr, ok := last.Parts[i].(llms.ToolCallResponse); ok {
-				out = tr.Content
-				break
-			}
-		}
-		return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: out}}}, nil
-	}
-	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: "ok"}}}, nil
-}
 
 // sessionMockLLMWriteRead simulates a write_file followed by read_file and then returns file content.
 type sessionMockLLMWriteRead struct{ llms.Model }
