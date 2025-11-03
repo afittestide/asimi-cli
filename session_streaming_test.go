@@ -13,8 +13,7 @@ import (
 
 // MockStreamingLLM is a mock LLM that supports streaming
 type MockStreamingLLM struct {
-	response   string
-	shouldFail bool
+	response string
 }
 
 func (m *MockStreamingLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
