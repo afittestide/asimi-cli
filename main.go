@@ -48,7 +48,7 @@ var cli struct {
 }
 
 // Update the version as part of the version release process
-var version = "0.1.0"
+var version = "0.1.0+dev"
 
 func initLogger() {
 	homeDir, err := os.UserHomeDir()

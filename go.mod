@@ -1,4 +1,4 @@
-module github.com/daonb/asimi-cli
+module github.com/tuzig/asimi
 
 go 1.25.3
 

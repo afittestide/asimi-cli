@@ -3,18 +3,19 @@ default:
 
 # Install dependencies
 install: modules
+    go install .
 
 # Vendor dependencies
 modules:
     go mod vendor
 
-# Run the application
-run: modules
-    go run .
-
 # Build the binary
 build: modules
-    go build -o asimi .
+    go build .
+
+# Run the application in debug mode
+run: build
+    ./asimi --debug
 
 # Run all tests
 test: modules

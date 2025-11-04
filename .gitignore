@@ -1,5 +1,4 @@
 # Binaries
-asimi-cli
 asimi
 
 # Test coverage
@@ -9,3 +8,4 @@ coverage.html
 *.swp
 *.swo
 *.log
+worktrees/
