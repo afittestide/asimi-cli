@@ -1,6 +1,7 @@
-# The Holistic Development Environment
+# Architecture Vision
 
-## Architecture Vision
+Asimi comes with an ambitious vision - a new type of development environment:
+
 
 ```
                       /---------------------------------------\
