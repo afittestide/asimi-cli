@@ -15,7 +15,8 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewSessionStore(50, 30)
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -127,7 +128,6 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Expected indexed project slug %q, got %q", expectedSlug, sessions[0].ProjectSlug)
 	}
 
-	repoInfo := GetRepoInfo()
 	branchSlug := sanitizeSegment(repoInfo.Branch)
 	if branchSlug == "" {
 		branchSlug = "main"
@@ -150,7 +150,8 @@ func TestSessionStore_EmptySession(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewSessionStore(50, 30)
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -192,7 +193,8 @@ func TestSessionStore_Cleanup(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewSessionStore(2, 30)
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 2, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -240,7 +242,8 @@ func TestSessionStore_ListSessionsLimit(t *testing.T) {
 	tempDir := t.TempDir()
 	os.Setenv("HOME", tempDir)
 
-	store, err := NewSessionStore(50, 30)
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -304,16 +307,16 @@ func TestSessionStore_DirectoryCreation(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewSessionStore(50, 30)
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
 
-	expectedSlug := projectSlug(GetRepoInfo().ProjectRoot)
+	expectedSlug := projectSlug(repoInfo.ProjectRoot)
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}
-	repoInfo := GetRepoInfo()
 	branchSlug := sanitizeSegment(repoInfo.Branch)
 	if branchSlug == "" {
 		branchSlug = "main"

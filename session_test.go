@@ -62,7 +62,8 @@ func TestSession_ToolRoundTrip(t *testing.T) {
 
 	// Set up a native session with the mock LLM and real tools/scheduler.
 	llm := &sessionMockLLM{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	out, err := sess.Ask(context.Background(), "please read the file")
@@ -84,7 +85,8 @@ func TestSession_NoTools(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	out, err := sess.Ask(context.Background(), "say hi")
@@ -103,7 +105,8 @@ func TestNewSessionSystemMessageSinglePart(t *testing.T) {
 		},
 	}
 
-	sess, err := NewSession(llm, cfg, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, cfg, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	if assert.NotEmpty(t, sess.Messages) {
@@ -175,7 +178,8 @@ func TestSession_WriteAndReadFile(t *testing.T) {
 	// We encode the path into the system message content via the template; to avoid
 	// changing the template, we pass it through the first system message text part.
 	// The mock reads that value back.
-	sess, err := NewSession(&sessionMockLLMWriteRead{}, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(&sessionMockLLMWriteRead{}, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 	// Overwrite the first system message text with the temp path as a simple channel to the mock
 	sess.Messages[0].Parts = []llms.ContentPart{llms.TextPart(path)}
@@ -228,7 +232,8 @@ func TestSession_ChatHistoryPersistence(t *testing.T) {
 
 	// Create session with history-preserving mock
 	llm := &historyPreservingMockLLM{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	// First message
@@ -256,7 +261,8 @@ func TestSession_ContextFiles(t *testing.T) {
 	assert.NoError(t, err)
 
 	llm := &sessionMockLLMContext{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	// Test HasContextFiles - should be false initially (AGENTS.md is in system prompt, not ContextFiles)
@@ -357,7 +363,8 @@ func TestSession_MultipleToolCalls(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	llm := &sessionMockLLMMultiTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	out, err := sess.Ask(context.Background(), "read two files")

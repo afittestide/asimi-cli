@@ -35,7 +35,7 @@ func TestTUIRespectsViModeConfig(t *testing.T) {
 				},
 			}
 
-			model := NewTUIModel(config)
+			model := NewTUIModel(config, nil, nil, nil)
 
 			if model.prompt.ViMode != tt.expectedViMode {
 				t.Errorf("TUI prompt.ViMode = %v, want %v", model.prompt.ViMode, tt.expectedViMode)

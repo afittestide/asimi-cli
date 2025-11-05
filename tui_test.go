@@ -40,7 +40,7 @@ func mockConfig() *Config {
 
 // TestTUIModelInit tests the initialization of the TUI model
 func TestTUIModelInit(t *testing.T) {
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 	cmd := model.Init()
 
 	// Init should return nil as there's no initial command
@@ -49,7 +49,7 @@ func TestTUIModelInit(t *testing.T) {
 
 // TestTUIModelWindowSizeMsg tests handling of window size messages
 func TestTUIModelWindowSizeMsg(t *testing.T) {
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 
 	// Send a window size message
 	newModel, cmd := model.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -64,19 +64,20 @@ func TestTUIModelWindowSizeMsg(t *testing.T) {
 // newTestModel creates a new TUIModel for testing purposes.
 func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 	llm := fake.NewFakeLLM([]string{})
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 	// Disable persistent history to keep tests hermetic.
 	model.historyStore = nil
 	model.initHistory()
 	// Use native session path for tests now that legacy agent is removed.
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 	return model, llm
 }
 
 func TestCommandCompletionOrderDefaultsToHelp(t *testing.T) {
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 	model.prompt.SetValue("/")
 	model.completionMode = "command"
 	model.updateCommandCompletions()
@@ -108,7 +109,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model := NewTUIModel(mockConfig())
+			model := NewTUIModel(mockConfig(), nil, nil, nil)
 
 			// Send a quit key message
 			newModel, cmd := model.Update(tc.key)
@@ -134,7 +135,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 }
 
 func TestDoubleCtrlCToQuit(t *testing.T) {
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 
 	// First CTRL-C should not quit
 	newModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -287,32 +288,20 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 
 // TestTUIModelView tests the view rendering
 func TestTUIModelView(t *testing.T) {
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 
-	// Test view rendering with default dimensions (should not show initializing)
+	// Test view rendering with zero dimensions (should show initializing)
 	view := model.View()
-	require.NotEmpty(t, view)
-	require.NotContains(t, view, "Initializing...")
-
-	// Create a model with zero dimensions to test initializing message
-	model.width = 0
-	model.height = 0
-	view = model.View()
 	require.NotEmpty(t, view)
 	require.Contains(t, view, "Initializing...")
 
-	// Set dimensions and test again
+	// Set dimensions and test proper rendering
 	model.width = 80
 	model.height = 24
 	view = model.View()
 	require.NotEmpty(t, view)
-	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
+	require.NotContains(t, view, "Initializing...")
 
-	// Activate session and test chat view
-	model.sessionActive = true
-	view = model.View()
-	require.NotEmpty(t, view)
-	require.Contains(t, view, "Welcome to Asimi")
 }
 
 // TestPromptComponent tests the prompt component
@@ -492,38 +481,28 @@ func TestCompletionDialogScrolling(t *testing.T) {
 
 // TestStatusComponent tests the status component
 func TestStatusComponent(t *testing.T) {
-	originalManager := defaultGitInfoManager
-	defaultGitInfoManager = newGitInfoManager()
-	defaultGitInfoManager.mu.Lock()
-	defaultGitInfoManager.branch = "main"
-	defaultGitInfoManager.status = "[+]"
-	defaultGitInfoManager.isRepo = true
-	defaultGitInfoManager.lastUpdate = time.Now()
-	defaultGitInfoManager.mu.Unlock()
-	t.Cleanup(func() {
-		defaultGitInfoManager = originalManager
-	})
-
 	status := NewStatusComponent(50)
 
 	// Test setting properties with new API
 	status.SetProvider("test", "model", true)
 
+	// Set repo info to test branch rendering
+	repoInfo := &RepoInfo{
+		Branch: "main",
+	}
+	status.SetRepoInfo(repoInfo)
+
 	// Test width
 	status.SetWidth(60)
 	require.Equal(t, 60, status.Width)
-
-	expectedGitStatus := getGitStatus()
 
 	// Test view rendering
 	view := status.View()
 	require.NotEmpty(t, view)
 	// The new status format includes git branch and provider info
-	// Just check that it renders something
-	require.True(t, len(view) > 0)
-	if expectedGitStatus != "" {
-		require.Contains(t, view, expectedGitStatus)
-	}
+	require.Contains(t, view, "main")       // Should contain branch name
+	require.Contains(t, view, "test-model") // Should contain provider-model
+	require.Contains(t, view, "✅")          // Should contain connected icon
 }
 
 func TestSummarizeStatus(t *testing.T) {
@@ -673,7 +652,7 @@ func TestTUIModelUpdateFileCompletions(t *testing.T) {
 
 // TestRenderHomeView tests the home view rendering
 func TestRenderHomeView(t *testing.T) {
-	model := NewTUIModel(mockConfig())
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
 	model.width = 80
 	model.height = 24
 

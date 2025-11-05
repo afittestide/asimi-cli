@@ -123,7 +123,7 @@ var sessPromptPartials = map[string]any{
 var sessSystemPromptTemplate string
 
 // NewSession creates a new Session instance with a system prompt and tools.
-func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, error) {
+func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify NotifyFunc) (*Session, error) {
 	now := time.Now()
 	workingDir, _ := os.Getwd()
 
@@ -154,7 +154,7 @@ func NewSession(llm llms.Model, cfg *Config, toolNotify NotifyFunc) (*Session, e
 	for k, v := range sessPromptPartials {
 		partials[k] = v
 	}
-	partials["Env"] = sessBuildEnvBlock()
+	partials["Env"] = sessBuildEnvBlock(repoInfo)
 
 	pt := prompts.PromptTemplate{
 		Template:         sessSystemPromptTemplate,
@@ -701,7 +701,7 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 
 
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
-func sessBuildEnvBlock() string {
+func sessBuildEnvBlock(repoInfo RepoInfo) string {
 	cwd, _ := os.Getwd()
 	if cwd == "" {
 		cwd = "(unknown)"
@@ -712,7 +712,6 @@ func sessBuildEnvBlock() string {
 		home = "(unknown)"
 	}
 
-	repoInfo := GetRepoInfo()
 	root := repoInfo.ProjectRoot
 	if root == "" {
 		root = "(unknown)"
@@ -974,13 +973,12 @@ func generateSessionID() string {
 	return fmt.Sprintf("%s-%s", timestamp, suffix)
 }
 
-func NewSessionStore(maxSessions, maxAgeDays int) (*SessionStore, error) {
+func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionStore, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	repoInfo := GetRepoInfo()
 	projectRoot := repoInfo.ProjectRoot
 	slug := projectSlug(projectRoot)
 	if slug == "" {

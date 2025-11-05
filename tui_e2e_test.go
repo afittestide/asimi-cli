@@ -16,11 +16,12 @@ import (
 func TestFileCompletion(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config)
+	model := NewTUIModel(config, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 
@@ -78,11 +79,12 @@ func TestFileCompletion(t *testing.T) {
 func TestSlashCommandCompletion(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config)
+	model := NewTUIModel(config, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 

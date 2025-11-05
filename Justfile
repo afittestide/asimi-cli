@@ -14,8 +14,8 @@ build: modules
     go build .
 
 # Run the application in debug mode
-run: build
-    ./asimi --debug
+run: install
+    asimi --debug
 
 # Run all tests
 test: modules

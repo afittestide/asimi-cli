@@ -360,9 +360,10 @@ type shellRunner interface {
 }
 
 var (
-	shellRunnerMu      sync.RWMutex
-	currentShellRunner shellRunner
-	shellRunnerOnce    sync.Once
+	shellRunnerMu       sync.RWMutex
+	currentShellRunner  shellRunner
+	shellRunnerOnce     sync.Once
+	shellRunnerInstance shellRunner // Populated by fx
 )
 
 func setShellRunnerForTesting(r shellRunner) func() {
@@ -382,15 +383,26 @@ func initShellRunner(config *Config) {
 	defer shellRunnerMu.Unlock()
 
 	// Initialize podman shell runner with config
-	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config)
+	repoInfo := GetRepoInfo()
+	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config, repoInfo)
 }
 
 func getShellRunner() shellRunner {
+	// If shellRunnerInstance is set (via fx), use it
+	shellRunnerMu.RLock()
+	if shellRunnerInstance != nil {
+		defer shellRunnerMu.RUnlock()
+		return shellRunnerInstance
+	}
+	shellRunnerMu.RUnlock()
+
+	// Otherwise fall back to legacy initialization
 	shellRunnerOnce.Do(func() {
+		repoInfo := GetRepoInfo()
 		shellRunnerMu.Lock()
 		if currentShellRunner == nil {
 			// Default to podman runner with fallback disabled and nil config
-			currentShellRunner = newPodmanShellRunner(false, nil)
+			currentShellRunner = newPodmanShellRunner(false, nil, repoInfo)
 		}
 		shellRunnerMu.Unlock()
 	})

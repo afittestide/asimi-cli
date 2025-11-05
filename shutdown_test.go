@@ -17,7 +17,8 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewSessionStore(10, 30)
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 10, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -54,11 +55,10 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 	}
 
 	// Verify the session was saved
-	expectedSlug := projectSlug(GetRepoInfo().ProjectRoot)
+	expectedSlug := projectSlug(repoInfo.ProjectRoot)
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}
-	repoInfo := GetRepoInfo()
 	branchSlug := sanitizeSegment(repoInfo.Branch)
 	if branchSlug == "" {
 		branchSlug = "main"

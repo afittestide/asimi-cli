@@ -51,14 +51,14 @@ type commandOutput struct {
 	stderrDone bool
 }
 
-func newPodmanShellRunner(allowFallback bool, config *Config) *PodmanShellRunner {
+func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
 	return &PodmanShellRunner{
 		imageName:     "localhost/asimi-shell:latest",
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
 		config:        config,
-		repoInfo:      GetRepoInfo(),
+		repoInfo:      repoInfo,
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
 		stderrPipe:    nil,

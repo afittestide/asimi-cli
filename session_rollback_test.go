@@ -13,7 +13,8 @@ func TestSession_GetMessageSnapshot(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	// Initial snapshot should be 1 (system message)
@@ -42,7 +43,8 @@ func TestSession_RollbackTo(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	// Add some messages
@@ -72,7 +74,8 @@ func TestSession_RollbackToZero(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	_, err = sess.Ask(context.Background(), "test message")
@@ -92,7 +95,8 @@ func TestSession_RollbackBeyondLength(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	_, err = sess.Ask(context.Background(), "test message")
@@ -109,7 +113,8 @@ func TestSession_RollbackResetsToolLoopDetection(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	// Simulate tool loop detection state
@@ -166,7 +171,8 @@ func TestSession_RollbackWithToolCalls(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMToolMessages{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	snapshot1 := sess.GetMessageSnapshot()
@@ -193,7 +199,8 @@ func TestSession_MultipleToolMessagesPerCall(t *testing.T) {
 	t.Parallel()
 
 	llm := &sessionMockLLMMultiTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	initialLen := len(sess.Messages)
@@ -223,7 +230,8 @@ func TestSession_RollbackPreservesSystemPrompt(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
 	// Get the system message

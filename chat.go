@@ -48,7 +48,7 @@ func NewChatComponent(width, height int) ChatComponent {
 		glamour.WithWordWrap(width-4),
 	)
 
-	slog.Debug("[TIMING] Markdown renderer initialized in %v\n", "load time", time.Since(rendererStart), "err", err)
+	slog.Debug("[TIMING] Markdown renderer initialized", "load time", time.Since(rendererStart), "err", err)
 
 	/* TODO: Change the return values to *ChatComponent, err and return an err if failed
 	if err != nil {
@@ -81,16 +81,19 @@ func (c *ChatComponent) SetWidth(width int) {
 	c.Style = c.Style.Width(width)
 	c.Viewport.Width = width
 
-	rendererStart := time.Now()
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width-4),
-	)
-	if err != nil {
-		slog.Warn("Failed to initialize renderer", "error", err)
-	} else {
-		slog.Debug("[TIMING] Markdown renderer initialized in %v\n", "load time", time.Since(rendererStart), "err", err)
-		c.markdownRenderer = renderer
+	// Only create renderer if it doesn't exist yet
+	// Glamour renderer creation is expensive (~5s on first WindowSizeMsg)
+	// so we reuse the existing renderer and just update the content
+	if c.markdownRenderer == nil {
+		renderer, err := glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(width-4),
+		)
+		if err != nil {
+			slog.Warn("Failed to initialize renderer", "error", err)
+		} else {
+			c.markdownRenderer = renderer
+		}
 	}
 
 	c.UpdateContent()

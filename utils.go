@@ -19,6 +19,13 @@ type RepoInfo struct {
 	Branch       string
 	IsWorktree   bool
 	IsMain       bool
+	status       string // Cached git status
+}
+
+// GetStatus returns a short git status string (e.g., "[!+]")
+// This is cached at the time RepoInfo is created and does not update dynamically
+func (r *RepoInfo) GetStatus() string {
+	return r.status
 }
 
 // GetRepoInfo returns information about the current git repository and worktree
@@ -56,8 +63,9 @@ func GetRepoInfo() RepoInfo {
 		projectRoot = findProjectRoot(cwd)
 	}
 
-	// Get current branch using go-git
+	// Get current branch and status using go-git
 	branch := ""
+	status := ""
 	repo, err := gogit.PlainOpenWithOptions(cwd, &gogit.PlainOpenOptions{
 		DetectDotGit: true,
 	})
@@ -73,6 +81,8 @@ func GetRepoInfo() RepoInfo {
 			// go-git doesn't fully support worktrees, try reading HEAD directly
 			branch = readBranchFromWorktree()
 		}
+		// Get git status - only read once at startup
+		status = readShortStatus(repo)
 	} else if isWorktree {
 		// go-git failed, try reading branch directly from worktree
 		branch = readBranchFromWorktree()
@@ -87,6 +97,7 @@ func GetRepoInfo() RepoInfo {
 		Branch:       branch,
 		IsWorktree:   isWorktree,
 		IsMain:       isMain,
+		status:       status,
 	}
 }
 

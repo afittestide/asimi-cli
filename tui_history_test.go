@@ -457,7 +457,8 @@ func TestStatusComponent_WaitingIndicatorView(t *testing.T) {
 
 	// Create a mock session to provide usage data
 	llm := &mockLLMNoTools{}
-	sess, err := NewSession(llm, &Config{}, func(any) {})
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	require.NoError(t, err)
 	status.SetSession(sess)
 

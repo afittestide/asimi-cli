@@ -74,7 +74,8 @@ func TestSession_AskStream(t *testing.T) {
 	}
 
 	// Create session
-	session, err := NewSession(mockLLM, nil, notify)
+	repoInfo := GetRepoInfo()
+	session, err := NewSession(mockLLM, nil, repoInfo, notify)
 	require.NoError(t, err)
 
 	// Test streaming
