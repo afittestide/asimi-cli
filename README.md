@@ -177,6 +177,16 @@ max_output_tokens = 4096
 
 See `conf.toml.example` for a complete list of configuration options.
 
+### Authentication Environment Variables
+
+Asimi supports authentication via environment variables to bypass the keyring:
+
+- **`ANTHROPIC_API_KEY`** - Set your Anthropic API key directly
+- **`ANTHROPIC_OAUTH_TOKEN`** - Set your Anthropic OAuth token directly (bypasses keyring)
+- **`OPENAI_API_KEY`** - Set your OpenAI API key directly
+
+These environment variables are useful for CI/CD environments or when keyring access is not available.
+
 Logs are stored in `~/.local/share/asimi/log/`
 
 ## 🐛 Troubleshooting

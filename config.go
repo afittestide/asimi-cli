@@ -262,6 +262,13 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	// Check for ANTHROPIC_OAUTH_TOKEN to bypass keyring
+	if anthropicOAuthToken := os.Getenv("ANTHROPIC_OAUTH_TOKEN"); anthropicOAuthToken != "" {
+		if err := k.Set("llm.anthropic_auth_token", anthropicOAuthToken); err != nil {
+			log.Printf("Failed to set Anthropic OAuth token from environment: %v", err)
+		}
+	}
+
 	// Unmarshal the configuration into our struct
 	config := defaultConfig()
 	if err := k.Unmarshal("", &config); err != nil {
