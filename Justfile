@@ -10,7 +10,7 @@ modules:
 
 # Run the application
 run: modules
-    go run .
+    go run . --debug
 
 # Build the binary
 build: modules

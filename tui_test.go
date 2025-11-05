@@ -141,9 +141,10 @@ func TestDoubleCtrlCToQuit(t *testing.T) {
 	require.Nil(t, cmd)
 	tuiModel, ok := newModel.(TUIModel)
 	require.True(t, ok)
-	require.True(t, tuiModel.ctrlCPressed)
+	require.False(t, tuiModel.ctrlCPressedTime.IsZero())
 
-	// Second CTRL-C should quit
+	// Second CTRL-C should quit (wait slightly longer than debounce time)
+	time.Sleep(ctrlCDebounceTime + 10*time.Millisecond)
 	newModel, cmd = tuiModel.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	require.NotNil(t, cmd)
 	result := cmd()

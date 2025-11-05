@@ -96,6 +96,9 @@ func (tm ToastManager) View() string {
 		style = style.Copy().MaxWidth(contentWidth + frameWidth)
 	}
 	switch toast.Type {
+	//TODO: Use theme colors
+	case "info":
+		style = style.Background(lipgloss.NoColor{})
 	case "success":
 		style = style.Background(lipgloss.Color("76")) // Green
 	case "warning":
