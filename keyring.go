@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	gokeyring "github.com/zalando/go-keyring"
@@ -44,8 +46,22 @@ func SaveTokenToKeyring(provider, accessToken, refreshToken string, expiry time.
 	return nil
 }
 
-// GetTokenFromKeyring retrieves OAuth tokens from the OS keyring
-func GetTokenFromKeyring(provider string) (*TokenData, error) {
+// GetOauthToken retrieves OAuth tokens from environment variable or OS keyring
+func GetOauthToken(provider string) (*TokenData, error) {
+	// First check if the env var `<provider>_OAUTH_TOKEN` exists
+	envVarName := strings.ToUpper(provider) + "_OAUTH_TOKEN"
+	if envToken := os.Getenv(envVarName); envToken != "" {
+		// Env var holds the plain token text
+		// Set a far-future expiry since we don't have refresh capability
+		return &TokenData{
+			AccessToken:  envToken,
+			RefreshToken: "",
+			Expiry:       time.Now().Add(365 * 24 * time.Hour),
+			Provider:     provider,
+		}, nil
+	}
+
+	// Fall back to keyring
 	key := keyringPrefix + provider
 	jsonData, err := gokeyring.Get(keyringService, key)
 	if err != nil {
@@ -64,7 +80,12 @@ func GetTokenFromKeyring(provider string) (*TokenData, error) {
 	return &data, nil
 }
 
-// DeleteTokenFromKeyring removes OAuth tokens from the OS keyring
+// GetTokenFromKeyring is an alias for GetOauthToken for backward compatibility
+func GetTokenFromKeyring(provider string) (*TokenData, error) {
+	return GetOauthToken(provider)
+}
+
+// DeleteTokenFromKeyring removes OAuth tokens from the OS keyring on logout
 func DeleteTokenFromKeyring(provider string) error {
 	key := keyringPrefix + provider
 	err := gokeyring.Delete(keyringService, key)

@@ -177,17 +177,16 @@ max_output_tokens = 4096
 
 See `conf.toml.example` for a complete list of configuration options.
 
-### Authentication Environment Variables
+### Environment Variables
 
-Asimi supports authentication via environment variables to bypass the keyring:
+- **`EDITOR`** - Preferred text editor for export commands (e.g., `nvim`, `emacs`, `code`)
+- **`ASIMI_LAZYGIT_CMD`** - Custom lazygit command path
+- **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token for Anthropic API (takes priority over keyring)
+- **`ANTHROPIC_API_KEY`** - API key for Anthropic (alternative to OAuth)
+- **`ANTHROPIC_BASE_URL`** - Custom base URL for Anthropic API (e.g., for proxy or custom endpoint)
 
-- **`ANTHROPIC_API_KEY`** - Set your Anthropic API key directly
-- **`ANTHROPIC_OAUTH_TOKEN`** - Set your Anthropic OAuth token directly (bypasses keyring)
-- **`OPENAI_API_KEY`** - Set your OpenAI API key directly
 
-These environment variables are useful for CI/CD environments or when keyring access is not available.
-
-Logs are stored in `~/.local/share/asimi/log/`
+Logs are rotated and stored in `~/.local/share/asimi/`
 
 ## 🐛 Troubleshooting
 
@@ -203,15 +202,14 @@ chmod +x asimi
 ```
 
 **Q: API key not working**
-```bash
 # Re-login to refresh credentials
-asimi login
-```
+
+use `:login`
 
 **Q: Context overflow errors**
 ```bash
 # Check your context usage
-/context
+:context
 
 # Start a new conversation
 /new

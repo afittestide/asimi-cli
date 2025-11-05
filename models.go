@@ -33,7 +33,7 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 	// This ensures worktrees can access credentials stored in the OS keyring
 	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
 		// Try OAuth tokens first
-		tokenData, err := GetTokenFromKeyring(config.LLM.Provider)
+		tokenData, err := GetOauthToken(config.LLM.Provider)
 		if err == nil && tokenData != nil {
 			if !IsTokenExpired(tokenData) {
 				// Token is still valid - use it
@@ -50,7 +50,7 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 				}
 			}
 		}
-		
+
 		// If still no auth token, try API key from keyring
 		if config.LLM.AuthToken == "" {
 			apiKey, err := GetAPIKeyFromKeyring(config.LLM.Provider)
@@ -59,7 +59,7 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 			}
 		}
 	}
-	
+
 	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
 		return nil, fmt.Errorf("no authentication configured for anthropic provider")
 	}

@@ -48,7 +48,7 @@ var cli struct {
 }
 
 // Update the version as part of the version release process
-var version = "0.1.0+dev"
+var version = "0.2.0-rc.1"
 
 func initLogger() {
 	homeDir, err := os.UserHomeDir()
@@ -578,9 +578,13 @@ func getLLMClient(config *Config) (llms.Model, error) {
 	// First try to load tokens from keyring if not already in config
 	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
 		// Try OAuth tokens first
-		tokenData, err := GetTokenFromKeyring(config.LLM.Provider)
-		if err == nil && tokenData != nil {
-			if IsTokenExpired(tokenData) {
+		token, err := GetOauthToken(config.LLM.Provider)
+		if err == nil && token != nil {
+			if !IsTokenExpired(token) {
+				// Token is still valid - use it
+				config.LLM.AuthToken = token.AccessToken
+				config.LLM.RefreshToken = token.RefreshToken
+			} else {
 				// Token exists but expired - try to refresh it
 				slog.Info("Token expired, attempting refresh", "provider", config.LLM.Provider)
 
@@ -592,15 +596,13 @@ func getLLMClient(config *Config) (llms.Model, error) {
 						// Successfully refreshed - update config with new token
 						slog.Info("Token refresh successful", "provider", config.LLM.Provider)
 						config.LLM.AuthToken = newAccessToken
-
 						// Get updated token data from keyring (auth.access() should have saved it)
-						updatedTokenData, err := GetTokenFromKeyring(config.LLM.Provider)
-						if err == nil && updatedTokenData != nil {
-							config.LLM.RefreshToken = updatedTokenData.RefreshToken
-
+						token2, err := GetOauthToken(config.LLM.Provider)
+						if err == nil && token2 != nil {
+							config.LLM.RefreshToken = token2.RefreshToken
 							// Verify the tokens were actually saved by auth.access()
 							// If not, this is a critical issue that needs to be logged
-							if updatedTokenData.AccessToken != newAccessToken {
+							if token2.AccessToken != newAccessToken {
 								slog.Warn("Token mismatch after refresh - keyring may not have been updated",
 									"provider", config.LLM.Provider)
 							}
@@ -625,10 +627,6 @@ func getLLMClient(config *Config) (llms.Model, error) {
 						config.LLM.APIKey = apiKey
 					}
 				}
-			} else {
-				// Token is still valid - use it
-				config.LLM.AuthToken = tokenData.AccessToken
-				config.LLM.RefreshToken = tokenData.RefreshToken
 			}
 		} else {
 			// No token data found - try API key from keyring
