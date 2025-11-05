@@ -298,29 +298,60 @@ func (s *Session) removeUnmatchedToolCalls() {
 		return
 	}
 
-	// Check if the last message is an assistant message with tool calls
-	lastMsg := s.Messages[len(s.Messages)-1]
-	if lastMsg.Role != llms.ChatMessageTypeAI {
-		return
-	}
+	for len(s.Messages) > 0 {
+		lastIdx := len(s.Messages) - 1
+		lastMsg := s.Messages[lastIdx]
 
-	// Check if this message has any tool calls
-	hasToolCalls := false
-	for _, part := range lastMsg.Parts {
-		if _, ok := part.(llms.ToolCall); ok {
-			hasToolCalls = true
-			break
+		if lastMsg.Role == llms.ChatMessageTypeAI {
+			hasToolCalls := false
+			for _, part := range lastMsg.Parts {
+				if _, ok := part.(llms.ToolCall); ok {
+					hasToolCalls = true
+					break
+				}
+			}
+
+			if hasToolCalls {
+				slog.Debug("removing unmatched tool call from context")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
 		}
-	}
 
-	if !hasToolCalls {
+		if lastMsg.Role == llms.ChatMessageTypeTool {
+			if lastIdx == 0 {
+				slog.Debug("removing tool result without prior messages")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
+
+			prev := s.Messages[lastIdx-1]
+			toolCallIDs := make(map[string]struct{})
+			for _, part := range prev.Parts {
+				if tc, ok := part.(llms.ToolCall); ok && tc.ID != "" {
+					toolCallIDs[tc.ID] = struct{}{}
+				}
+			}
+
+			valid := len(toolCallIDs) > 0
+			for _, part := range lastMsg.Parts {
+				if resp, ok := part.(llms.ToolCallResponse); ok {
+					if _, exists := toolCallIDs[resp.ToolCallID]; !exists || resp.ToolCallID == "" {
+						valid = false
+						break
+					}
+				}
+			}
+
+			if !valid {
+				slog.Debug("removing dangling tool result from context")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
+		}
+
 		return
 	}
-
-	// If we have tool calls but no subsequent tool response message, remove this message
-	// (it's an unmatched tool call from an interrupted execution)
-	slog.Debug("removing unmatched tool call from context")
-	s.Messages = s.Messages[:len(s.Messages)-1]
 }
 
 // prepareUserMessage builds the prompt with context and adds it to the message history
@@ -699,7 +730,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 	}()
 }
 
-
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
 func sessBuildEnvBlock(repoInfo RepoInfo) string {
 	cwd, _ := os.Getwd()
@@ -815,7 +845,7 @@ func readProjectContext() string {
 func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
 	// Get tools with config
 	tools := getAvailableTools(cfg)
-	
+
 	// Map our concrete tools by name for execution.
 	execCatalog := map[string]lctools.Tool{}
 	for i := range tools {
@@ -1183,6 +1213,8 @@ func (store *SessionStore) saveSessionSync(session *Session) error {
 		return fmt.Errorf("cannot save nil session")
 	}
 
+	session.removeUnmatchedToolCalls()
+
 	hasUserMessage := false
 	for _, msg := range session.Messages {
 		if msg.Role == llms.ChatMessageTypeHuman {
@@ -1467,6 +1499,8 @@ func (store *SessionStore) LoadSession(id string) (*Session, error) {
 		}
 		session.Messages = append(session.Messages, restored)
 	}
+
+	session.removeUnmatchedToolCalls()
 
 	return session, nil
 }
