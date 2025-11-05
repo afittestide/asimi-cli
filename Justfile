@@ -1,4 +1,5 @@
-default:
+# listing all the recipes
+list-recipes:
     @just --list
 
 # Install dependencies
@@ -9,13 +10,13 @@ install: modules
 modules:
     go mod vendor
 
+# Run the application
+run: modules
+    go run . --debug
+
 # Build the binary
 build: modules
     go build .
-
-# Run the application in debug mode
-run: build
-    ./asimi --debug
 
 # Run all tests
 test: modules

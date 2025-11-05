@@ -14,6 +14,11 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+const (
+	ctrlCDebounceTime = 200 * time.Millisecond  // Debounce duplicate ctrl-c events
+	ctrlCWindowTime   = 2000 * time.Millisecond // Window for double ctrl-c to quit
+)
+
 // TUIModel represents the bubbletea model for the TUI
 type TUIModel struct {
 	config        *Config
@@ -73,6 +78,7 @@ type TUIModel struct {
 	// Waiting indicator state
 	waitingForResponse bool
 	waitingStart       time.Time
+	ctrlCPressedTime   time.Time
 }
 
 type promptHistoryEntry struct {
@@ -322,28 +328,35 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if keyStr == "ctrl+c" {
 		// Double CTRL-C to exit
-		if m.ctrlCPressed {
+		now := time.Now()
+		timeSinceFirst := now.Sub(m.ctrlCPressedTime)
+		slog.Debug("Got CTRL-C", "ctrlCPressed", !m.ctrlCPressedTime.IsZero(), "timeSinceFirst", timeSinceFirst)
+
+		// Ignore duplicate ctrl-c events within debounce window (likely from terminal/system)
+		if !m.ctrlCPressedTime.IsZero() && timeSinceFirst < ctrlCDebounceTime {
+			slog.Debug("Ignoring duplicate CTRL-C within debounce time")
+			return m, nil
+		}
+
+		// Double CTRL-C to exit - second press must be within window but after debounce time
+		if !m.ctrlCPressedTime.IsZero() && timeSinceFirst >= ctrlCDebounceTime && timeSinceFirst < ctrlCWindowTime {
 			// Second CTRL-C - actually quit
 			m.saveSession()
 			m.shutdown()
 			return m, tea.Quit
 		}
 
-		// First CTRL-C - cancel streaming and show warning
-		m.ctrlCPressed = true
-		if m.streamingActive {
-			m.cancelStreaming()
-			m.stopStreaming()
-			m.toastManager.AddToast("Streaming canceled. Press CTRL-C again to exit.", "error", 5*time.Second)
-		} else {
-			m.toastManager.AddToast("Press CTRL-C again to exit.", "error", 5*time.Second)
-		}
+		m.ctrlCPressedTime = now
+
+		m.chat.AddMessage("\nCTRL-C\n")
+		m.handleEscape()
+		m.toastManager.AddToast("Press CTRL-C in less than 2s to exit", "info", 3*time.Second)
 		return m, nil
 	}
 
-	// Reset CTRL-C flag when user presses any other key
-	if m.ctrlCPressed {
-		m.ctrlCPressed = false
+	if !m.ctrlCPressedTime.IsZero() {
+		// TODO: fix the next line to zero it
+		// m.ctrlCPressedTime = 0
 	}
 
 	// Handle Ctrl+Z for background mode
@@ -655,11 +668,8 @@ func (m TUIModel) handleCtrlZ() (tea.Model, tea.Cmd) {
 	return m, tea.Suspend
 }
 
-// handleEscape handles the escape key
+// handleEscape handles the escape key and the first ctrl-c
 func (m TUIModel) handleEscape() (tea.Model, tea.Cmd) {
-	// Note: vi insert mode escape is handled earlier in handleKeyMsg
-
-	// Check if streaming is active first - cancel streaming via context
 	if m.streamingActive && m.streamingCancel != nil {
 		slog.Info("escape_during_streaming", "cancelling_context", true)
 		m.streamingCancel()

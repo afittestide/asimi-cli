@@ -55,7 +55,9 @@ func TestFileCompletion(t *testing.T) {
 
 	// Quit the application (requires double CTRL-C)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	time.Sleep(ctrlCDebounceTime + 10*time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	//TODO: verify the application is down or final mode will hang if the "10" above is too short
 
 	// Get the final model
 	finalModel := tm.FinalModel(t)
@@ -71,7 +73,14 @@ func TestFileCompletion(t *testing.T) {
 
 	// Assert that the prompt was not sent and the editor is still focused
 	require.NotEmpty(t, tuiModel.chat.Messages)
-	require.Contains(t, tuiModel.chat.Messages[len(tuiModel.chat.Messages)-1], "Loaded file: main.go")
+	foundLoadedFileMsg := false
+	for _, msg := range tuiModel.chat.Messages {
+		if strings.Contains(msg, "Loaded file: main.go") {
+			foundLoadedFileMsg = true
+			break
+		}
+	}
+	require.True(t, foundLoadedFileMsg, "messages=%+v", tuiModel.chat.Messages)
 	require.True(t, tuiModel.prompt.TextArea.Focused(), "The editor should remain focused")
 }
 
@@ -105,15 +114,22 @@ func TestSlashCommandCompletion(t *testing.T) {
 
 	// Quit the application (requires double CTRL-C)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	time.Sleep(ctrlCDebounceTime + 10*time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
-
-	// Get the final model
+	//TODO: verify the application is down or final mode will hang if the "10" above is too short
 	finalModel := tm.FinalModel(t)
 	tuiModel, ok := finalModel.(TUIModel)
 	require.True(t, ok)
 
 	// Assert that the messages contain the help text
-	require.Contains(t, tuiModel.chat.Messages[len(tuiModel.chat.Messages)-1], "Available commands:")
+	foundHelpMsg := false
+	for _, msg := range tuiModel.chat.Messages {
+		if strings.Contains(msg, "Available commands:") {
+			foundHelpMsg = true
+			break
+		}
+	}
+	require.True(t, foundHelpMsg, "messages=%+v", tuiModel.chat.Messages)
 }
 
 func TestLiveAgentE2E(t *testing.T) {
