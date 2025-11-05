@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,36 +49,45 @@ func SaveTokenToKeyring(provider, accessToken, refreshToken string, expiry time.
 
 // GetOauthToken retrieves OAuth tokens from environment variable or OS keyring
 func GetOauthToken(provider string) (*TokenData, error) {
-	// First check if the env var `<provider>_OAUTH_TOKEN` exists
+	var err error
 	envVarName := strings.ToUpper(provider) + "_OAUTH_TOKEN"
-	if envToken := os.Getenv(envVarName); envToken != "" {
-		// Env var holds the plain token text
-		// Set a far-future expiry since we don't have refresh capability
-		return &TokenData{
-			AccessToken:  envToken,
-			RefreshToken: "",
-			Expiry:       time.Now().Add(365 * 24 * time.Hour),
-			Provider:     provider,
-		}, nil
-	}
+	rawData := os.Getenv(envVarName)
 
-	// Fall back to keyring
-	key := keyringPrefix + provider
-	jsonData, err := gokeyring.Get(keyringService, key)
-	if err != nil {
-		if err == gokeyring.ErrNotFound {
-			return nil, nil // Token not found is not an error
+	if rawData == "" {
+		// Fall back to keyring
+		key := keyringPrefix + provider
+		rawData, err = gokeyring.Get(keyringService, key)
+		if err != nil {
+			if err == gokeyring.ErrNotFound {
+				return nil, nil // Token not found is not an error
+			}
+			return nil, fmt.Errorf("failed to retrieve token from keyring: %w", err)
 		}
-		return nil, fmt.Errorf("failed to retrieve token from keyring: %w", err)
 	}
 
+	// Try to parse as JSON first
 	var data TokenData
-	err = json.Unmarshal([]byte(jsonData), &data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal token data: %w", err)
+	err = json.Unmarshal([]byte(rawData), &data)
+	if err == nil {
+		return &data, nil
 	}
 
-	return &data, nil
+	// If that fails, try base64 decoding first, then parse as JSON
+	decoded, err := base64.StdEncoding.DecodeString(rawData)
+	if err == nil {
+		err = json.Unmarshal(decoded, &data)
+		if err == nil {
+			return &data, nil
+		}
+	}
+
+	// If still failing, treat it as a raw access token
+	// This provides a fallback for simple usage
+	return &TokenData{
+		AccessToken: rawData,
+		Provider:    provider,
+		Expiry:      time.Now().Add(24 * time.Hour), // Give it a reasonable default expiry
+	}, nil
 }
 
 // GetTokenFromKeyring is an alias for GetOauthToken for backward compatibility
