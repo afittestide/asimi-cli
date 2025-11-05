@@ -485,7 +485,6 @@ func (a *AuthAnthropic) refreshToken(refreshToken string) (*AnthropicOAuthTokens
 	return &tokens, nil
 }
 
-
 // Login command handler
 func handleLoginCommand(model *TUIModel, args []string) tea.Cmd {
 	// Show provider selection modal
@@ -581,11 +580,11 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Update status and UI
 		m.status.SetAgent("anthropic (" + m.config.LLM.Model + ")")
-		m.chat.AddMessage("✅ Successfully authenticated with Anthropic (Claude Pro/Max)")
-		m.toastManager.AddToast("Authentication saved", "info", 2500)
+		m.toastManager.AddToast("✅ Anthropic Authenticated using Oauth", "info", 2500)
 		m.sessionActive = true
 
-		return nil
+		// Show model selection modal after successful authentication
+		return showModelSelectionMsg{}
 	}
 }
 func runOAuthLoopback(provider string) (accessToken, refreshToken string, expiry time.Time, err error) {
