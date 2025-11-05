@@ -36,11 +36,6 @@ func NewChatComponent(width, height int) ChatComponent {
 	vp := viewport.New(width, height)
 	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
 
-	// Get the initial width from the TUI model
-	if width == 0 {
-		width = 80 // Default width
-	}
-
 	rendererStart := time.Now()
 	// Create the renderer (this is the expensive operation, done async)
 	renderer, err := glamour.NewTermRenderer(
