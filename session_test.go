@@ -6,21 +6,69 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
 )
 
-// sessionMockLLM simulates provider-native function/tool calling behavior.
-type sessionMockLLM struct{ llms.Model }
+// sessionMockLLM simulates provider-native function/tool calling behavior and streaming.
+type sessionMockLLM struct {
+	llms.Model
+	response string // If set, returns this as a simple response instead of tool calling
+}
 
 // Call is unused in these tests but required by the interface.
 func (m *sessionMockLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
-	return "", nil
+	resp, err := m.GenerateContent(ctx, []llms.MessageContent{{
+		Role:  llms.ChatMessageTypeHuman,
+		Parts: []llms.ContentPart{llms.TextContent{Text: prompt}},
+	}}, options...)
+	if err != nil {
+		return "", err
+	}
+	if len(resp.Choices) == 0 {
+		return "", nil
+	}
+	return resp.Choices[0].Content, nil
 }
 
 // GenerateContent returns a tool call on first round and a final content after tool response.
+// If response field is set, it returns that as a simple streaming response instead.
 func (m *sessionMockLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	// If response is set, use streaming mode
+	if m.response != "" {
+		callOpts := &llms.CallOptions{}
+		for _, opt := range options {
+			opt(callOpts)
+		}
+
+		// If streaming function is provided, simulate streaming
+		if callOpts.StreamingFunc != nil {
+			chunks := strings.Split(m.response, " ")
+			for i, chunk := range chunks {
+				chunkText := chunk
+				if i < len(chunks)-1 {
+					chunkText += " "
+				}
+				if err := callOpts.StreamingFunc(ctx, []byte(chunkText)); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return &llms.ContentResponse{
+			Choices: []*llms.ContentChoice{
+				{
+					Content:   m.response,
+					ToolCalls: nil,
+				},
+			},
+		}, nil
+	}
+
+	// Tool calling mode
 	last := messages[len(messages)-1]
 	switch last.Role {
 	case llms.ChatMessageTypeHuman:
@@ -118,7 +166,6 @@ func TestNewSessionSystemMessageSinglePart(t *testing.T) {
 		}
 	}
 }
-
 
 // sessionMockLLMWriteRead simulates a write_file followed by read_file and then returns file content.
 type sessionMockLLMWriteRead struct{ llms.Model }
@@ -423,4 +470,717 @@ func (m *sessionMockLLMMultiTools) GenerateContent(ctx context.Context, messages
 		}}}, nil
 	}
 	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: "ok"}}}, nil
+}
+
+// TestSession_GetMessageSnapshot tests the snapshot functionality
+func TestSession_GetMessageSnapshot(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	// Initial snapshot should be 1 (system message)
+	snapshot := sess.GetMessageSnapshot()
+	assert.Equal(t, 1, snapshot)
+
+	// After first message, the session will:
+	// 1. Add user message
+	// 2. Get AI response (no tools)
+	// 3. Give model another turn (adds another AI message with same content)
+	// Total: system + user + ai + ai = 4
+	_, err = sess.Ask(context.Background(), "hello")
+	assert.NoError(t, err)
+	snapshot = sess.GetMessageSnapshot()
+	assert.Equal(t, 4, snapshot, "Should have system + user + ai + ai (second turn)")
+
+	// After second message, adds 3 more: user + ai + ai = 7 total
+	_, err = sess.Ask(context.Background(), "world")
+	assert.NoError(t, err)
+	snapshot = sess.GetMessageSnapshot()
+	assert.Equal(t, 7, snapshot, "Should have 7 messages total")
+}
+
+// TestSession_RollbackTo tests the rollback functionality
+func TestSession_RollbackTo(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	// Add some messages
+	_, err = sess.Ask(context.Background(), "first message")
+	assert.NoError(t, err)
+	snapshot1 := sess.GetMessageSnapshot()
+
+	_, err = sess.Ask(context.Background(), "second message")
+	assert.NoError(t, err)
+
+	_, err = sess.Ask(context.Background(), "third message")
+	assert.NoError(t, err)
+
+	// Rollback to after first message
+	sess.RollbackTo(snapshot1)
+	assert.Equal(t, snapshot1, len(sess.Messages))
+
+	// Verify we can continue from rolled back state
+	_, err = sess.Ask(context.Background(), "new second message")
+	assert.NoError(t, err)
+	// Should add user + ai + ai = 3 more messages
+	assert.Equal(t, snapshot1+3, len(sess.Messages))
+}
+
+// TestSession_RollbackToZero tests rollback with invalid snapshot
+func TestSession_RollbackToZero(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	_, err = sess.Ask(context.Background(), "test message")
+	assert.NoError(t, err)
+
+	// Rollback to 0 should preserve system message
+	sess.RollbackTo(0)
+	assert.Equal(t, 1, len(sess.Messages), "Should preserve system message")
+
+	// Rollback to negative should preserve system message
+	sess.RollbackTo(-5)
+	assert.Equal(t, 1, len(sess.Messages), "Should preserve system message")
+}
+
+// TestSession_RollbackBeyondLength tests rollback with snapshot beyond current length
+func TestSession_RollbackBeyondLength(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	_, err = sess.Ask(context.Background(), "test message")
+	assert.NoError(t, err)
+	currentLen := len(sess.Messages)
+
+	// Rollback to beyond current length should not change anything
+	sess.RollbackTo(currentLen + 10)
+	assert.Equal(t, currentLen, len(sess.Messages))
+}
+
+// TestSession_RollbackResetsToolLoopDetection tests that rollback resets tool loop state
+func TestSession_RollbackResetsToolLoopDetection(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	// Simulate tool loop detection state
+	sess.lastToolCallKey = "some_tool_call"
+	sess.toolCallRepetitionCount = 5
+
+	snapshot := sess.GetMessageSnapshot()
+
+	// Add a message
+	_, err = sess.Ask(context.Background(), "test")
+	assert.NoError(t, err)
+
+	// Rollback
+	sess.RollbackTo(snapshot)
+
+	// Tool loop state should be reset
+	assert.Equal(t, "", sess.lastToolCallKey)
+	assert.Equal(t, 0, sess.toolCallRepetitionCount)
+}
+
+// mockLLMToolMessages is a mock that returns tool messages for testing
+type mockLLMToolMessages struct{ llms.Model }
+
+func (m *mockLLMToolMessages) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
+	return "", nil
+}
+
+func (m *mockLLMToolMessages) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	last := messages[len(messages)-1]
+	switch last.Role {
+	case llms.ChatMessageTypeHuman:
+		// Return a tool call
+		return &llms.ContentResponse{Choices: []*llms.ContentChoice{{
+			ToolCalls: []llms.ToolCall{{
+				ID:   "tc1",
+				Type: "function",
+				FunctionCall: &llms.FunctionCall{
+					Name:      "read_file",
+					Arguments: `{"path":"testdata/test.txt"}`,
+				},
+			}},
+		}}}, nil
+	case llms.ChatMessageTypeTool:
+		// Return final response
+		return &llms.ContentResponse{Choices: []*llms.ContentChoice{{
+			Content: "Tool executed successfully",
+		}}}, nil
+	}
+	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: "ok"}}}, nil
+}
+
+// TestSession_RollbackWithToolCalls tests rollback with tool calls in history
+func TestSession_RollbackWithToolCalls(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMToolMessages{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	snapshot1 := sess.GetMessageSnapshot()
+
+	// Execute a message that triggers tool calls
+	_, err = sess.Ask(context.Background(), "read a file")
+	assert.NoError(t, err)
+
+	// Should have: system + user + assistant(tool call) + tool response + assistant(final)
+	assert.Greater(t, len(sess.Messages), snapshot1)
+
+	// Rollback to before the tool call
+	sess.RollbackTo(snapshot1)
+	assert.Equal(t, snapshot1, len(sess.Messages))
+
+	// Verify we can execute a different command
+	_, err = sess.Ask(context.Background(), "different command")
+	assert.NoError(t, err)
+	assert.Greater(t, len(sess.Messages), snapshot1)
+}
+
+// TestSession_MultipleToolMessagesPerCall tests the new one-message-per-tool-call structure
+func TestSession_MultipleToolMessagesPerCall(t *testing.T) {
+	t.Parallel()
+
+	llm := &sessionMockLLMMultiTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	initialLen := len(sess.Messages)
+
+	// Execute a request that triggers multiple tool calls
+	_, err = sess.Ask(context.Background(), "read two files")
+	assert.NoError(t, err)
+
+	// Count tool messages
+	toolMessageCount := 0
+	for i := initialLen; i < len(sess.Messages); i++ {
+		if sess.Messages[i].Role == llms.ChatMessageTypeTool {
+			toolMessageCount++
+			// Each tool message should have exactly one part
+			assert.Equal(t, 1, len(sess.Messages[i].Parts),
+				"Each tool message should have exactly one part")
+		}
+	}
+
+	// Should have 2 tool messages (one per tool call)
+	assert.Equal(t, 2, toolMessageCount,
+		"Should have one message per tool call")
+}
+
+// TestSession_RollbackPreservesSystemPrompt tests that system prompt is always preserved
+func TestSession_RollbackPreservesSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	llm := &mockLLMNoTools{}
+	repoInfo := GetRepoInfo()
+	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	assert.NoError(t, err)
+
+	// Get the system message
+	assert.Equal(t, 1, len(sess.Messages))
+	systemMsg := sess.Messages[0]
+	assert.Equal(t, llms.ChatMessageTypeSystem, systemMsg.Role)
+
+	// Add some messages
+	_, err = sess.Ask(context.Background(), "test1")
+	assert.NoError(t, err)
+	_, err = sess.Ask(context.Background(), "test2")
+	assert.NoError(t, err)
+
+	// Rollback to 0 (should preserve system message)
+	sess.RollbackTo(0)
+	assert.Equal(t, 1, len(sess.Messages))
+	assert.Equal(t, llms.ChatMessageTypeSystem, sess.Messages[0].Role)
+	assert.Equal(t, systemMsg, sess.Messages[0])
+
+	// Rollback to 1 (should preserve system message)
+	_, err = sess.Ask(context.Background(), "test3")
+	assert.NoError(t, err)
+	sess.RollbackTo(1)
+	assert.Equal(t, 1, len(sess.Messages))
+	assert.Equal(t, llms.ChatMessageTypeSystem, sess.Messages[0].Role)
+}
+
+func TestSessionStore_SaveAndLoad(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
+
+	session := &Session{
+		Messages: []llms.MessageContent{
+			{
+				Role: llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "Hello, world!"},
+				},
+			},
+			{
+				Role: llms.ChatMessageTypeAI,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "Hi there!"},
+					llms.ToolCall{
+						ID:   "call-123",
+						Type: "function",
+						FunctionCall: &llms.FunctionCall{
+							Name:      "write_file",
+							Arguments: `{"path":"test.go","content":"package main"}`,
+						},
+					},
+				},
+			},
+			{
+				Role: llms.ChatMessageTypeTool,
+				Parts: []llms.ContentPart{
+					llms.ToolCallResponse{
+						ToolCallID: "call-123",
+						Name:       "write_file",
+						Content:    "ok",
+					},
+				},
+			},
+		},
+		ContextFiles: map[string]string{
+			"test.go": "package main",
+		},
+	}
+
+	session.Provider = "anthropic"
+	session.Model = "claude-sonnet-4"
+	store.SaveSession(session)
+	store.Flush()
+	err = nil
+	if err != nil {
+		t.Fatalf("Failed to save session: %v", err)
+	}
+
+	sessions, err := store.ListSessions(10)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+
+	if len(sessions) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(sessions))
+	}
+
+	sessionData, err := store.LoadSession(sessions[0].ID)
+	if err != nil {
+		t.Fatalf("Failed to load session: %v", err)
+	}
+
+	if len(sessionData.Messages) != 3 {
+		t.Fatalf("Expected 3 messages, got %d", len(sessionData.Messages))
+	}
+
+	if sessionData.Provider != "anthropic" {
+		t.Fatalf("Expected provider 'anthropic', got '%s'", sessionData.Provider)
+	}
+
+	if sessionData.Model != "claude-sonnet-4" {
+		t.Fatalf("Expected model 'claude-sonnet-4', got '%s'", sessionData.Model)
+	}
+
+	if len(sessionData.Messages[0].Parts) == 0 {
+		t.Fatalf("Expected first message to have parts, got 0")
+	}
+	if _, ok := sessionData.Messages[0].Parts[0].(llms.TextContent); !ok {
+		t.Fatalf("Expected first part to be TextContent, got %T", sessionData.Messages[0].Parts[0])
+	}
+
+	if len(sessionData.Messages[1].Parts) < 2 {
+		t.Fatalf("Expected second message to have at least 2 parts, got %d", len(sessionData.Messages[1].Parts))
+	}
+	if _, ok := sessionData.Messages[1].Parts[1].(llms.ToolCall); !ok {
+		t.Fatalf("Expected second message second part to be ToolCall, got %T", sessionData.Messages[1].Parts[1])
+	}
+
+	if len(sessionData.Messages[2].Parts) == 0 {
+		t.Fatalf("Expected third message to have parts, got 0")
+	}
+	if _, ok := sessionData.Messages[2].Parts[0].(llms.ToolCallResponse); !ok {
+		t.Fatalf("Expected third message first part to be ToolCallResponse, got %T", sessionData.Messages[2].Parts[0])
+	}
+
+	expectedSlug := projectSlug(session.WorkingDir)
+	if expectedSlug == "" {
+		expectedSlug = defaultProjectSlug
+	}
+
+	if sessionData.ProjectSlug != expectedSlug {
+		t.Fatalf("Expected project slug %q, got %q", expectedSlug, sessionData.ProjectSlug)
+	}
+
+	if sessions[0].ProjectSlug != expectedSlug {
+		t.Fatalf("Expected indexed project slug %q, got %q", expectedSlug, sessions[0].ProjectSlug)
+	}
+
+	branchSlug := sanitizeSegment(repoInfo.Branch)
+	if branchSlug == "" {
+		branchSlug = "main"
+	}
+
+	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions")
+	if store.storageDir != expectedDir {
+		t.Fatalf("Expected storage directory %s, got %s", expectedDir, store.storageDir)
+	}
+
+	sessionPath := filepath.Join(store.storageDir, "session-"+sessions[0].ID)
+	if _, err := os.Stat(sessionPath); err != nil {
+		t.Fatalf("Expected session directory %s to exist: %v", sessionPath, err)
+	}
+}
+
+func TestSessionStore_RemovesDanglingToolCallsOnSave(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	store, err := NewSessionStore(RepoInfo{}, 50, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
+
+	session := &Session{
+		Messages: []llms.MessageContent{
+			{
+				Role: llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "System prompt"},
+				},
+			},
+			{
+				Role: llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "Need help writing a file"},
+				},
+			},
+			{
+				Role: llms.ChatMessageTypeAI,
+				Parts: []llms.ContentPart{
+					llms.ToolCall{
+						ID:   "toolu_123",
+						Type: "function",
+						FunctionCall: &llms.FunctionCall{
+							Name:      "write_file",
+							Arguments: `{"path":"main.go","content":"package main"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	store.SaveSession(session)
+	store.Flush()
+
+	if len(session.Messages) == 0 {
+		t.Fatalf("session should retain at least one message after cleanup")
+	}
+	if got := session.Messages[len(session.Messages)-1].Role; got != llms.ChatMessageTypeHuman {
+		t.Fatalf("expected trailing tool call to be removed, got last role %q", got)
+	}
+
+	sessions, err := store.ListSessions(10)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(sessions))
+	}
+
+	loaded, err := store.LoadSession(sessions[0].ID)
+	if err != nil {
+		t.Fatalf("Failed to load session: %v", err)
+	}
+	if len(loaded.Messages) == 0 {
+		t.Fatalf("Loaded session should contain messages")
+	}
+	last := loaded.Messages[len(loaded.Messages)-1]
+	if last.Role != llms.ChatMessageTypeHuman {
+		t.Fatalf("Expected last message role to be human after cleanup, got %q", last.Role)
+	}
+	for _, part := range last.Parts {
+		if _, ok := part.(llms.ToolCall); ok {
+			t.Fatalf("Expected no tool calls in final message after cleanup")
+		}
+	}
+}
+
+func TestSessionStore_EmptySession(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
+
+	session := &Session{
+		Messages: []llms.MessageContent{
+			{
+				Role: llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "System prompt"},
+				},
+			},
+		},
+		ContextFiles: map[string]string{},
+	}
+
+	session.Provider = "anthropic"
+	session.Model = "claude-sonnet-4"
+	store.SaveSession(session)
+	store.Flush()
+	err = nil
+	if err != nil {
+		t.Fatalf("SaveSession should not error on empty session: %v", err)
+	}
+
+	sessions, err := store.ListSessions(10)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+
+	if len(sessions) != 0 {
+		t.Fatalf("Expected 0 sessions (empty session should be skipped), got %d", len(sessions))
+	}
+}
+
+func TestSessionStore_Cleanup(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 2, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		session := &Session{
+			Messages: []llms.MessageContent{
+				{
+					Role: llms.ChatMessageTypeHuman,
+					Parts: []llms.ContentPart{
+						llms.TextContent{Text: "Message " + string(rune('0'+i))},
+					},
+				},
+			},
+			ContextFiles: map[string]string{},
+		}
+
+		session.Provider = "anthropic"
+		session.Model = "claude-sonnet-4"
+		store.SaveSession(session)
+		store.Flush()
+		err = nil
+		if err != nil {
+			t.Fatalf("Failed to save session %d: %v", i, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	err = store.CleanupOldSessions()
+	if err != nil {
+		t.Fatalf("Failed to cleanup sessions: %v", err)
+	}
+
+	sessions, err := store.ListSessions(10)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+
+	if len(sessions) != 2 {
+		t.Fatalf("Expected 2 sessions after cleanup (maxSessions=2), got %d", len(sessions))
+	}
+}
+
+func TestSessionStore_ListSessionsLimit(t *testing.T) {
+	tempDir := t.TempDir()
+	os.Setenv("HOME", tempDir)
+
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		session := &Session{
+			Messages: []llms.MessageContent{
+				{
+					Role: llms.ChatMessageTypeHuman,
+					Parts: []llms.ContentPart{
+						llms.TextContent{Text: "Message " + string(rune('0'+i))},
+					},
+				},
+			},
+			ContextFiles: map[string]string{},
+		}
+
+		session.Provider = "anthropic"
+		session.Model = "claude-sonnet-4"
+		store.SaveSession(session)
+		store.Flush()
+		err = nil
+		if err != nil {
+			t.Fatalf("Failed to save session %d: %v", i, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	sessions, err := store.ListSessions(5)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+
+	if len(sessions) != 5 {
+		t.Fatalf("Expected 5 sessions (limit=5), got %d", len(sessions))
+	}
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	now := time.Now()
+
+	today := formatRelativeTime(now)
+	if today[:5] != "Today" {
+		t.Errorf("Expected 'Today...', got '%s'", today)
+	}
+
+	yesterday := formatRelativeTime(now.AddDate(0, 0, -1))
+	if yesterday[:9] != "Yesterday" {
+		t.Errorf("Expected 'Yesterday...', got '%s'", yesterday)
+	}
+
+	thisYear := formatRelativeTime(now.AddDate(0, -2, 0))
+	if thisYear[:3] == "Today" || thisYear[:9] == "Yesterday" {
+		t.Errorf("Expected date format, got '%s'", thisYear)
+	}
+}
+
+func TestSessionStore_DirectoryCreation(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	repoInfo := GetRepoInfo()
+	store, err := NewSessionStore(repoInfo, 50, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
+
+	expectedSlug := projectSlug(repoInfo.ProjectRoot)
+	if expectedSlug == "" {
+		expectedSlug = defaultProjectSlug
+	}
+	branchSlug := sanitizeSegment(repoInfo.Branch)
+	if branchSlug == "" {
+		branchSlug = "main"
+	}
+
+	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions")
+	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
+		t.Fatalf("Session directory was not created: %s", expectedDir)
+	}
+
+	if store.storageDir != expectedDir {
+		t.Fatalf("Expected storageDir '%s', got '%s'", expectedDir, store.storageDir)
+	}
+}
+
+func TestSession_AskStream(t *testing.T) {
+	// Create mock LLM
+	mockLLM := &sessionMockLLM{
+		response: "Hello this is a streaming response",
+	}
+
+	// Track notifications
+	var notifications []interface{}
+	notify := func(msg any) {
+		notifications = append(notifications, msg)
+	}
+
+	// Create session
+	repoInfo := GetRepoInfo()
+	session, err := NewSession(mockLLM, nil, repoInfo, notify)
+	require.NoError(t, err)
+
+	// Test streaming
+	session.AskStream(context.Background(), "Hello")
+
+	// Wait a bit for the goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify we received streaming notifications
+	assert.Greater(t, len(notifications), 0, "Should have received streaming notifications")
+
+	// Check that we received streamChunkMsg notifications
+	chunkCount := 0
+	completeCount := 0
+	for _, notif := range notifications {
+		switch notif.(type) {
+		case streamChunkMsg:
+			chunkCount++
+		case streamCompleteMsg:
+			completeCount++
+		}
+	}
+
+	assert.Greater(t, chunkCount, 0, "Should have received chunk notifications")
+	assert.Equal(t, 1, completeCount, "Should have received exactly one complete notification")
+}
+
+func TestChatComponent_AppendToLastMessage(t *testing.T) {
+	chat := NewChatComponent(80, 20)
+
+	// Chat starts with a welcome message, so append to it first
+	chat.AppendToLastMessage(" Additional text")
+	assert.Equal(t, 1, len(chat.Messages))
+	assert.Contains(t, chat.Messages[0], "Additional text")
+
+	// Test appending more to existing message
+	chat.AppendToLastMessage(" More text")
+	assert.Equal(t, 1, len(chat.Messages))
+	assert.Contains(t, chat.Messages[0], "Additional text More text")
+
+	// Add a new message and append to it
+	chat.AddMessage("Asimi: ")
+	chat.AppendToLastMessage("This is streaming")
+	assert.Equal(t, 2, len(chat.Messages))
+	assert.Equal(t, "Asimi: This is streaming", chat.Messages[1])
 }
