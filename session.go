@@ -480,6 +480,7 @@ func (s *Session) processToolCalls(ctx context.Context, toolCalls []llms.ToolCal
 
 		// Execute tool and add response
 		response := s.executeToolCall(ctx, tool, tc, argsJSON)
+		slog.Debug("Called a tool", "tool", name, "args", argsJSON, "response", response)
 		toolMessages = append(toolMessages, llms.MessageContent{
 			Role:  llms.ChatMessageTypeTool,
 			Parts: []llms.ContentPart{response},
@@ -699,7 +700,6 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 	}()
 }
 
-
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
 func sessBuildEnvBlock() string {
 	cwd, _ := os.Getwd()
@@ -816,7 +816,7 @@ func readProjectContext() string {
 func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
 	// Get tools with config
 	tools := getAvailableTools(cfg)
-	
+
 	// Map our concrete tools by name for execution.
 	execCatalog := map[string]lctools.Tool{}
 	for i := range tools {
