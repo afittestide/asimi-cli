@@ -181,7 +181,10 @@ See `conf.toml.example` for a complete list of configuration options.
 
 - **`EDITOR`** - Preferred text editor for export commands (e.g., `nvim`, `emacs`, `code`)
 - **`ASIMI_LAZYGIT_CMD`** - Custom lazygit command path
-- **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token for Anthropic API (takes priority over keyring)
+- **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token for Anthropic API (takes priority over keyring). Supports three formats:
+  - Raw access token: `sk-ant-...`
+  - JSON format: `{"access_token":"...", "refresh_token":"...", "expiry":"...", "provider":"anthropic"}`
+  - Base64-encoded JSON (useful if copying from keychain)
 - **`ANTHROPIC_API_KEY`** - API key for Anthropic (alternative to OAuth)
 - **`ANTHROPIC_BASE_URL`** - Custom base URL for Anthropic API (e.g., for proxy or custom endpoint)
 

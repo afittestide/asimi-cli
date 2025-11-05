@@ -191,6 +191,74 @@ func TestKeyringConstants(t *testing.T) {
 	assert.Equal(t, "oauth_", keyringPrefix)
 }
 
+// TestGetOauthTokenFormats tests that GetOauthToken handles multiple input formats
+func TestGetOauthTokenFormats(t *testing.T) {
+	tests := []struct {
+		name        string
+		envValue    string
+		expectToken bool
+		checkFields func(*testing.T, *TokenData)
+	}{
+		{
+			name: "valid JSON format",
+			envValue: `{
+				"access_token": "test-access-123",
+				"refresh_token": "test-refresh-456",
+				"expiry": "2025-12-31T23:59:59Z",
+				"provider": "anthropic"
+			}`,
+			expectToken: true,
+			checkFields: func(t *testing.T, data *TokenData) {
+				assert.Equal(t, "test-access-123", data.AccessToken)
+				assert.Equal(t, "test-refresh-456", data.RefreshToken)
+				assert.Equal(t, "anthropic", data.Provider)
+			},
+		},
+		{
+			name:        "base64 encoded JSON",
+			envValue:    "eyJhY2Nlc3NfdG9rZW4iOiJ0ZXN0LWFjY2Vzcy0xMjMiLCJyZWZyZXNoX3Rva2VuIjoidGVzdC1yZWZyZXNoLTQ1NiIsImV4cGlyeSI6IjIwMjUtMTItMzFUMjM6NTk6NTlaIiwicHJvdmlkZXIiOiJhbnRocm9waWMifQ==",
+			expectToken: true,
+			checkFields: func(t *testing.T, data *TokenData) {
+				assert.Equal(t, "test-access-123", data.AccessToken)
+				assert.Equal(t, "test-refresh-456", data.RefreshToken)
+				assert.Equal(t, "anthropic", data.Provider)
+			},
+		},
+		{
+			name:        "raw access token string",
+			envValue:    "sk-ant-raw-token-12345",
+			expectToken: true,
+			checkFields: func(t *testing.T, data *TokenData) {
+				assert.Equal(t, "sk-ant-raw-token-12345", data.AccessToken)
+				assert.Equal(t, "anthropic", data.Provider)
+				assert.NotZero(t, data.Expiry)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variable
+			os.Setenv("ANTHROPIC_OAUTH_TOKEN", tt.envValue)
+			defer os.Unsetenv("ANTHROPIC_OAUTH_TOKEN")
+
+			// Call GetOauthToken
+			data, err := GetOauthToken("anthropic")
+
+			// Check results
+			assert.NoError(t, err)
+			if tt.expectToken {
+				assert.NotNil(t, data)
+				if data != nil && tt.checkFields != nil {
+					tt.checkFields(t, data)
+				}
+			} else {
+				assert.Nil(t, data)
+			}
+		})
+	}
+}
+
 // TestTokenDataJSON tests JSON marshaling/unmarshaling of TokenData
 func TestTokenDataJSON(t *testing.T) {
 	t.Run("marshal and unmarshal token data", func(t *testing.T) {
