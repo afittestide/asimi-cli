@@ -323,6 +323,27 @@ model = "claude-3-opus"
 		require.NoError(t, err)
 		assert.Equal(t, "sk-ant-test-key", config.LLM.APIKey)
 	})
+
+	t.Run("load ANTHROPIC_OAUTH_TOKEN from environment", func(t *testing.T) {
+		os.Setenv("ANTHROPIC_OAUTH_TOKEN", "oauth-test-token")
+		defer os.Unsetenv("ANTHROPIC_OAUTH_TOKEN")
+
+		// Create config with anthropic provider
+		err := os.MkdirAll(".asimi", 0755)
+		require.NoError(t, err)
+		defer os.RemoveAll(".asimi")
+
+		configContent := `[llm]
+provider = "anthropic"
+model = "claude-3-opus"
+`
+		err = os.WriteFile(".asimi/conf.toml", []byte(configContent), 0644)
+		require.NoError(t, err)
+
+		config, err := LoadConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "oauth-test-token", config.LLM.AnthropicAuthToken)
+	})
 }
 
 func TestSaveConfig(t *testing.T) {
