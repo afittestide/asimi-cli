@@ -23,14 +23,13 @@ type HistoryStore struct {
 }
 
 // NewHistoryStore creates a new history store
-func NewHistoryStore() (*HistoryStore, error) {
+func NewHistoryStore(repoInfo RepoInfo) (*HistoryStore, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
 	}
 
-	projectRoot := GetRepoInfo().ProjectRoot
-	slug := projectSlug(projectRoot)
+	slug := projectSlug(repoInfo.ProjectRoot)
 	if slug == "" {
 		slug = defaultProjectSlug
 	}

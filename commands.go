@@ -190,7 +190,9 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 			listLimit = config.Session.ListLimit
 		}
 
-		store, err := NewSessionStore(maxSessions, maxAgeDays)
+		repoInfo := GetRepoInfo()
+		// TODO: why a new store? this could be slow
+		store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
 		if err != nil {
 			return sessionResumeErrorMsg{err: err}
 		}

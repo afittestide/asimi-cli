@@ -268,7 +268,8 @@ func cleanGitEnv() []string {
 }
 
 func TestPodmanShellRunner(t *testing.T) {
-	runner := newPodmanShellRunner(true, nil) // allowFallback=true so test works without podman
+	repoInfo := GetRepoInfo()
+	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo hello",
@@ -284,7 +285,8 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 	if os.Getenv("container") != "" {
 		t.Skip("Skipping Podman test when running inside a container")
 	}
-	runner := newPodmanShellRunner(false, nil)
+	repoInfo := GetRepoInfo()
+	runner := newPodmanShellRunner(false, nil, repoInfo)
 
 	// First command
 	output1, err := runner.Run(context.Background(), RunInShellInput{
@@ -306,7 +308,8 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 }
 
 func TestPodmanShellRunnerWithStderr(t *testing.T) {
-	runner := newPodmanShellRunner(true, nil) // allowFallback=true so test works without podman
+	repoInfo := GetRepoInfo()
+	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo 'stdout msg' && echo 'stderr msg' >&2",

@@ -11,7 +11,7 @@ modules:
     go mod vendor
 
 # Run the application
-run: modules
+run:
     go run . --debug
 
 # Build the binary

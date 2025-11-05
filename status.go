@@ -15,7 +15,8 @@ type StatusComponent struct {
 	Connected bool
 	Width     int
 	Style     lipgloss.Style
-	Session   *Session // Reference to session for token/time tracking
+	Session   *Session  // Reference to session for token/time tracking
+	repoInfo  *RepoInfo // Git repository information
 	// Vi mode status
 	ViModeEnabled bool
 	ViCurrentMode string
@@ -46,6 +47,11 @@ func (s *StatusComponent) SetProvider(provider, model string, connected bool) {
 // SetSession sets the session reference for tracking
 func (s *StatusComponent) SetSession(session *Session) {
 	s.Session = session
+}
+
+// SetRepoInfo sets the repository information
+func (s *StatusComponent) SetRepoInfo(repoInfo *RepoInfo) {
+	s.repoInfo = repoInfo
 }
 
 // SetViMode updates vi mode status for display
@@ -165,7 +171,13 @@ func (s StatusComponent) View() string {
 
 // renderLeftSection renders the left section with branch info
 func (s StatusComponent) renderLeftSection() string {
-	branch := getCurrentGitBranch()
+	// Get branch from RepoInfo if available, otherwise fall back to git info manager
+	var branch string
+	// TODO: why test? Even when no git, RepoInfo should have defaults to use
+	if s.repoInfo != nil {
+		branch = s.repoInfo.Branch
+	}
+	// TODO: ditto
 	if branch == "" {
 		return "🪾no-git"
 	}
@@ -180,8 +192,10 @@ func (s StatusComponent) renderLeftSection() string {
 
 	var parts []string
 	parts = append(parts, "🌴 "+bs.Render(branch))
-	if gitStatus := getGitStatus(); gitStatus != "" {
-		parts = append(parts, gitStatus)
+	if s.repoInfo != nil {
+		if gitStatus := s.repoInfo.GetStatus(); gitStatus != "" {
+			parts = append(parts, gitStatus)
+		}
 	}
 	return strings.Join(parts, " ")
 }

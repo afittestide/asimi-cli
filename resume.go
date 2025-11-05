@@ -391,7 +391,8 @@ func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
 			maxAgeDays = config.Session.MaxAgeDays
 		}
 
-		store, err := NewSessionStore(maxSessions, maxAgeDays)
+		repoInfo := GetRepoInfo()
+		store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to create session store: %w", err)}
 		}

@@ -15,7 +15,8 @@ func TestHistoryStore_NewHistoryStore(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewHistoryStore()
+	repoInfo := GetRepoInfo()
+	store, err := NewHistoryStore(repoInfo)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NotEmpty(t, store.filePath)

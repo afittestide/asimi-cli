@@ -19,7 +19,6 @@ import (
 
 	"github.com/alecthomas/kong"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	isatty "github.com/mattn/go-isatty"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
@@ -27,6 +26,7 @@ import (
 	"github.com/tmc/langchaingo/llms/googleai"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"go.uber.org/fx"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -48,7 +48,7 @@ var cli struct {
 }
 
 // Update the version as part of the version release process
-var version = "0.2.0-rc.1"
+var version = "0.2.0-rc.4"
 
 func initLogger() {
 	homeDir, err := os.UserHomeDir()
@@ -104,128 +104,46 @@ func (r *runCmd) Run() error {
 		slog.Debug("[TIMING] Terminal check completed", "duration", time.Since(startTime))
 	}
 
-	configStart := time.Now()
-	config, err := LoadConfig()
-	if err != nil {
-		slog.Debug("Warning: Using defaults due to config load failure", "error", err)
-		// Continue with default config
-		config = &Config{
-			Server: ServerConfig{
-				Host: "localhost",
-				Port: 3000,
-			},
-			Database: DatabaseConfig{
-				Host:     "localhost",
-				Port:     5432,
-				User:     "asimi",
-				Password: "asimi",
-				Name:     "asimi_dev",
-			},
-			Logging: LoggingConfig{
-				Level:  "info",
-				Format: "text",
-			},
-			LLM: LLMConfig{
-				Provider: "openai",
-				Model:    "gpt-3.5-turbo",
-				APIKey:   "",
-				BaseURL:  "",
-			},
-		}
+	fmt.Printf("Asimi %s loading...\n", version)
+
+	// Variables to hold populated dependencies
+	var tuiProgram *tea.Program
+
+	// Conditionally enable fx logging based on debug flag
+	var fxOptions []fx.Option
+	if !cli.Debug {
+		fxOptions = append(fxOptions, fx.NopLogger)
 	}
 
-	if cli.Debug {
-		slog.Debug("[TIMING] LoadConfig() completed", "duration", time.Since(configStart))
+	// Add core providers
+	fxOptions = append(fxOptions,
+		fx.Provide(
+			ProvideLogger,
+			ProvideConfig,
+			ProvideRepoInfo,
+			ProvideShellRunner,
+			ProvideCommandHistory,
+			ProvideSessionHistory,
+			ProvideTUIModel,
+			StartTUI,
+		),
+		fx.Invoke(
+			ProvideModelClient,
+		),
+		fx.Populate(&shellRunnerInstance, &tuiProgram),
+	)
+
+	// Create fx app with all providers
+	app := fx.New(fxOptions...)
+
+	// Start the fx app (runs OnStart hooks for async initialization)
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start fx app: %w", err)
 	}
+	defer app.Stop(ctx)
 
-	// Initialize shell runner with config
-	initShellRunner(config)
-
-	// Create the TUI model
-	tuiStart := time.Now()
-	tuiModel := NewTUIModel(config)
-
-	if cli.Debug {
-		slog.Debug("[TIMING] NewTUIModel() completed", "duration", time.Since(tuiStart))
-	}
-
-	// Create the program but don't start it yet
-	programStart := time.Now()
-	program = tea.NewProgram(tuiModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
-
-	if cli.Debug {
-		slog.Debug("[TIMING] tea.NewProgram() completed", "duration", time.Since(programStart))
-	}
-
-	// Initialize LLM and session asynchronously to avoid blocking startup
-	go func() {
-		llmStart := time.Now()
-		llm, err := getLLMClient(config)
-		if cli.Debug {
-			slog.Debug("[TIMING] getLLMClient() completed", "duration", time.Since(llmStart))
-		}
-
-		if err != nil {
-			// Log the error but continue without LLM support
-			slog.Warn("Failed to get LLM client, running without AI capabilities", "error", err)
-			// Send a message to the TUI to show the warning
-			if program != nil {
-				program.Send(llmInitErrorMsg{err: err})
-			}
-		} else {
-			sessStart := time.Now()
-			sess, sessErr := NewSession(llm, config, func(m any) {
-				if program != nil {
-					program.Send(m)
-				}
-			})
-			if cli.Debug {
-				slog.Debug("[TIMING] NewSession() completed", "duration", time.Since(sessStart))
-			}
-
-			if sessErr != nil {
-				slog.Error("Failed to create session", "error", sessErr)
-				if program != nil {
-					program.Send(llmInitErrorMsg{err: sessErr})
-				}
-			} else {
-				// Send the session to the TUI
-				if program != nil {
-					program.Send(llmInitSuccessMsg{session: sess})
-				}
-			}
-		}
-	}()
-
-	// Initialize markdown renderer asynchronously to avoid blocking startup
-	go func() {
-		rendererStart := time.Now()
-		// Get the initial width from the TUI model
-		width := tuiModel.width
-		if width == 0 {
-			width = 80 // Default width
-		}
-
-		// Create the renderer (this is the expensive operation, done async)
-		renderer, err := glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(width-4),
-		)
-
-		if cli.Debug {
-			slog.Debug("[TIMING] Markdown renderer initialized", "duration", time.Since(rendererStart))
-		}
-
-		if err != nil {
-			slog.Error("Failed to initialize markdown renderer", "error", err)
-			return
-		}
-
-		// Send the created renderer to TUI
-		if program != nil {
-			program.Send(markdownRendererReadyMsg{renderer: renderer})
-		}
-	}()
+	slog.Debug("[TIMING] fx app initialized", "duration", time.Since(startTime))
 
 	// If profile-exit-ms is set, schedule an exit after that duration
 	if cli.ProfileExitMs > 0 {
@@ -234,26 +152,17 @@ func (r *runCmd) Run() error {
 			if cli.Debug {
 				slog.Debug("[TIMING] Auto-exiting after N ms for profiling", "ms", cli.ProfileExitMs)
 			}
-			if program != nil {
-				program.Send(tea.Quit())
-			}
+			program.Send(tea.Quit())
 		}()
 	}
 
-	if cli.Debug {
-		slog.Debug("[TIMING] About to start program.Run()", "duration_from_start", time.Since(startTime))
+	_, runErr := tuiProgram.Run()
+
+	if runErr != nil {
+		return fmt.Errorf("alas, there's been an error: %w", runErr)
 	}
 
-	runStart := time.Now()
-	if _, err := program.Run(); err != nil {
-		return fmt.Errorf("alas, there's been an error: %w", err)
-	}
-
-	if cli.Debug {
-		slog.Debug("[TIMING] program.Run() completed", "duration", time.Since(runStart))
-		slog.Debug("[TIMING] Total Run() time", "duration", time.Since(startTime))
-	}
-
+	slog.Debug("[TIMING] Total Run() time", "duration", time.Since(startTime))
 	return nil
 }
 
@@ -268,11 +177,6 @@ type llmInitSuccessMsg struct {
 // llmInitErrorMsg is sent when LLM initialization fails
 type llmInitErrorMsg struct {
 	err error
-}
-
-// markdownRendererReadyMsg is sent when the markdown renderer is ready
-type markdownRendererReadyMsg struct {
-	renderer *glamour.TermRenderer
 }
 
 func main() {
@@ -315,10 +219,13 @@ func main() {
 		slog.Debug("[TIMING] main() started", "time", startTime)
 	}
 
-	initLogger()
-
-	if cli.Debug {
-		slog.Debug("[TIMING] initLogger() completed", "duration", time.Since(startTime))
+	// For non-interactive mode, initialize the old logger
+	// For interactive mode, the fx-provided logger will be used
+	if cli.Prompt != "" {
+		initLogger()
+		if cli.Debug {
+			slog.Debug("[TIMING] initLogger() completed", "duration", time.Since(startTime))
+		}
 	}
 
 	if cli.Prompt != "" {
@@ -332,7 +239,7 @@ func main() {
 		// Initialize shell runner with config
 		initShellRunner(config)
 
-		llm, err := getLLMClient(config)
+		llm, err := getModelClient(config)
 		if err != nil {
 			fmt.Printf("Error creating LLM client: %v\n", err)
 			fmt.Printf("Please authenticate by running the program in interactive mode and use ':login'\n")
@@ -343,7 +250,8 @@ func main() {
 		var finalResponse strings.Builder
 		var mu sync.Mutex
 
-		sess, err := NewSession(llm, config, consoleStreamingNotify(done, &finalResponse, &mu))
+		repoInfo := GetRepoInfo()
+		sess, err := NewSession(llm, config, repoInfo, consoleStreamingNotify(done, &finalResponse, &mu))
 		if err != nil {
 			fmt.Printf("Error creating session: %v\n", err)
 			os.Exit(1)
@@ -573,8 +481,8 @@ func (d *toolCallDisplay) formatWithStatus() string {
 	return strings.Replace(baseFormat, "○", statusCircle, 1)
 }
 
-// getLLMClient creates and returns an LLM client based on the configuration
-func getLLMClient(config *Config) (llms.Model, error) {
+// getModelClient creates and returns an LLM client based on the configuration
+func getModelClient(config *Config) (llms.Model, error) {
 	// First try to load tokens from keyring if not already in config
 	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
 		// Try OAuth tokens first

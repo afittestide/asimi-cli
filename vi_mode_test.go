@@ -157,7 +157,7 @@ func TestViModeHistoryNavigation(t *testing.T) {
 	// Create a test model with vi mode enabled
 	config := &Config{}
 	config.LLM.ViMode = boolPtr(true)
-	model := NewTUIModel(config)
+	model := NewTUIModel(config, nil, nil, nil)
 
 	// Add some history entries
 	model.promptHistory = []promptHistoryEntry{
@@ -213,7 +213,7 @@ func TestViModeHistoryNavigationWithKJ(t *testing.T) {
 	// Test that k and j keys also work for history navigation in vi normal mode
 	config := &Config{}
 	config.LLM.ViMode = boolPtr(true)
-	model := NewTUIModel(config)
+	model := NewTUIModel(config, nil, nil, nil)
 
 	// Add history
 	model.promptHistory = []promptHistoryEntry{
