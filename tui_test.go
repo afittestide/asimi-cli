@@ -1457,6 +1457,7 @@ func TestFileCompletion(t *testing.T) {
 
 	// Quit the application (requires double CTRL-C)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	time.Sleep(ctrlCDebounceTime + 10*time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 
 	// Get the final model
@@ -1508,6 +1509,7 @@ func TestSlashCommandCompletion(t *testing.T) {
 
 	// Quit the application (requires double CTRL-C)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
+	time.Sleep(ctrlCDebounceTime + 10*time.Millisecond)
 	tm.Send(tea.KeyMsg{Type: tea.KeyCtrlC})
 
 	// Get the final model
