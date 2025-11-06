@@ -290,9 +290,74 @@ func (s *Session) checkToolCallLoop(name, argsJSON string) bool {
 	return false
 }
 
+// removeUnmatchedToolCalls removes any trailing assistant messages with tool calls
+// that don't have corresponding tool responses. This prevents errors when the agent
+// is interrupted mid-execution.
+func (s *Session) removeUnmatchedToolCalls() {
+	if len(s.Messages) == 0 {
+		return
+	}
+
+	for len(s.Messages) > 0 {
+		lastIdx := len(s.Messages) - 1
+		lastMsg := s.Messages[lastIdx]
+
+		if lastMsg.Role == llms.ChatMessageTypeAI {
+			hasToolCalls := false
+			for _, part := range lastMsg.Parts {
+				if _, ok := part.(llms.ToolCall); ok {
+					hasToolCalls = true
+					break
+				}
+			}
+
+			if hasToolCalls {
+				slog.Debug("removing unmatched tool call from context")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
+		}
+
+		if lastMsg.Role == llms.ChatMessageTypeTool {
+			if lastIdx == 0 {
+				slog.Debug("removing tool result without prior messages")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
+
+			prev := s.Messages[lastIdx-1]
+			toolCallIDs := make(map[string]struct{})
+			for _, part := range prev.Parts {
+				if tc, ok := part.(llms.ToolCall); ok && tc.ID != "" {
+					toolCallIDs[tc.ID] = struct{}{}
+				}
+			}
+
+			valid := len(toolCallIDs) > 0
+			for _, part := range lastMsg.Parts {
+				if resp, ok := part.(llms.ToolCallResponse); ok {
+					if _, exists := toolCallIDs[resp.ToolCallID]; !exists || resp.ToolCallID == "" {
+						valid = false
+						break
+					}
+				}
+			}
+
+			if !valid {
+				slog.Debug("removing dangling tool result from context")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
+		}
+
+		return
+	}
+}
+
 // prepareUserMessage builds the prompt with context and adds it to the message history
 func (s *Session) prepareUserMessage(prompt string) {
 	// Before adding a new user message, check for and remove any unmatched tool calls
+	s.removeUnmatchedToolCalls()
 
 	fullPrompt := s.buildPromptWithContext(prompt)
 	s.Messages = append(s.Messages, llms.MessageContent{
@@ -407,6 +472,7 @@ func (s *Session) RollbackTo(snapshot int) {
 }
 
 // hasToolCallResponse checks if toolMessages already contains a response for the given tool call ID
+// TODO: test to ensure we need this and the loops that use it
 func hasToolCallResponse(toolMessages []llms.MessageContent, toolCallID string) bool {
 	for _, msg := range toolMessages {
 		if msg.Role != llms.ChatMessageTypeTool {
@@ -1192,6 +1258,8 @@ func (store *SessionStore) saveSessionSync(session *Session) error {
 		return fmt.Errorf("cannot save nil session")
 	}
 
+	session.removeUnmatchedToolCalls()
+
 	hasUserMessage := false
 	for _, msg := range session.Messages {
 		if msg.Role == llms.ChatMessageTypeHuman {
@@ -1476,6 +1544,8 @@ func (store *SessionStore) LoadSession(id string) (*Session, error) {
 		}
 		session.Messages = append(session.Messages, restored)
 	}
+
+	session.removeUnmatchedToolCalls()
 
 	return session, nil
 }
