@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     ripgrep \
+    pkg-config \
     libgpgme-dev \
     libbtrfs-dev \
     && rm -rf /var/lib/apt/lists/*

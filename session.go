@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	debug "runtime/debug"
 	"sort"
 	"strings"
@@ -819,13 +818,12 @@ func sessBuildEnvBlock(repoInfo RepoInfo) string {
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf(`- **OS:** %s
+	result.WriteString(fmt.Sprintf(`- **OS:** debian
 - **Shell:** %s
 - **Paths:**
   - **cwd:** %s
   - **project root:** %s
   - **home:** %s`,
-		runtime.GOOS,
 		shell,
 		cwd,
 		root,
