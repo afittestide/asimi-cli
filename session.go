@@ -1112,11 +1112,11 @@ func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionSt
 	}
 
 	if err := store.migrateLegacySessions(); err != nil {
-		fmt.Printf("Warning: failed to migrate legacy sessions: %v\n", err)
+		slog.Warn("failed to migrate legacy sessions", "error", err)
 	}
 
 	if err := store.CleanupOldSessions(); err != nil {
-		fmt.Printf("Warning: failed to cleanup old sessions: %v\n", err)
+		slog.Warn("failed to cleanup old sessions", "error", err)
 	}
 
 	go store.saveWorker()
@@ -1156,7 +1156,7 @@ func (store *SessionStore) migrateLegacySessions() error {
 		}
 		if workingDir == cleanRoot {
 			if err := store.migrateLegacySessionData(session); err != nil {
-				fmt.Printf("Warning: failed to migrate legacy session %s: %v\n", session.ID, err)
+				slog.Warn("failed to migrate legacy session", "session_id", session.ID, "error", err)
 				continue
 			}
 			session.ProjectSlug = store.projectSlug
@@ -1205,7 +1205,7 @@ func (store *SessionStore) migrateLegacySessionData(session Session) error {
 					return copyErr
 				}
 				if err := os.RemoveAll(candidate); err != nil {
-					fmt.Printf("Warning: failed to remove legacy session directory %s: %v\n", candidate, err)
+					slog.Warn("failed to remove legacy session directory", "path", candidate, "error", err)
 				}
 			}
 			parent := filepath.Dir(candidate)
@@ -1222,13 +1222,13 @@ func (store *SessionStore) saveWorker() {
 		select {
 		case session := <-store.saveChan:
 			if err := store.saveSessionSync(session); err != nil {
-				fmt.Printf("Warning: failed to save session: %v\n", err)
+				slog.Warn(" failed to save session", "error", err)
 			}
 		case <-store.stopChan:
 			for len(store.saveChan) > 0 {
 				session := <-store.saveChan
 				if err := store.saveSessionSync(session); err != nil {
-					fmt.Printf("Warning: failed to save session: %v\n", err)
+					slog.Warn("failed to save session", "error", err)
 				}
 			}
 			return
@@ -1241,7 +1241,7 @@ func (store *SessionStore) SaveSession(session *Session) {
 		select {
 		case store.saveChan <- session:
 		default:
-			fmt.Printf("Warning: save channel full, skipping save\n")
+			slog.Warn("save channel full, skipping save")
 		}
 	}
 }
@@ -1683,7 +1683,7 @@ func (store *SessionStore) removeSessionDir(slug, id string) {
 		seen[path] = struct{}{}
 
 		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
-			fmt.Printf("Warning: failed to remove session %s at %s: %v\n", id, path, err)
+			slog.Warn("failed to remove session", "session_id", id, "path", path, "error", err)
 		}
 	}
 }
