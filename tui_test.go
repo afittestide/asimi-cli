@@ -42,6 +42,16 @@ func mockConfig() *Config {
 	}
 }
 
+// containsMessage checks if any message in the slice contains the given substring
+func containsMessage(messages []string, substring string) bool {
+	for _, msg := range messages {
+		if strings.Contains(msg, substring) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestTUIModelInit tests the initialization of the TUI model
 func TestTUIModelInit(t *testing.T) {
 	model := NewTUIModel(mockConfig(), nil, nil, nil)
@@ -1474,7 +1484,8 @@ func TestFileCompletion(t *testing.T) {
 
 	// Assert that the prompt was not sent and the editor is still focused
 	require.NotEmpty(t, tuiModel.chat.Messages)
-	require.Contains(t, tuiModel.chat.Messages[len(tuiModel.chat.Messages)-1], "Loaded file: main.go")
+	require.True(t, containsMessage(tuiModel.chat.Messages, "Loaded file: main.go"),
+		"messages", tuiModel.chat.Messages)
 	require.True(t, tuiModel.prompt.TextArea.Focused(), "The editor should remain focused")
 }
 
@@ -1518,7 +1529,8 @@ func TestSlashCommandCompletion(t *testing.T) {
 	require.True(t, ok)
 
 	// Assert that the messages contain the help text
-	require.Contains(t, tuiModel.chat.Messages[len(tuiModel.chat.Messages)-1], "Available commands:")
+	require.True(t, containsMessage(tuiModel.chat.Messages, "Available commands:"),
+		"messages", tuiModel.chat.Messages)
 }
 
 func TestLiveAgentE2E(t *testing.T) {

@@ -1,6 +1,6 @@
 # Asimi CLI - Agent Guide
 
-**Mission**: Build a safe, fun coding agent that produces high-quality code.
+**Language**: Go
 
 ## Quick Commands
 
