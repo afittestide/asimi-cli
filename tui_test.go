@@ -92,11 +92,11 @@ func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 
 func TestCommandCompletionOrderDefaultsToHelp(t *testing.T) {
 	model := NewTUIModel(mockConfig(), nil, nil, nil)
-	model.prompt.SetValue("/")
+	model.prompt.SetValue(":")
 	model.completionMode = "command"
 	model.updateCommandCompletions()
 	require.NotEmpty(t, model.completions.Options)
-	require.Equal(t, "/help", model.completions.Options[0])
+	require.Equal(t, ":help", model.completions.Options[0])
 }
 
 // TestTUIModelKeyMsg tests quitting the application with 'q' and Ctrl+C
@@ -226,8 +226,6 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 			name: "Escape key",
 			key:  tea.KeyMsg{Type: tea.KeyEsc},
 			setup: func(model *TUIModel) {
-				// Disable vi mode so escape clears the modal
-				model.prompt.SetViMode(false)
 				model.modal = NewBaseModal("Test", "Test content", 30, 10)
 				model.showCompletionDialog = true
 			},
@@ -270,7 +268,7 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 			setup: func(model *TUIModel) {
 				model.showCompletionDialog = true
 				model.completionMode = "command"
-				model.completions.SetOptions([]string{"/help", "option2", "option3"})
+				model.completions.SetOptions([]string{":help", "option2", "option3"})
 				model.completions.Show()
 			},
 			verify: func(t *testing.T, model *TUIModel, cmd tea.Cmd) {
@@ -671,32 +669,18 @@ func TestRenderHomeView(t *testing.T) {
 	model.width = 80
 	model.height = 24
 
-	// Test regular input mode (vi mode disabled)
-	model.prompt.SetViMode(false)
 	view := model.renderHomeView(80, 24)
 	require.NotEmpty(t, view)
 	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
 	require.Contains(t, view, "Your AI-powered coding assistant")
-	require.Contains(t, view, "Use / to access commands")
-	require.Contains(t, view, "Use /vi to enable vi mode")
-	require.NotContains(t, view, "Vi mode is enabled")
-
-	// Test vi mode enabled
-	model.prompt.SetViMode(true)
-	view = model.renderHomeView(80, 24)
-	require.NotEmpty(t, view)
-	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
-	require.Contains(t, view, "Your AI-powered coding assistant")
-	require.Contains(t, view, "Vi mode is enabled")
+	require.Contains(t, view, "Vi mode is always enabled")
 	require.Contains(t, view, "Press Esc to enter NORMAL mode")
 	require.Contains(t, view, "In NORMAL mode, press : to enter COMMAND-LINE mode")
-	require.NotContains(t, view, "Use / to access commands")
 }
 
 // TestColonCommandCompletion tests command completion with colon prefix in vi mode
 func TestColonCommandCompletion(t *testing.T) {
 	model, _ := newTestModel(t)
-	model.prompt.SetViMode(true)
 
 	// Test initial colon shows all commands with colon prefix
 	model.prompt.SetValue(":")
@@ -719,26 +703,11 @@ func TestColonCommandCompletion(t *testing.T) {
 	model.updateCommandCompletions()
 	require.NotEmpty(t, model.completions.Options)
 	require.Contains(t, model.completions.Options, ":new")
-
-	// Test that slash commands still work
-	model.prompt.SetValue("/he")
-	model.updateCommandCompletions()
-	require.NotEmpty(t, model.completions.Options)
-	require.Contains(t, model.completions.Options, "/help")
-
-	// Test that slash commands show with slash prefix
-	model.prompt.SetValue("/")
-	model.updateCommandCompletions()
-	require.NotEmpty(t, model.completions.Options)
-	for _, opt := range model.completions.Options {
-		require.True(t, strings.HasPrefix(opt, "/"), "Command should start with / but got: %s", opt)
-	}
 }
 
 // TestColonInNormalModeShowsCompletion tests that pressing : in normal mode shows completion dialog
 func TestColonInNormalModeShowsCompletion(t *testing.T) {
 	model, _ := newTestModel(t)
-	model.prompt.SetViMode(true)
 
 	// Start in insert mode
 	require.True(t, model.prompt.IsViInsertMode())
@@ -1380,48 +1349,6 @@ func TestHistoryNavigation_RapidNavigation(t *testing.T) {
 	require.False(t, model.historySaved)
 }
 
-// Tests from tui_vi_config_test.go
-
-func TestTUIRespectsViModeConfig(t *testing.T) {
-	tests := []struct {
-		name           string
-		viMode         *bool
-		expectedViMode bool
-	}{
-		{
-			name:           "default config enables vi mode",
-			viMode:         nil,
-			expectedViMode: true,
-		},
-		{
-			name:           "explicitly enabled",
-			viMode:         boolPtr(true),
-			expectedViMode: true,
-		},
-		{
-			name:           "explicitly disabled",
-			viMode:         boolPtr(false),
-			expectedViMode: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &Config{
-				LLM: LLMConfig{
-					ViMode: tt.viMode,
-				},
-			}
-
-			model := NewTUIModel(config, nil, nil, nil)
-
-			if model.prompt.ViMode != tt.expectedViMode {
-				t.Errorf("TUI prompt.ViMode = %v, want %v", model.prompt.ViMode, tt.expectedViMode)
-			}
-		})
-	}
-}
-
 // Tests from tui_e2e_test.go
 
 func TestFileCompletion(t *testing.T) {
@@ -1489,7 +1416,7 @@ func TestFileCompletion(t *testing.T) {
 	require.True(t, tuiModel.prompt.TextArea.Focused(), "The editor should remain focused")
 }
 
-func TestSlashCommandCompletion(t *testing.T) {
+func TestColonCommandCompletionE2E(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
 	model := NewTUIModel(config, nil, nil, nil)
@@ -1504,12 +1431,12 @@ func TestSlashCommandCompletion(t *testing.T) {
 	// Create a new test model
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(200, 200))
 
-	// Simulate typing "/"
-	tm.Type("/")
+	// Simulate typing ":"
+	tm.Type(":")
 
 	// Wait for the completion dialog to appear
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "/help")
+		return strings.Contains(string(bts), ":help")
 	}, teatest.WithCheckInterval(time.Millisecond*100), teatest.WithDuration(time.Second*3))
 
 	// Simulate pressing enter to select the first command

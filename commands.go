@@ -38,7 +38,6 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/login", "Login with OAuth provider selection", handleLoginCommand)
 	registry.RegisterCommand("/models", "Select AI model", handleModelsCommand)
 	registry.RegisterCommand("/context", "Show context usage details", handleContextCommand)
-	registry.RegisterCommand("/vi", "Toggle vi mode (use : for commands)", handleViCommand)
 	registry.RegisterCommand("/clear-history", "Clear all prompt history", handleClearHistoryCommand)
 	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
@@ -85,11 +84,8 @@ type showContextMsg struct{ content string }
 
 func handleHelpCommand(model *TUIModel, args []string) tea.Cmd {
 	return func() tea.Msg {
-		leader := "/"
-		if model != nil && model.prompt.ViMode {
-			leader = ":"
-		}
-		return showHelpMsg{leader: leader}
+		// Always use colon as the leader since vi mode is always enabled
+		return showHelpMsg{leader: ":"}
 	}
 }
 
@@ -124,26 +120,11 @@ func handleQuitCommand(model *TUIModel, args []string) tea.Cmd {
 func handleContextCommand(model *TUIModel, args []string) tea.Cmd {
 	return func() tea.Msg {
 		if model.session == nil {
-			return showContextMsg{content: "No active session. Use /login to configure a provider and start chatting."}
+			return showContextMsg{content: "No active session. Use :login to configure a provider and start chatting."}
 		}
 		info := model.session.GetContextInfo()
 		return showContextMsg{content: renderContextInfo(info)}
 	}
-}
-
-func handleViCommand(model *TUIModel, args []string) tea.Cmd {
-	// Toggle vi mode
-	model.prompt.SetViMode(!model.prompt.ViMode)
-
-	var message string
-	if model.prompt.ViMode {
-		message = "Vi mode enabled. Press 'i' to insert, 'Esc' to return to normal mode. Use : for commands."
-	} else {
-		message = "Vi mode disabled. Use / for commands."
-	}
-
-	model.toastManager.AddToast(message, "info", 4000)
-	return nil
 }
 
 func handleClearHistoryCommand(model *TUIModel, args []string) tea.Cmd {
@@ -249,7 +230,7 @@ func handleExportCommand(model *TUIModel, args []string) tea.Cmd {
 func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 	if model.session == nil {
 		return func() tea.Msg {
-			return showContextMsg{content: "No active session. Use /login to configure a provider and start chatting."}
+			return showContextMsg{content: "No active session. Use :login to configure a provider and start chatting."}
 		}
 	}
 

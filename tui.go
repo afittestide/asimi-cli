@@ -96,11 +96,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore,
 	registry := NewCommandRegistry()
 	theme := NewTheme()
 
-	// Create prompt component with vi mode based on config
 	prompt := NewPromptComponent(80, 5)
-	if config.IsViModeEnabled() {
-		prompt.SetViMode(true)
-	}
 
 	// Create status component and set repo info
 	status := NewStatusComponent(80)
@@ -392,11 +388,25 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ESC in Insert mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViInsertMode() {
 		m.prompt.EnterViNormalMode()
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
 		return m, nil
 	}
 	// ESC in Visual mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViVisualMode() {
 		m.prompt.EnterViNormalMode()
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
 		return m, nil
 	}
 	// ESC in Command-line mode -> Normal mode
@@ -412,6 +422,13 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if keyStr == "esc" && m.prompt.IsViLearningMode() {
 		m.prompt.EnterViNormalMode()
 		m.prompt.SetValue("")
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
 		return m, nil
 	}
 
@@ -441,15 +458,8 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleToggleRawMode()
 	case "enter":
 		return m.handleEnterKey()
-	case "/":
-		return m.handleSlashKey(msg)
 	case ":":
-		// In vi mode, colon acts like slash for commands
-		if m.prompt.ViMode {
-			return m.handleColonKey(msg)
-		}
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		return m.handleColonKey(msg)
 	case "@":
 		return m.handleAtKey(msg)
 	case "up":
@@ -902,8 +912,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Check for command prefix (/ or : in vi mode)
-	isCommand := strings.HasPrefix(content, "/") || (m.prompt.ViMode && strings.HasPrefix(content, ":"))
+	isCommand := strings.HasPrefix(content, ":")
 
 	if isCommand {
 		// Normalize command to use / prefix
@@ -921,10 +930,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 				command := cmd.Handler(&m, parts[1:])
 				cmds = append(cmds, command)
 				m.prompt.SetValue("")
-				// In vi mode, return to insert mode after command execution
-				if m.prompt.ViMode {
-					m.prompt.EnterViInsertMode()
-				}
+				m.prompt.EnterViInsertMode()
 			} else {
 				m.toastManager.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
 			}
@@ -1799,28 +1805,15 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 	subtitle := subtitleStyle.Render("Your AI-powered coding assistant")
 
-	// Create a list of helpful commands based on vi mode
-	var commands []string
-	if m.prompt.ViMode {
-		// Vi mode instructions
-		commands = []string{
-			"▶ Vi mode is enabled - You start in INSERT mode",
-			"▶ Press Esc to enter NORMAL mode (for navigation)",
-			"▶ In NORMAL mode, press : to enter COMMAND-LINE mode",
-			"▶ In COMMAND-LINE mode, type commands (e.g., :help, :new) and press Enter",
-			"▶ After executing a command, you return to INSERT mode",
-			"▶ Use @ to reference files (e.g., @main.go)",
-			"▶ Press Ctrl+C to quit",
-		}
-	} else {
-		// Regular input mode instructions
-		commands = []string{
-			"▶ Type a message and press Enter to chat",
-			"▶ Use / to access commands (e.g., /help, /new)",
-			"▶ Use /vi to enable vi mode",
-			"▶ Use @ to reference files (e.g., @main.go)",
-			"▶ Press Ctrl+C to quit",
-		}
+	// Create a list of helpful commands
+	commands := []string{
+		"▶ Vi mode is always enabled - You start in INSERT mode",
+		"▶ Press Esc to enter NORMAL mode (for navigation)",
+		"▶ In NORMAL mode, press : to enter COMMAND-LINE mode",
+		"▶ In COMMAND-LINE mode, type commands (e.g., :help, :new) and press Enter",
+		"▶ After executing a command, you return to INSERT mode",
+		"▶ Use @ to reference files (e.g., @main.go)",
+		"▶ Press Ctrl+C to quit",
 	}
 
 	// Style for commands

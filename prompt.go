@@ -31,10 +31,8 @@ type PromptComponent struct {
 	Height         int
 	Width          int
 	Style          lipgloss.Style
-	ViMode         bool   // Track if vi mode is enabled
 	ViCurrentMode  string // Current vi mode: insert, normal, visual, or command
 	viPendingOp    string // Track pending operation (e.g., "d" or "c")
-	normalKeyMap   textarea.KeyMap
 	viNormalKeyMap textarea.KeyMap
 	viInsertKeyMap textarea.KeyMap
 }
@@ -49,9 +47,6 @@ func NewPromptComponent(width, height int) PromptComponent {
 	// Set the dimensions
 	ta.SetWidth(width - 2) // Account for borders
 	ta.SetHeight(height)   // Account for borders
-
-	// Store the default (normal) keymap
-	normalKeyMap := ta.KeyMap
 
 	// Create a vi normal mode keymap (navigation only, no text input)
 	viNormalKeyMap := textarea.KeyMap{
@@ -105,22 +100,26 @@ func NewPromptComponent(width, height int) PromptComponent {
 		TransposeCharacterBackward: key.NewBinding(key.WithKeys("ctrl+t")),
 	}
 
-	return PromptComponent{
+	prompt := PromptComponent{
 		TextArea:       ta,
 		Height:         height,
 		Width:          width,
-		ViMode:         false,        // Default to normal mode
-		ViCurrentMode:  ViModeInsert, // When vi mode is enabled, start in insert mode
+		ViCurrentMode:  ViModeInsert, // Start in insert mode
 		viPendingOp:    "",           // No pending operation
-		normalKeyMap:   normalKeyMap,
 		viNormalKeyMap: viNormalKeyMap,
 		viInsertKeyMap: viInsertKeyMap,
 		Style: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
+			//TODO: get the color from the theme
 			BorderForeground(lipgloss.Color("#F952F9")). // Terminal7 prompt border
 			Width(width).
 			Height(height),
 	}
+
+	// Set insert mode keymap
+	prompt.TextArea.KeyMap = viInsertKeyMap
+
+	return prompt
 }
 
 // SetWidth updates the width of the prompt component
@@ -157,32 +156,8 @@ func (p *PromptComponent) Blur() {
 	p.TextArea.Blur()
 }
 
-// SetViMode enables or disables vi mode
-func (p *PromptComponent) SetViMode(enabled bool) {
-	p.ViMode = enabled
-
-	if enabled {
-		// Start in insert mode when enabling vi mode
-		p.ViCurrentMode = ViModeInsert
-		p.TextArea.KeyMap = p.viInsertKeyMap
-		p.viPendingOp = ""
-		p.TextArea.Placeholder = PlaceholderDefault
-		p.updateViModeStyle()
-	} else {
-		// Return to normal keymap
-		p.ViCurrentMode = ""
-		p.TextArea.KeyMap = p.normalKeyMap
-		p.viPendingOp = ""
-		p.TextArea.Placeholder = PlaceholderDefault
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
-	}
-}
-
 // EnterViNormalMode switches to vi normal mode (for navigation)
 func (p *PromptComponent) EnterViNormalMode() {
-	if !p.ViMode {
-		return
-	}
 	p.ViCurrentMode = ViModeNormal
 	p.viPendingOp = ""
 	p.TextArea.KeyMap = p.viNormalKeyMap
@@ -192,9 +167,6 @@ func (p *PromptComponent) EnterViNormalMode() {
 
 // EnterViVisualMode switches to vi visual mode (for text selection)
 func (p *PromptComponent) EnterViVisualMode() {
-	if !p.ViMode {
-		return
-	}
 	p.ViCurrentMode = ViModeVisual
 	p.viPendingOp = ""
 	p.TextArea.KeyMap = p.viNormalKeyMap // Visual mode uses similar navigation
@@ -204,9 +176,6 @@ func (p *PromptComponent) EnterViVisualMode() {
 
 // EnterViInsertMode switches to vi insert mode
 func (p *PromptComponent) EnterViInsertMode() {
-	if !p.ViMode {
-		return
-	}
 	p.ViCurrentMode = ViModeInsert
 	p.viPendingOp = ""
 	p.TextArea.KeyMap = p.viInsertKeyMap
@@ -216,67 +185,56 @@ func (p *PromptComponent) EnterViInsertMode() {
 
 // EnterViCommandLineMode switches to vi command-line mode
 func (p *PromptComponent) EnterViCommandLineMode() {
-	if !p.ViMode {
-		return
-	}
 	p.ViCurrentMode = ViModeCommandLine
 	p.viPendingOp = ""
-	// Use normal keymap for command-line editing (like when vi mode is disabled)
-	p.TextArea.KeyMap = p.normalKeyMap
+	// Use insert keymap for command-line editing
+	p.TextArea.KeyMap = p.viInsertKeyMap
 	p.TextArea.Placeholder = "Enter command..."
 	p.updateViModeStyle()
 }
 
 // IsViNormalMode returns true if in vi normal mode
 func (p PromptComponent) IsViNormalMode() bool {
-	return p.ViMode && p.ViCurrentMode == ViModeNormal
+	return p.ViCurrentMode == ViModeNormal
 }
 
 // IsViVisualMode returns true if in vi visual mode
 func (p PromptComponent) IsViVisualMode() bool {
-	return p.ViMode && p.ViCurrentMode == ViModeVisual
+	return p.ViCurrentMode == ViModeVisual
 }
 
 // IsViInsertMode returns true if in vi insert mode
 func (p PromptComponent) IsViInsertMode() bool {
-	return p.ViMode && p.ViCurrentMode == ViModeInsert
+	return p.ViCurrentMode == ViModeInsert
 }
 
 // IsViCommandLineMode returns true if in vi command-line mode
 func (p PromptComponent) IsViCommandLineMode() bool {
-	return p.ViMode && p.ViCurrentMode == ViModeCommandLine
+	return p.ViCurrentMode == ViModeCommandLine
 }
 
 // EnterViLearningMode switches to vi learning mode
 func (p *PromptComponent) EnterViLearningMode() {
-	if !p.ViMode {
-		return
-	}
 	p.ViCurrentMode = ViModeLearning
 	p.viPendingOp = ""
-	// Use normal keymap for learning mode editing
-	p.TextArea.KeyMap = p.normalKeyMap
+	// Use insert keymap for learning mode editing
+	p.TextArea.KeyMap = p.viInsertKeyMap
 	p.TextArea.Placeholder = "Enter learning note (will be appended to AGENTS.md)..."
 	p.updateViModeStyle()
 }
 
 // IsViLearningMode returns true if in vi learning mode
 func (p PromptComponent) IsViLearningMode() bool {
-	return p.ViMode && p.ViCurrentMode == ViModeLearning
+	return p.ViCurrentMode == ViModeLearning
 }
 
 // ViModeStatus returns current vi mode status for display components
 func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending string) {
-	return p.ViMode, p.ViCurrentMode, p.viPendingOp
+	return true, p.ViCurrentMode, p.viPendingOp
 }
 
 // updateViModeStyle updates the border color based on vi mode state
 func (p *PromptComponent) updateViModeStyle() {
-	if !p.ViMode {
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
-		return
-	}
-
 	switch p.ViCurrentMode {
 	case ViModeInsert:
 		// Insert mode: green border
