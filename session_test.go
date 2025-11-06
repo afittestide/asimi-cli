@@ -935,6 +935,104 @@ func TestSessionStore_RemovesDanglingToolCallsOnSave(t *testing.T) {
 	}
 }
 
+// mockLLMValidateNoUnmatchedCalls verifies that messages have no unmatched tool calls
+type mockLLMValidateNoUnmatchedCalls struct {
+	llms.Model
+	t *testing.T
+}
+
+func (m *mockLLMValidateNoUnmatchedCalls) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	// Verify no unmatched tool calls: if there's an AI message with tool calls,
+	// it must be followed by tool result messages
+	for i := 0; i < len(messages); i++ {
+		if messages[i].Role == llms.ChatMessageTypeAI {
+			// Collect tool call IDs from this message
+			toolCallIDs := make(map[string]bool)
+			for _, part := range messages[i].Parts {
+				if tc, ok := part.(llms.ToolCall); ok {
+					toolCallIDs[tc.ID] = true
+				}
+			}
+
+			// If there are tool calls, verify they have responses
+			if len(toolCallIDs) > 0 {
+				// Check subsequent messages for tool results
+				foundResults := make(map[string]bool)
+				for j := i + 1; j < len(messages) && messages[j].Role == llms.ChatMessageTypeTool; j++ {
+					for _, part := range messages[j].Parts {
+						if tcr, ok := part.(llms.ToolCallResponse); ok {
+							foundResults[tcr.ToolCallID] = true
+						}
+					}
+				}
+
+				// All tool calls must have results
+				for id := range toolCallIDs {
+					if !foundResults[id] {
+						m.t.Errorf("Found unmatched tool call with ID %s in messages sent to API", id)
+					}
+				}
+			}
+		}
+	}
+
+	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: "Test response"}}}, nil
+}
+
+func TestSession_RemovesUnmatchedToolCallsBeforeAPICall(t *testing.T) {
+	mock := &mockLLMValidateNoUnmatchedCalls{t: t}
+	session := &Session{
+		llm: mock,
+		Messages: []llms.MessageContent{
+			{
+				Role: llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "System prompt"},
+				},
+			},
+			{
+				Role: llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{
+					llms.TextContent{Text: "Write a file for me"},
+				},
+			},
+			// This AI message has a tool call with no result (simulates interrupt)
+			{
+				Role: llms.ChatMessageTypeAI,
+				Parts: []llms.ContentPart{
+					llms.ToolCall{
+						ID:   "toolu_unmatched",
+						Type: "function",
+						FunctionCall: &llms.FunctionCall{
+							Name:      "write_file",
+							Arguments: `{"path":"test.go","content":"package main"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// This should not error because generateLLMResponse should remove the unmatched tool call
+	_, err := session.generateLLMResponse(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("generateLLMResponse failed: %v", err)
+	}
+
+	// Verify the session's messages were cleaned up
+	if len(session.Messages) > 0 {
+		last := session.Messages[len(session.Messages)-1]
+		if last.Role == llms.ChatMessageTypeAI {
+			// If the last message is AI, it should have no tool calls
+			for _, part := range last.Parts {
+				if _, ok := part.(llms.ToolCall); ok {
+					t.Error("Expected unmatched tool call to be removed from session messages")
+				}
+			}
+		}
+	}
+}
+
 func TestSessionStore_EmptySession(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
