@@ -32,7 +32,7 @@ func NewCommandRegistry() CommandRegistry {
 	}
 
 	// Register built-in commands
-	registry.RegisterCommand("/help", "Show help information", handleHelpCommand)
+	registry.RegisterCommand("/help", "Show help (usage: :help [topic])", handleHelpCommand)
 	registry.RegisterCommand("/new", "Start a new session", handleNewSessionCommand)
 	registry.RegisterCommand("/quit", "Quit the application", handleQuitCommand)
 	registry.RegisterCommand("/login", "Login with OAuth provider selection", handleLoginCommand)
@@ -78,14 +78,19 @@ func (cr CommandRegistry) GetAllCommands() []Command {
 // Command handlers
 
 type showHelpMsg struct {
-	leader string
+	topic string
 }
 type showContextMsg struct{ content string }
 
 func handleHelpCommand(model *TUIModel, args []string) tea.Cmd {
+	// Determine the help topic from args
+	topic := "index" // Default topic
+	if len(args) > 0 {
+		topic = args[0]
+	}
+	
 	return func() tea.Msg {
-		// Always use colon as the leader since vi mode is always enabled
-		return showHelpMsg{leader: ":"}
+		return showHelpMsg{topic: topic}
 	}
 }
 

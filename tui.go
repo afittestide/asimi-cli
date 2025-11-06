@@ -32,6 +32,7 @@ type TUIModel struct {
 	completions         CompletionDialog
 	commandLine         *CommandLineComponent
 	modal               *BaseModal
+	helpViewer          *HelpViewer
 	providerModal       *ProviderSelectionModal
 	codeInputModal      *CodeInputModal
 	modelSelectionModal *ModelSelectionModal
@@ -115,6 +116,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore,
 		completions:    NewCompletionDialog(),
 		commandLine:    NewCommandLineComponent(),
 		modal:          nil,
+		helpViewer:     NewHelpViewer(),
 		providerModal:  nil,
 		codeInputModal: nil,
 
@@ -352,6 +354,12 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle Ctrl+Z for background mode
 	if keyStr == "ctrl+z" {
 		return m.handleCtrlZ()
+	}
+
+	// Handle help viewer first if it's visible
+	if m.helpViewer != nil && m.helpViewer.IsVisible() {
+		m.helpViewer, cmd = m.helpViewer.Update(msg)
+		return m, cmd
 	}
 
 	// Handle modals first (they need to handle their own escape keys)
@@ -1040,7 +1048,6 @@ func (m TUIModel) handleCommandLineInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Execute command
 		cmdText := m.commandLine.GetCommand()
 		m.commandLine.ExitCommandMode()
-		m.prompt.Focus()
 
 		// Execute the command
 		if cmdText != "" {
@@ -1053,11 +1060,15 @@ func (m TUIModel) handleCommandLineInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cmd, exists := m.commandRegistry.GetCommand(cmdName)
 				if exists {
 					command := cmd.Handler(&m, parts[1:])
+					// Don't return focus to prompt yet - let the command/modal handle it
 					return m, command
 				} else {
 					m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
+					m.prompt.Focus()
 				}
 			}
+		} else {
+			m.prompt.Focus()
 		}
 		return m, nil
 
@@ -1128,6 +1139,11 @@ func (m TUIModel) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd
 	m.width = msg.Width
 	m.height = msg.Height
 	m.updateComponentDimensions()
+	
+	// Update help viewer size
+	if m.helpViewer != nil {
+		m.helpViewer.SetSize(msg.Width, msg.Height)
+	}
 
 	return m, nil
 }
@@ -1286,22 +1302,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshGitInfo()
 
 	case showHelpMsg:
-		leader := msg.leader
-		if leader == "" {
-			leader = "/"
+		// Show the help viewer with the requested topic
+		if m.helpViewer != nil {
+			m.helpViewer.Show(msg.topic)
 		}
-
-		helpText := fmt.Sprintf("Active command leader: %s\n", leader)
-		helpText += "Available commands:\n"
-		for _, cmd := range m.commandRegistry.GetAllCommands() {
-			displayName := cmd.Name
-			if leader == ":" && strings.HasPrefix(displayName, "/") {
-				displayName = ":" + strings.TrimPrefix(displayName, "/")
-			}
-			helpText += fmt.Sprintf("  %s - %s\n", displayName, cmd.Description)
-		}
-		m.chat.AddMessage(helpText)
-		m.sessionActive = true
+		return m, nil
 
 	case showContextMsg:
 		m.addToRawHistory("CONTEXT", msg.content)
@@ -1501,6 +1506,14 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 		}
 
+	}
+
+	// Restore focus to prompt if no modals are active
+	if m.providerModal == nil && m.codeInputModal == nil && 
+	   m.modelSelectionModal == nil && m.sessionModal == nil && 
+	   !m.commandLine.IsInCommandMode() &&
+	   (m.helpViewer == nil || !m.helpViewer.IsVisible()) {
+		m.prompt.Focus()
 	}
 
 	var chatCmd tea.Cmd
@@ -1810,6 +1823,11 @@ func (m TUIModel) applyModalOverlays(view string) string {
 
 	// Note: m.modal (help modal) is now rendered in composeBaseView above the prompt
 	// Only apply centered overlays for other modals here
+
+	// Render help viewer if visible (full screen overlay)
+	if m.helpViewer != nil && m.helpViewer.IsVisible() {
+		return m.helpViewer.View()
+	}
 
 	if m.providerModal != nil {
 		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.providerModal.Render())
