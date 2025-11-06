@@ -325,9 +325,27 @@ func (s *Session) removeUnmatchedToolCalls() {
 				continue
 			}
 
-			prev := s.Messages[lastIdx-1]
+			// Look backwards past other tool messages to find the AI message with tool calls
+			var aiMsg *llms.MessageContent
+			for i := lastIdx - 1; i >= 0; i-- {
+				if s.Messages[i].Role == llms.ChatMessageTypeAI {
+					aiMsg = &s.Messages[i]
+					break
+				}
+				// Stop if we encounter a non-tool message that isn't AI
+				if s.Messages[i].Role != llms.ChatMessageTypeTool {
+					break
+				}
+			}
+
+			if aiMsg == nil {
+				slog.Debug("removing tool result without prior AI message")
+				s.Messages = s.Messages[:lastIdx]
+				continue
+			}
+
 			toolCallIDs := make(map[string]struct{})
-			for _, part := range prev.Parts {
+			for _, part := range aiMsg.Parts {
 				if tc, ok := part.(llms.ToolCall); ok && tc.ID != "" {
 					toolCallIDs[tc.ID] = struct{}{}
 				}
@@ -380,6 +398,9 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	if streamingFunc != nil {
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
 	}
+
+	// Remove any unmatched tool calls from context before sending to API
+	s.removeUnmatchedToolCalls()
 
 	// Attempt with explicit tool choice first.
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
