@@ -306,7 +306,7 @@ func handleModelsCommand(model *TUIModel, args []string) tea.Cmd {
 	// Only allow model selection for Anthropic provider
 	name := model.config.LLM.Provider
 	if name != "anthropic" {
-		model.toastManager.AddToast("Model selection is not available for "+name, "error", 3000)
+		model.commandLine.AddToast("Model selection is not available for "+name, "error", 3000)
 		return nil
 	}
 

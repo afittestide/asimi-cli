@@ -169,8 +169,15 @@ func (s StatusComponent) View() string {
 	return s.Style.Render(statusLine)
 }
 
-// renderLeftSection renders the left section with branch info
+// renderLeftSection renders the left section with vi mode and branch info
 func (s StatusComponent) renderLeftSection() string {
+	var parts []string
+
+	// Add vi mode indicator first
+	if viMode := s.RenderViModeIndicator(); viMode != "" {
+		parts = append(parts, viMode)
+	}
+
 	// Get branch from RepoInfo if available, otherwise fall back to git info manager
 	var branch string
 	// TODO: why test? Even when no git, RepoInfo should have defaults to use
@@ -179,7 +186,8 @@ func (s StatusComponent) renderLeftSection() string {
 	}
 	// TODO: ditto
 	if branch == "" {
-		return "🪾no-git"
+		parts = append(parts, "🪾no-git")
+		return strings.Join(parts, " ")
 	}
 
 	// Color branch name: yellow for main, green for others
@@ -190,7 +198,6 @@ func (s StatusComponent) renderLeftSection() string {
 		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green
 	}
 
-	var parts []string
 	parts = append(parts, "🌴 "+bs.Render(branch))
 	if s.repoInfo != nil {
 		if gitStatus := s.repoInfo.GetStatus(); gitStatus != "" {

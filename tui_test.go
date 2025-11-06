@@ -587,44 +587,44 @@ func TestBaseModal(t *testing.T) {
 	require.Contains(t, view, content)
 }
 
-// TestToastManager tests the toast manager
-func TestToastManager(t *testing.T) {
-	toastManager := NewToastManager()
+// TestCommandLine tests the command line component (including toast functionality)
+func TestCommandLine(t *testing.T) {
+	commandLine := NewCommandLineComponent()
 
 	// Initially should have no toasts
-	require.Empty(t, toastManager.Toasts)
+	require.Empty(t, commandLine.toasts)
 
 	// Test adding a toast
 	message := "Test toast message"
-	tostType := "info"
+	toastType := "info"
 	timeout := 5 * time.Second
 
-	toastManager.AddToast(message, tostType, timeout)
-	require.Equal(t, 1, len(toastManager.Toasts))
+	commandLine.AddToast(message, toastType, timeout)
+	require.Equal(t, 1, len(commandLine.toasts))
 
-	// Test view rendering
-	view := toastManager.View()
+	// Test view rendering with toast
+	view := commandLine.View()
 	require.NotEmpty(t, view)
 	require.Contains(t, view, message)
 
 	// Test clearing toasts
-	toastManager.Clear()
-	require.Empty(t, toastManager.Toasts)
+	commandLine.ClearToasts()
+	require.Empty(t, commandLine.toasts)
 
 	// Re-add toast to verify removal still works
-	toastManager.AddToast(message, tostType, timeout)
-	require.Equal(t, 1, len(toastManager.Toasts))
+	commandLine.AddToast(message, toastType, timeout)
+	require.Equal(t, 1, len(commandLine.toasts))
 
 	// Test removing a toast
-	toastID := toastManager.Toasts[0].ID
-	toastManager.RemoveToast(toastID)
-	require.Empty(t, toastManager.Toasts)
+	toastID := commandLine.toasts[0].ID
+	commandLine.RemoveToast(toastID)
+	require.Empty(t, commandLine.toasts)
 
 	// Test updating (removing expired toasts)
-	toastManager.AddToast(message, tostType, 1*time.Millisecond)
+	commandLine.AddToast(message, toastType, 1*time.Millisecond)
 	time.Sleep(2 * time.Millisecond) // Wait for toast to expire
-	toastManager.Update()
-	require.Empty(t, toastManager.Toasts)
+	commandLine.Update()
+	require.Empty(t, commandLine.toasts)
 }
 
 // TestTUIModelUpdateFileCompletions tests the file completion functionality with multiple files
@@ -1431,15 +1431,18 @@ func TestColonCommandCompletionE2E(t *testing.T) {
 	// Create a new test model
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(200, 200))
 
-	// Simulate typing ":"
+	// Simulate typing ":" to enter command mode
 	tm.Type(":")
 
-	// Wait for the completion dialog to appear
+	// Wait for the command line to show ":"
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), ":help")
+		return strings.Contains(string(bts), ":")
 	}, teatest.WithCheckInterval(time.Millisecond*100), teatest.WithDuration(time.Second*3))
 
-	// Simulate pressing enter to select the first command
+	// Type "help" command
+	tm.Type("help")
+
+	// Press enter to execute the command
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Wait for a bit to let the command be executed

@@ -131,7 +131,7 @@ func handleClearHistoryCommand(model *TUIModel, args []string) tea.Cmd {
 	// Clear persistent history
 	if model.historyStore != nil {
 		if err := model.historyStore.Clear(); err != nil {
-			model.toastManager.AddToast("Failed to clear history", "error", 3000)
+			model.commandLine.AddToast("Failed to clear history", "error", 3000)
 			return nil
 		}
 	}
@@ -142,7 +142,7 @@ func handleClearHistoryCommand(model *TUIModel, args []string) tea.Cmd {
 	model.historySaved = false
 	model.historyPendingPrompt = ""
 
-	model.toastManager.AddToast("Prompt history cleared", "success", 3000)
+	model.commandLine.AddToast("Prompt history cleared", "success", 3000)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func handleExportCommand(model *TUIModel, args []string) tea.Cmd {
 		case "conversation":
 			exportType = ExportTypeConversation
 		default:
-			model.toastManager.AddToast(fmt.Sprintf("Unknown export type '%s'. Use 'full' or 'conversation'", args[0]), "error", 3000)
+			model.commandLine.AddToast(fmt.Sprintf("Unknown export type '%s'. Use 'full' or 'conversation'", args[0]), "error", 3000)
 			return nil
 		}
 	}
@@ -222,7 +222,7 @@ func handleExportCommand(model *TUIModel, args []string) tea.Cmd {
 		if err != nil {
 			return showContextMsg{content: fmt.Sprintf("Editor exited with error: %v", err)}
 		}
-		model.toastManager.AddToast(fmt.Sprintf("Conversation exported successfully (%s).", exportType), "success", 3000)
+		model.commandLine.AddToast(fmt.Sprintf("Conversation exported successfully (%s).", exportType), "success", 3000)
 		return nil
 	})
 }

@@ -520,19 +520,19 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 		m.config.LLM.AuthToken = token
 		m.config.LLM.RefreshToken = refresh
 		if err := UpdateUserOAuthTokens(provider, token, refresh, expiry); err != nil {
-			m.toastManager.AddToast("Authorized, but failed to persist token", "error", 4000)
+			m.commandLine.AddToast("Authorized, but failed to persist token", "error", 4000)
 		}
 
 		// Reinitialize LLM and session with new credentials
 		if err := m.reinitializeSession(); err != nil {
-			m.toastManager.AddToast("Failed to initialize AI session: "+err.Error(), "error", 5000)
+			m.commandLine.AddToast("Failed to initialize AI session: "+err.Error(), "error", 5000)
 			return showOauthFailed{err.Error()}
 		}
 
 		// Update status line
 		m.status.SetAgent(provider + " (" + m.config.LLM.Model + ")")
 		m.chat.AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
-		m.toastManager.AddToast("Authentication saved", "info", 2500)
+		m.commandLine.AddToast("Authentication saved", "info", 2500)
 		m.sessionActive = true
 		return nil
 	}
@@ -544,7 +544,7 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 		auth := &AuthAnthropic{}
 
 		// Exchange code for tokens
-		m.toastManager.AddToast("Exchanging authorization code for tokens...", "success", 3000)
+		m.commandLine.AddToast("Exchanging authorization code for tokens...", "success", 3000)
 		m.chat.AddMessage("")
 		tokens, err := auth.exchange(authCode, verifier)
 		if err != nil {
@@ -561,7 +561,7 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Update config file
 		if err := UpdateUserOAuthTokens("anthropic", tokens.AccessToken, tokens.RefreshToken, expiry); err != nil {
-			m.toastManager.AddToast("Warning: Failed to update config file", "warning", 4000)
+			m.commandLine.AddToast("Warning: Failed to update config file", "warning", 4000)
 		}
 
 		// Update in-memory config with the new tokens
@@ -574,13 +574,13 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Reinitialize LLM and session with new credentials
 		if err := m.reinitializeSession(); err != nil {
-			m.toastManager.AddToast("Failed to initialize AI session: "+err.Error(), "error", 5000)
+			m.commandLine.AddToast("Failed to initialize AI session: "+err.Error(), "error", 5000)
 			return showOauthFailed{err.Error()}
 		}
 
 		// Update status and UI
 		m.status.SetAgent("anthropic (" + m.config.LLM.Model + ")")
-		m.toastManager.AddToast("✅ Anthropic Authenticated using Oauth", "info", 2500)
+		m.commandLine.AddToast("✅ Anthropic Authenticated using Oauth", "info", 2500)
 		m.sessionActive = true
 
 		// Show model selection modal after successful authentication

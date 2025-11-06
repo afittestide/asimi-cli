@@ -30,6 +30,8 @@ type PromptComponent struct {
 	Placeholder    string
 	Height         int
 	Width          int
+	MaxHeight      int // Maximum height (50% of screen height)
+	ScreenHeight   int // Total screen height
 	Style          lipgloss.Style
 	ViCurrentMode  string // Current vi mode: insert, normal, visual, or command
 	viPendingOp    string // Track pending operation (e.g., "d" or "c")
@@ -130,10 +132,44 @@ func (p *PromptComponent) SetWidth(width int) {
 }
 
 // SetHeight updates the height of the prompt component
+// Height is constrained to MaxHeight (50% of screen)
 func (p *PromptComponent) SetHeight(height int) {
+	// Apply max height constraint if set
+	if p.MaxHeight > 0 && height > p.MaxHeight {
+		height = p.MaxHeight
+	}
 	p.Height = height
 	p.Style = p.Style.Height(height)
 	p.TextArea.SetHeight(height)
+}
+
+// SetScreenHeight updates the screen height and recalculates max height
+func (p *PromptComponent) SetScreenHeight(screenHeight int) {
+	p.ScreenHeight = screenHeight
+	// Max height is 50% of screen height
+	p.MaxHeight = screenHeight / 2
+	// Re-apply height constraint
+	if p.Height > p.MaxHeight {
+		p.SetHeight(p.Height)
+	}
+}
+
+// CalculateDesiredHeight returns the desired height based on content
+func (p *PromptComponent) CalculateDesiredHeight() int {
+	value := p.TextArea.Value()
+	lines := strings.Count(value, "\n") + 1
+
+	// Minimum height of 2 lines
+	if lines < 2 {
+		lines = 2
+	}
+
+	// Apply max height constraint
+	if p.MaxHeight > 0 && lines > p.MaxHeight {
+		return p.MaxHeight
+	}
+
+	return lines
 }
 
 // SetValue sets the text value of the prompt
