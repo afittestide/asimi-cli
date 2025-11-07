@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 func TestCommandRegistryOrder(t *testing.T) {
 	registry := NewCommandRegistry()
@@ -13,23 +17,47 @@ func TestCommandRegistryOrder(t *testing.T) {
 	}
 }
 
-func TestHandleHelpCommandLeader(t *testing.T) {
-	t.Run("always uses colon leader", func(t *testing.T) {
-		prompt := NewPromptComponent(80, 5)
-		model := &TUIModel{prompt: prompt}
+func TestHandleHelpCommandTopic(t *testing.T) {
+	model := &TUIModel{}
 
-		cmd := handleHelpCommand(model, nil)
-		if cmd == nil {
-			t.Fatalf("expected non-nil command")
-		}
+	cmd := handleHelpCommand(model, nil)
+	if cmd == nil {
+		t.Fatalf("expected non-nil command")
+	}
 
-		msg := cmd()
-		helpMsg, ok := msg.(showHelpMsg)
-		if !ok {
-			t.Fatalf("expected showHelpMsg got %T", msg)
-		}
-		if helpMsg.leader != ":" {
-			t.Fatalf("expected leader ':' got %q", helpMsg.leader)
-		}
-	})
+	msg := cmd()
+	helpMsg, ok := msg.(showHelpMsg)
+	if !ok {
+		t.Fatalf("expected showHelpMsg got %T", msg)
+	}
+	if helpMsg.topic != "index" {
+		t.Fatalf("expected default topic 'index', got %q", helpMsg.topic)
+	}
+
+	cmd = handleHelpCommand(model, []string{"modes"})
+	msg = cmd()
+	helpMsg, ok = msg.(showHelpMsg)
+	if !ok {
+		t.Fatalf("expected showHelpMsg got %T", msg)
+	}
+	if helpMsg.topic != "modes" {
+		t.Fatalf("expected topic 'modes', got %q", helpMsg.topic)
+	}
+}
+
+func TestCommandRegistryColonLookup(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	cmd, ok := registry.GetCommand(":help")
+	if !ok {
+		t.Fatalf("expected :help to resolve to registered command")
+	}
+	if cmd.Name != "/help" {
+		t.Fatalf("expected normalized command name to be /help, got %s", cmd.Name)
+	}
+
+	registry.RegisterCommand(":custom", "custom command", func(*TUIModel, []string) tea.Cmd { return nil })
+	if _, ok := registry.Commands["/custom"]; !ok {
+		t.Fatalf("expected custom command to be normalized at registration")
+	}
 }

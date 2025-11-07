@@ -25,6 +25,16 @@ type CommandRegistry struct {
 	order    []string
 }
 
+func normalizeCommandName(name string) string {
+	if name == "" {
+		return ""
+	}
+	if strings.HasPrefix(name, ":") {
+		return "/" + strings.TrimPrefix(name, ":")
+	}
+	return name
+}
+
 // NewCommandRegistry creates a new command registry
 func NewCommandRegistry() CommandRegistry {
 	registry := CommandRegistry{
@@ -48,11 +58,15 @@ func NewCommandRegistry() CommandRegistry {
 
 // RegisterCommand registers a new command
 func (cr *CommandRegistry) RegisterCommand(name, description string, handler func(*TUIModel, []string) tea.Cmd) {
-	if _, exists := cr.Commands[name]; !exists {
-		cr.order = append(cr.order, name)
+	normalized := normalizeCommandName(name)
+	if normalized == "" {
+		return
 	}
-	cr.Commands[name] = Command{
-		Name:        name,
+	if _, exists := cr.Commands[normalized]; !exists {
+		cr.order = append(cr.order, normalized)
+	}
+	cr.Commands[normalized] = Command{
+		Name:        normalized,
 		Description: description,
 		Handler:     handler,
 	}
@@ -60,7 +74,8 @@ func (cr *CommandRegistry) RegisterCommand(name, description string, handler fun
 
 // GetCommand gets a command by name
 func (cr CommandRegistry) GetCommand(name string) (Command, bool) {
-	cmd, exists := cr.Commands[name]
+	normalized := normalizeCommandName(name)
+	cmd, exists := cr.Commands[normalized]
 	return cmd, exists
 }
 
@@ -88,7 +103,7 @@ func handleHelpCommand(model *TUIModel, args []string) tea.Cmd {
 	if len(args) > 0 {
 		topic = args[0]
 	}
-	
+
 	return func() tea.Msg {
 		return showHelpMsg{topic: topic}
 	}

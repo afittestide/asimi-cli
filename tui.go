@@ -625,9 +625,8 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Execute the command and return to insert mode
 		content := m.prompt.Value()
 		if strings.HasPrefix(content, ":") {
-			// Remove the : prefix and execute as a command
-			normalizedContent := "/" + strings.TrimPrefix(content, ":")
-			parts := strings.Fields(normalizedContent)
+			// Parse the command (keep the : prefix for display)
+			parts := strings.Fields(content)
 			if len(parts) > 0 {
 				cmdName := parts[0]
 				m.addToRawHistory("COMMAND", content)
@@ -764,11 +763,8 @@ func (m TUIModel) handleCompletionSelection() (tea.Model, tea.Cmd) {
 				m.prompt.SetValue("@" + selected + " ")
 			}
 		} else if m.completionMode == "command" {
-			// Normalize command name (convert : to / if needed)
+			// Get command name (already has : prefix)
 			cmdName := selected
-			if strings.HasPrefix(cmdName, ":") {
-				cmdName = "/" + strings.TrimPrefix(cmdName, ":")
-			}
 
 			// It's a command completion
 			cmd, exists := m.commandRegistry.GetCommand(cmdName)
@@ -924,13 +920,8 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 	isCommand := strings.HasPrefix(content, ":")
 
 	if isCommand {
-		// Normalize command to use / prefix
-		normalizedContent := content
-		if strings.HasPrefix(content, ":") {
-			normalizedContent = "/" + strings.TrimPrefix(content, ":")
-		}
-
-		parts := strings.Fields(normalizedContent)
+		// Parse the command (keep the : prefix for display)
+		parts := strings.Fields(content)
 		if len(parts) > 0 {
 			cmdName := parts[0]
 			m.addToRawHistory("COMMAND", content) // Log the full command
@@ -1051,9 +1042,8 @@ func (m TUIModel) handleCommandLineInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Execute the command
 		if cmdText != "" {
-			// Normalize command: add "/" prefix
-			normalizedContent := "/" + strings.TrimPrefix(cmdText, ":")
-			parts := strings.Fields(normalizedContent)
+			// Parse the command (keep the : prefix for display)
+			parts := strings.Fields(":" + cmdText)
 			if len(parts) > 0 {
 				cmdName := parts[0]
 				m.addToRawHistory("COMMAND", ":"+cmdText)
@@ -1139,7 +1129,7 @@ func (m TUIModel) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd
 	m.width = msg.Width
 	m.height = msg.Height
 	m.updateComponentDimensions()
-	
+
 	// Update help viewer size
 	if m.helpViewer != nil {
 		m.helpViewer.SetSize(msg.Width, msg.Height)
@@ -1509,10 +1499,10 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Restore focus to prompt if no modals are active
-	if m.providerModal == nil && m.codeInputModal == nil && 
-	   m.modelSelectionModal == nil && m.sessionModal == nil && 
-	   !m.commandLine.IsInCommandMode() &&
-	   (m.helpViewer == nil || !m.helpViewer.IsVisible()) {
+	if m.providerModal == nil && m.codeInputModal == nil &&
+		m.modelSelectionModal == nil && m.sessionModal == nil &&
+		!m.commandLine.IsInCommandMode() &&
+		(m.helpViewer == nil || !m.helpViewer.IsVisible()) {
 		m.prompt.Focus()
 	}
 
@@ -1847,7 +1837,6 @@ func (m TUIModel) applyModalOverlays(view string) string {
 
 	return result
 }
-
 
 // renderHomeView renders the home view when no session is active
 func (m TUIModel) renderHomeView(width, height int) string {

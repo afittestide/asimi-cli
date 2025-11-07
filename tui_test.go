@@ -278,7 +278,9 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 				require.Nil(t, cmd)
 				updatedModel, ok := newModel.(TUIModel)
 				require.True(t, ok)
-				require.Contains(t, updatedModel.chat.Messages[len(updatedModel.chat.Messages)-1], "Available commands:")
+				require.NotNil(t, updatedModel.helpViewer)
+				require.True(t, updatedModel.helpViewer.IsVisible())
+				require.Equal(t, "index", updatedModel.helpViewer.topic)
 			},
 		},
 	}
@@ -706,7 +708,7 @@ func TestColonCommandCompletion(t *testing.T) {
 }
 
 // TestColonInNormalModeShowsCompletion tests that pressing : in normal mode shows completion dialog
-func TestColonInNormalModeShowsCompletion(t *testing.T) {
+func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
 	model, _ := newTestModel(t)
 
 	// Start in insert mode
@@ -721,45 +723,22 @@ func TestColonInNormalModeShowsCompletion(t *testing.T) {
 	newModel, _ = updatedModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
 	updatedModel = newModel.(TUIModel)
 
-	// Should be in command-line mode
-	require.True(t, updatedModel.prompt.IsViCommandLineMode())
-
-	// Completion dialog should be shown
-	require.True(t, updatedModel.showCompletionDialog)
-	require.Equal(t, "command", updatedModel.completionMode)
-	require.True(t, updatedModel.completions.Visible)
-
-	// Completions should have : prefix
-	require.NotEmpty(t, updatedModel.completions.Options)
-	for _, opt := range updatedModel.completions.Options {
-		require.True(t, strings.HasPrefix(opt, ":"), "Command should start with : but got: %s", opt)
-	}
-
-	// Prompt value should be ":"
-	require.Equal(t, ":", updatedModel.prompt.Value())
+	require.True(t, updatedModel.commandLine.IsInCommandMode(), "command line should enter command mode")
+	require.False(t, updatedModel.showCompletionDialog, "completion dialog should not be shown automatically")
+	require.Equal(t, "", updatedModel.commandLine.GetCommand(), "command buffer should be empty")
+	require.False(t, updatedModel.prompt.TextArea.Focused(), "prompt should lose focus while command line active")
 }
 
-func TestShowHelpMsgUsesActiveLeader(t *testing.T) {
-	model := TUIModel{
-		commandRegistry: NewCommandRegistry(),
-		chat:            NewChatComponent(80, 20),
-	}
+func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
+	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	require.NotNil(t, model.helpViewer)
+	require.False(t, model.helpViewer.IsVisible())
 
-	withColon, _ := model.handleCustomMessages(showHelpMsg{leader: ":"})
-	colonModel, ok := withColon.(TUIModel)
+	newModel, _ := model.handleCustomMessages(showHelpMsg{topic: "modes"})
+	updatedModel, ok := newModel.(TUIModel)
 	require.True(t, ok)
-	require.NotEmpty(t, colonModel.chat.Messages)
-	colonHelp := colonModel.chat.Messages[len(colonModel.chat.Messages)-1]
-	require.Contains(t, colonHelp, "Active command leader: :")
-	require.Contains(t, colonHelp, ":help - Show help information")
-
-	withSlash, _ := colonModel.handleCustomMessages(showHelpMsg{leader: "/"})
-	slashModel, ok := withSlash.(TUIModel)
-	require.True(t, ok)
-	require.NotEmpty(t, slashModel.chat.Messages)
-	slashHelp := slashModel.chat.Messages[len(slashModel.chat.Messages)-1]
-	require.Contains(t, slashHelp, "Active command leader: /")
-	require.Contains(t, slashHelp, "/help - Show help information")
+	require.True(t, updatedModel.helpViewer.IsVisible())
+	require.Equal(t, "modes", updatedModel.helpViewer.topic)
 }
 
 // Tests from tui_history_test.go
@@ -1458,9 +1437,9 @@ func TestColonCommandCompletionE2E(t *testing.T) {
 	tuiModel, ok := finalModel.(TUIModel)
 	require.True(t, ok)
 
-	// Assert that the messages contain the help text
-	require.True(t, containsMessage(tuiModel.chat.Messages, "Available commands:"),
-		"messages", tuiModel.chat.Messages)
+	require.NotNil(t, tuiModel.helpViewer)
+	require.True(t, tuiModel.helpViewer.IsVisible())
+	require.Equal(t, "index", tuiModel.helpViewer.topic)
 }
 
 func TestLiveAgentE2E(t *testing.T) {
