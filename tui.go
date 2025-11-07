@@ -1086,6 +1086,11 @@ func (m TUIModel) handleCommandLineInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commandLine.MoveCursorEnd()
 		return m, nil
 
+	case "space", " ":
+		// Explicitly handle space key
+		m.commandLine.InsertRune(' ')
+		return m, nil
+
 	default:
 		// Insert character if it's a printable rune
 		if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
