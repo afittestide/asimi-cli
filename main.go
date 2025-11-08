@@ -30,21 +30,16 @@ import (
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
-type runCmd struct{}
-
-type versionCmd struct{}
-
 var program *tea.Program
 
 var cli struct {
-	Version       versionCmd `cmd:"version" help:"Print version information"`
-	Prompt        string     `short:"p" help:"Prompt to send to the agent"`
-	Debug         bool       `help:"Enable debug logging"`
-	CPUProfile    string     `help:"Write CPU profile to file"`
-	MemProfile    string     `help:"Write memory profile to file"`
-	Trace         string     `help:"Write execution trace to file"`
-	ProfileExitMs int        `help:"Exit after N milliseconds (for profiling startup)"`
-	Run           runCmd     `cmd:"" default:"1" help:"Run the interactive application"`
+	Version       bool   `help:"Print version information"`
+	Prompt        string `arg:"" optional:"" help:"Prompt to send to the agent (non-interactive mode)"`
+	Debug         bool   `help:"Enable debug logging"`
+	CPUProfile    string `help:"Write CPU profile to file"`
+	MemProfile    string `help:"Write memory profile to file"`
+	Trace         string `help:"Write execution trace to file"`
+	ProfileExitMs int    `help:"Exit after N milliseconds (for profiling startup)"`
 }
 
 // Update the version as part of the version release process
@@ -82,16 +77,8 @@ func initLogger() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, opts)))
 }
 
-func (v versionCmd) Run() error {
-	fmt.Printf("Asimi CLI v%s\n", asimiVersion())
-	return nil
-}
-
-func (r *runCmd) Run() error {
+func runInteractiveMode() error {
 	startTime := time.Now()
-
-	// This command will only be run when no prompt is provided.
-	// The logic in main() will handle the non-interactive case.
 
 	// Check if we are running in a terminal (skip check if profiling with auto-exit)
 	if cli.ProfileExitMs == 0 && !isatty.IsTerminal(os.Stdout.Fd()) && !isatty.IsTerminal(os.Stdin.Fd()) {
@@ -182,7 +169,13 @@ type llmInitErrorMsg struct {
 
 func main() {
 	startTime := time.Now()
-	ctx := kong.Parse(&cli)
+	kong.Parse(&cli)
+
+	// Handle --version flag
+	if cli.Version {
+		fmt.Printf("Asimi CLI v%s\n", asimiVersion())
+		os.Exit(0)
+	}
 
 	// Start profiling if requested
 	if cli.CPUProfile != "" {
@@ -220,16 +213,41 @@ func main() {
 		slog.Debug("[TIMING] main() started", "time", startTime)
 	}
 
+	// Determine if we should run in non-interactive mode
+	// Non-interactive mode is triggered by:
+	// 1. Explicit prompt argument: asimi "prompt here"
+	// 2. Non-interactive stdin (pipe/redirect): echo "prompt" | asimi
+	isStdinTerminal := isatty.IsTerminal(os.Stdin.Fd())
+	hasPromptArg := cli.Prompt != ""
+
+	// If no prompt argument but stdin is not a terminal, read from stdin
+	if !hasPromptArg && !isStdinTerminal {
+		// Read prompt from stdin
+		var builder strings.Builder
+		buf := make([]byte, 4096)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if n > 0 {
+				builder.Write(buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		cli.Prompt = strings.TrimSpace(builder.String())
+		hasPromptArg = cli.Prompt != ""
+	}
+
 	// For non-interactive mode, initialize the old logger
 	// For interactive mode, the fx-provided logger will be used
-	if cli.Prompt != "" {
+	if hasPromptArg {
 		initLogger()
 		if cli.Debug {
 			slog.Debug("[TIMING] initLogger() completed", "duration", time.Since(startTime))
 		}
 	}
 
-	if cli.Prompt != "" {
+	if hasPromptArg {
 		// Non-interactive mode via native Session path
 		config, err := LoadConfig()
 		if err != nil {
@@ -268,8 +286,7 @@ func main() {
 	}
 
 	// Interactive mode
-	err := ctx.Run()
-	if err != nil {
+	if err := runInteractiveMode(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
