@@ -164,7 +164,6 @@ func formatMessageCount(messages []llms.MessageContent) string {
 	return fmt.Sprintf("%d msgs", count)
 }
 
-
 func (m *SessionSelectionModal) Render() string {
 	var content strings.Builder
 
@@ -279,7 +278,7 @@ func (m *SessionSelectionModal) Render() string {
 		var line strings.Builder
 		line.WriteString(prefix)
 		line.WriteString(fmt.Sprintf("[%s] %s", timeStr, title))
-		
+
 		if messageCount != "" {
 			line.WriteString(fmt.Sprintf(" (%s)", messageCount))
 		}

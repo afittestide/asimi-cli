@@ -122,6 +122,7 @@ func (r *runCmd) Run() error {
 			ProvideConfig,
 			ProvideRepoInfo,
 			ProvideShellRunner,
+			ProvidePromptHistory,
 			ProvideCommandHistory,
 			ProvideSessionHistory,
 			ProvideTUIModel,

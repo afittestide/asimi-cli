@@ -74,7 +74,8 @@ type TUIModel struct {
 	historyPresentChatSnapshot    int
 
 	// Persistent history store
-	historyStore *HistoryStore
+	historyStore        *HistoryStore
+	commandHistoryStore *HistoryStore
 
 	// Waiting indicator state
 	waitingForResponse bool
@@ -92,7 +93,7 @@ type waitingTickMsg struct{}
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
-func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore, sessionStore *SessionStore) *TUIModel {
+func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore, commandHistory *HistoryStore, sessionStore *SessionStore) *TUIModel {
 
 	registry := NewCommandRegistry()
 	theme := NewTheme()
@@ -135,7 +136,8 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore,
 		rawSessionHistory:    make([]string, 0),
 		toolCallMessageIndex: make(map[string]int),
 		waitingForResponse:   false,
-		historyStore:         historyStore,
+		historyStore:         promptHistory,
+		commandHistoryStore:  commandHistory,
 	}
 
 	// Set initial status info - show disconnected state initially
@@ -154,26 +156,36 @@ func (m *TUIModel) initHistory() {
 	m.historyPresentSessionSnapshot = 0
 	m.historyPresentChatSnapshot = 0
 
-	// Load persistent history from disk
+	// Load persistent prompt history from disk
 	if m.historyStore != nil {
 		entries, err := m.historyStore.Load()
 		if err != nil {
-			slog.Warn("failed to load history", "error", err)
-			return
+			slog.Warn("failed to load prompt history", "error", err)
+		} else {
+			// Convert persistent entries to in-memory format
+			// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
+			// as they're only meaningful for the current session
+			for _, entry := range entries {
+				m.promptHistory = append(m.promptHistory, promptHistoryEntry{
+					Prompt:          entry.Prompt,
+					SessionSnapshot: 0,
+					ChatSnapshot:    0,
+				})
+			}
+			m.historyCursor = len(m.promptHistory)
+			slog.Debug("loaded prompt history", "count", len(entries))
 		}
+	}
 
-		// Convert persistent entries to in-memory format
-		// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
-		// as they're only meaningful for the current session
-		for _, entry := range entries {
-			m.promptHistory = append(m.promptHistory, promptHistoryEntry{
-				Prompt:          entry.Prompt,
-				SessionSnapshot: 0,
-				ChatSnapshot:    0,
-			})
+	// Load persistent command history from disk
+	if m.commandHistoryStore != nil {
+		entries, err := m.commandHistoryStore.Load()
+		if err != nil {
+			slog.Warn("failed to load command history", "error", err)
+		} else {
+			m.commandLine.LoadHistory(entries)
+			slog.Debug("loaded command history", "count", len(entries))
 		}
-		m.historyCursor = len(m.promptHistory)
-		slog.Debug("loaded history", "count", len(entries))
 	}
 }
 
@@ -359,6 +371,10 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle help viewer first if it's visible
 	if m.helpViewer != nil && m.helpViewer.IsVisible() {
 		m.helpViewer, cmd = m.helpViewer.Update(msg)
+		// If help viewer is now hidden, restore focus to prompt
+		if !m.helpViewer.IsVisible() {
+			m.prompt.Focus()
+		}
 		return m, cmd
 	}
 
@@ -394,7 +410,13 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle command line input when in command mode
 	if m.commandLine.IsInCommandMode() {
-		return m.handleCommandLineInput(msg)
+		cmd, handled := m.commandLine.HandleKey(msg)
+		if handled && cmd != nil {
+			// Component handled the key and returned a message
+			return m, cmd
+		}
+		// Component didn't handle it or returned nil
+		return m, nil
 	}
 
 	// Handle escape key for vi mode transitions BEFORE other escape handling
@@ -931,6 +953,8 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 				cmds = append(cmds, command)
 				m.prompt.SetValue("")
 				m.prompt.EnterViInsertMode()
+				// Ensure prompt has focus after command
+				m.prompt.Focus()
 			} else {
 				m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
 			}
@@ -1021,85 +1045,11 @@ func (m TUIModel) handleColonKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Enter command mode in the command line
 	m.commandLine.EnterCommandMode("")
 	m.prompt.Blur()
+
+	// Show command completions immediately
+	m.updateCommandLineCompletions()
+
 	return m, nil
-}
-
-// handleCommandLineInput handles input when command line is in command mode
-func (m TUIModel) handleCommandLineInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	keyStr := msg.String()
-
-	switch keyStr {
-	case "esc":
-		// Exit command mode and return to prompt
-		m.commandLine.ExitCommandMode()
-		m.prompt.Focus()
-		return m, nil
-
-	case "enter":
-		// Execute command
-		cmdText := m.commandLine.GetCommand()
-		m.commandLine.ExitCommandMode()
-
-		// Execute the command
-		if cmdText != "" {
-			// Parse the command (keep the : prefix for display)
-			parts := strings.Fields(":" + cmdText)
-			if len(parts) > 0 {
-				cmdName := parts[0]
-				m.addToRawHistory("COMMAND", ":"+cmdText)
-				cmd, exists := m.commandRegistry.GetCommand(cmdName)
-				if exists {
-					command := cmd.Handler(&m, parts[1:])
-					// Don't return focus to prompt yet - let the command/modal handle it
-					return m, command
-				} else {
-					m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
-					m.prompt.Focus()
-				}
-			}
-		} else {
-			m.prompt.Focus()
-		}
-		return m, nil
-
-	case "backspace", "ctrl+h":
-		m.commandLine.DeleteCharBackward()
-		return m, nil
-
-	case "delete":
-		m.commandLine.DeleteCharForward()
-		return m, nil
-
-	case "left":
-		m.commandLine.MoveCursorLeft()
-		return m, nil
-
-	case "right":
-		m.commandLine.MoveCursorRight()
-		return m, nil
-
-	case "home", "ctrl+a":
-		m.commandLine.MoveCursorHome()
-		return m, nil
-
-	case "end", "ctrl+e":
-		m.commandLine.MoveCursorEnd()
-		return m, nil
-
-	case "space", " ":
-		// Explicitly handle space key
-		m.commandLine.InsertRune(' ')
-		return m, nil
-
-	default:
-		// Insert character if it's a printable rune
-		if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
-			for _, r := range msg.Runes {
-				m.commandLine.InsertRune(r)
-			}
-		}
-		return m, nil
-	}
 }
 
 // handleAtKey handles the @ key for file completion
@@ -1405,6 +1355,93 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessionModal = NewSessionSelectionModal()
 		m.sessionModal.SetSessions(msg.sessions)
 
+	case commandReadyMsg:
+		// Command ready from command line component
+		// Hide completion dialog
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+
+		// Save to persistent command history
+		if m.commandHistoryStore != nil {
+			if err := m.commandHistoryStore.Append(msg.command); err != nil {
+				slog.Warn("failed to save command to history", "error", err)
+			}
+		}
+
+		// Parse and execute the command
+		parts := strings.Fields(":" + msg.command)
+		if len(parts) > 0 {
+			cmdName := parts[0]
+			m.addToRawHistory("COMMAND", ":"+msg.command)
+
+			// Use FindCommand for vim-style partial matching
+			cmd, matches, found := m.commandRegistry.FindCommand(cmdName)
+			if found {
+				return m, cmd.Handler(&m, parts[1:])
+			} else if len(matches) > 1 {
+				// Ambiguous command
+				displayMatches := make([]string, len(matches))
+				for i, match := range matches {
+					displayMatches[i] = ":" + strings.TrimPrefix(match, "/")
+				}
+				errorMsg := fmt.Sprintf("Ambiguous command '%s'. Matches: %s",
+					strings.TrimPrefix(cmdName, ":"),
+					strings.Join(displayMatches, ", "))
+				m.commandLine.AddToast(errorMsg, "error", time.Second*3)
+			} else {
+				// Unknown command
+				m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", strings.TrimPrefix(cmdName, ":")), "error", time.Second*3)
+			}
+		}
+		m.prompt.Focus()
+		return m, nil
+
+	case commandCancelledMsg:
+		// Command cancelled - hide completions and restore focus
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+		m.prompt.Focus()
+		return m, nil
+
+	case commandTextChangedMsg:
+		// Command text changed - update completions
+		m.updateCommandLineCompletions()
+		return m, nil
+
+	case navigateCompletionMsg:
+		// Navigate completion dialog
+		if msg.direction < 0 {
+			m.completions.SelectPrev()
+		} else {
+			m.completions.SelectNext()
+		}
+		return m, nil
+
+	case navigateHistoryMsg:
+		// Navigate completion if visible, otherwise do nothing
+		if m.showCompletionDialog {
+			if msg.direction < 0 {
+				m.completions.SelectPrev()
+			} else {
+				m.completions.SelectNext()
+			}
+		}
+		return m, nil
+
+	case acceptCompletionMsg:
+		// Accept completion if visible
+		if m.showCompletionDialog {
+			selected := m.completions.GetSelected()
+			if selected != "" {
+				// Set the command text to the selected completion (without the : prefix)
+				cmdText := strings.TrimPrefix(selected, ":")
+				m.commandLine.SetCommand(cmdText)
+			}
+		}
+		return m, nil
+
 	case sessionSelectedMsg:
 		m.sessionModal = nil
 		if msg.session != nil {
@@ -1606,6 +1643,38 @@ func (m *TUIModel) updateCommandCompletions() {
 	m.completions.SetOptions(filteredCommands)
 }
 
+// updateCommandLineCompletions filters commands based on command line input
+func (m *TUIModel) updateCommandLineCompletions() {
+	commandText := m.commandLine.GetCommand()
+	searchQuery := strings.ToLower(commandText)
+
+	// Get all command names and filter them
+	var filteredCommands []string
+	for _, name := range m.commandRegistry.order {
+		// name is stored with "/" prefix, so we need to check against the command part
+		cmdName := strings.TrimPrefix(name, "/")
+
+		// Check if the command starts with the search query
+		if strings.HasPrefix(strings.ToLower(cmdName), searchQuery) {
+			// Format with : prefix for command line mode
+			filteredCommands = append(filteredCommands, ":"+cmdName)
+		}
+	}
+
+	m.completions.SetOptions(filteredCommands)
+
+	// Show completion dialog if we have matches
+	if len(filteredCommands) > 0 {
+		m.showCompletionDialog = true
+		m.completionMode = "command"
+		m.completions.Show()
+	} else {
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+	}
+}
+
 // updateComponentDimensions updates the dimensions of all components based on the window size
 func (m *TUIModel) updateComponentDimensions() {
 	// Calculate dimensions for vi-like layout (bottom to top):
@@ -1631,6 +1700,9 @@ func (m *TUIModel) updateComponentDimensions() {
 
 	// Calculate chat height
 	chatHeight := m.height - commandLineHeight - statusHeight - promptWithBorder - emptyLineHeight
+	if chatHeight < 0 {
+		chatHeight = 0
+	}
 
 	// Update component widths
 	m.status.SetWidth(width + 2)
@@ -1715,6 +1787,9 @@ func (m TUIModel) View() string {
 func (m TUIModel) renderMainContent(modalHeight int) string {
 	// Account for prompt, status, vi mode/toast line, and modal if present
 	contentHeight := m.height - 6 - modalHeight
+	if contentHeight < 0 {
+		contentHeight = 0
+	}
 
 	switch {
 	case m.rawMode:

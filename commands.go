@@ -79,6 +79,41 @@ func (cr CommandRegistry) GetCommand(name string) (Command, bool) {
 	return cmd, exists
 }
 
+// FindCommand finds commands by prefix (like vim).
+// Returns:
+// - exactMatch: the matched command if exactly one match is found
+// - matches: all commands that start with the prefix
+// - found: true if exactly one match was found
+func (cr CommandRegistry) FindCommand(prefix string) (exactMatch Command, matches []string, found bool) {
+	normalized := normalizeCommandName(prefix)
+	if normalized == "" {
+		return Command{}, nil, false
+	}
+
+	// First try exact match
+	if cmd, exists := cr.Commands[normalized]; exists {
+		return cmd, []string{normalized}, true
+	}
+
+	// Try prefix matching
+	var matchedCommands []string
+	searchPrefix := strings.TrimPrefix(normalized, "/")
+
+	for _, cmdName := range cr.order {
+		cmdNameWithoutSlash := strings.TrimPrefix(cmdName, "/")
+		if strings.HasPrefix(cmdNameWithoutSlash, searchPrefix) {
+			matchedCommands = append(matchedCommands, cmdName)
+		}
+	}
+
+	if len(matchedCommands) == 1 {
+		cmd := cr.Commands[matchedCommands[0]]
+		return cmd, matchedCommands, true
+	}
+
+	return Command{}, matchedCommands, false
+}
+
 // GetAllCommands returns all registered commands
 func (cr CommandRegistry) GetAllCommands() []Command {
 	var commands []Command

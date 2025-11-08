@@ -16,14 +16,14 @@ type HistoryEntry struct {
 	// We don't persist SessionSnapshot and ChatSnapshot as they're session-specific
 }
 
-// HistoryStore manages persistent storage of prompt history
+// HistoryStore manages persistent storage of prompt or command history
 type HistoryStore struct {
 	filePath string
 	maxSize  int // Maximum number of entries to keep
 }
 
-// NewHistoryStore creates a new history store
-func NewHistoryStore(repoInfo RepoInfo) (*HistoryStore, error) {
+// NewPromptHistoryStore creates a new prompt history store
+func NewPromptHistoryStore(repoInfo RepoInfo) (*HistoryStore, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user home directory: %w", err)
@@ -41,10 +41,37 @@ func NewHistoryStore(repoInfo RepoInfo) (*HistoryStore, error) {
 	}
 
 	store := &HistoryStore{
-		filePath: filepath.Join(projectDir, "history.json"),
+		filePath: filepath.Join(projectDir, "prompt_history.json"),
 		maxSize:  1000, // Keep last 1000 prompts
 	}
+	// Migrate from old history.json to prompt_history.json
+	store.migrateLegacyHistory(filepath.Join(projectDir, "history.json"))
 	store.migrateLegacyHistory(filepath.Join(homeDir, ".local", "share", "asimi", "history.json"))
+	return store, nil
+}
+
+// NewCommandHistoryStore creates a new command history store
+func NewCommandHistoryStore(repoInfo RepoInfo) (*HistoryStore, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	slug := projectSlug(repoInfo.ProjectRoot)
+	if slug == "" {
+		slug = defaultProjectSlug
+	}
+
+	repoBase := filepath.Join(homeDir, ".local", "share", "asimi", "repo")
+	projectDir := filepath.Join(repoBase, filepath.FromSlash(slug))
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	store := &HistoryStore{
+		filePath: filepath.Join(projectDir, "command_history.json"),
+		maxSize:  1000, // Keep last 1000 commands
+	}
 	return store, nil
 }
 

@@ -78,37 +78,6 @@ Use `:` instead of `/` in vi mode (e.g., `:help`, `:new`, `:quit`)
 **Exit Vi Mode:**
 Press `Esc` to go from insert to normal mode. Run `/vi` or `:vi` to disable vi mode entirely.
 
-## 📚 Help System
-
-Asimi includes a comprehensive help system modeled after Vim's help viewer.
-
-### Getting Help
-
-- `:help` - Open the main help index
-- `:help <topic>` - Open help for a specific topic
-- `?` (in NORMAL mode) - Quick help overlay
-
-### Available Topics
-
-- `:help modes` - Vi modes (INSERT, NORMAL, VISUAL, COMMAND-LINE)
-- `:help commands` - Available commands
-- `:help navigation` - Navigation keys
-- `:help editing` - Editing commands
-- `:help files` - File operations
-- `:help sessions` - Session management
-- `:help context` - Context and token usage
-- `:help config` - Configuration options
-- `:help quickref` - Quick reference guide
-
-### Navigation in Help
-
-- `j/k` or `↓/↑` - Scroll line by line
-- `Ctrl+d/u` - Half page scroll
-- `Ctrl+f/b` - Full page scroll
-- `g/G` - Top/bottom
-- `q` or `ESC` - Close help
-
-The help system provides detailed documentation on all aspects of using Asimi, with vim-like navigation and a consistent color scheme.
 
 ## 🛠️ Development
 
