@@ -10,7 +10,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20250829135019-44e44e21330d
 	github.com/containers/podman/v5 v5.6.2
-	github.com/docker/docker v28.3.3+incompatible
 	github.com/go-git/go-git/v5 v5.13.0
 	github.com/google/uuid v1.6.0
 	github.com/knadh/koanf/parsers/toml/v2 v2.2.0
@@ -24,6 +23,7 @@ require (
 	github.com/tmc/langchaingo v0.1.13
 	github.com/yargevad/filepathx v1.0.0
 	github.com/zalando/go-keyring v0.2.6
+	go.uber.org/fx v1.24.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
@@ -89,6 +89,7 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
+	github.com/docker/docker v28.3.3+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.9.3 // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -199,7 +200,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	go.starlark.net v0.0.0-20230302034142-4b1e35fe2254 // indirect
 	go.uber.org/dig v1.19.0 // indirect
-	go.uber.org/fx v1.24.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
