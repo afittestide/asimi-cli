@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -183,7 +184,10 @@ type CodeInputModal struct {
 
 // NewCodeInputModal creates a new code input modal
 func NewCodeInputModal(authURL, verifier string) *CodeInputModal {
-	baseModal := NewBaseModal("Enter Authorization Code", "", 80, 15)
+	baseModal := NewBaseModal("Enter Authorization Code", "", 90, 18)
+
+	// Log the authorization URL for easy copying (especially useful for remote sessions)
+	slog.Debug("Anthropic OAuth Authorization URL", "url", authURL)
 
 	return &CodeInputModal{
 		BaseModal: baseModal,
@@ -198,6 +202,8 @@ func NewCodeInputModal(authURL, verifier string) *CodeInputModal {
 // Render renders the code input modal
 func (m *CodeInputModal) Render() string {
 	content := "Browser opened for Anthropic OAuth.\n\n"
+	content += "If browser didn't open, visit this URL:\n"
+	content += m.authURL + "\n\n"
 	content += "1. Authorize in the browser\n"
 	content += "2. Copy the authorization code shown after redirect\n"
 	content += "3. Paste it below (format: CODE#STATE)\n\n"
@@ -531,7 +537,7 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 
 		// Update status line
 		m.status.SetAgent(provider + " (" + m.config.LLM.Model + ")")
-		m.chat.AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
+		m.content.GetChat().AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
 		m.commandLine.AddToast("Authentication saved", "info", 2500)
 		m.sessionActive = true
 		return nil
@@ -545,7 +551,7 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Exchange code for tokens
 		m.commandLine.AddToast("Exchanging authorization code for tokens...", "success", 3000)
-		m.chat.AddMessage("")
+		m.content.GetChat().AddMessage("")
 		tokens, err := auth.exchange(authCode, verifier)
 		if err != nil {
 			return showOauthFailed{fmt.Sprintf("failed to exchange authorization code: %v", err)}

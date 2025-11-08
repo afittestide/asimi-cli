@@ -21,60 +21,73 @@ type sessionResumeErrorMsg struct {
 	err error
 }
 
-type SessionSelectionModal struct {
-	*BaseModal
+// ResumeWindow is a simplified component for displaying session selection
+// Navigation is handled by ContentComponent
+type ResumeWindow struct {
+	width          int
+	height         int
 	sessions       []Session
-	selected       int
-	scrollOffset   int
 	loading        bool
 	loadingSession bool
-	err            error
+	errorMsg       error
+	maxVisible     int
 }
 
-func NewSessionSelectionModal() *SessionSelectionModal {
-	baseModal := NewBaseModal("Resume Session", "", 70, 15)
-
-	return &SessionSelectionModal{
-		BaseModal:      baseModal,
+func NewResumeWindow() ResumeWindow {
+	return ResumeWindow{
+		width:          70,
+		height:         15,
 		sessions:       []Session{},
-		selected:       0,
-		scrollOffset:   0,
-		loading:        true,
+		loading:        false,
 		loadingSession: false,
-		err:            nil,
+		errorMsg:       nil,
+		maxVisible:     8,
 	}
 }
 
-func (m *SessionSelectionModal) visibleSlots() int {
-	if m.BaseModal == nil {
-		return 1
+func (r *ResumeWindow) SetSize(width, height int) {
+	r.width = width
+	r.height = height
+	// Adjust maxVisible based on height
+	r.maxVisible = height - 4 // Account for title, footer, instructions
+	if r.maxVisible < 1 {
+		r.maxVisible = 1
 	}
-
-	contentHeight := m.BaseModal.Height - 4 // account for title and borders
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-
-	// Reserve lines for instructions and spacing (2 lines for instructions + 1 line for scroll info)
-	available := contentHeight - 3
-	if available < 1 {
-		return 1
-	}
-
-	return available
 }
 
-func (m *SessionSelectionModal) SetSessions(sessions []Session) {
-	m.sessions = sessions
-	m.loading = false
-	m.loadingSession = false
-	m.err = nil
+func (r *ResumeWindow) GetVisibleSlots() int {
+	return r.maxVisible
 }
 
-func (m *SessionSelectionModal) SetError(err error) {
-	m.err = err
-	m.loading = false
-	m.loadingSession = false
+func (r *ResumeWindow) SetSessions(sessions []Session) {
+	r.sessions = sessions
+	r.loading = false
+	r.loadingSession = false
+	r.errorMsg = nil
+}
+
+func (r *ResumeWindow) SetLoading(loading bool) {
+	r.loading = loading
+	if loading {
+		r.errorMsg = nil
+	}
+}
+
+func (r *ResumeWindow) SetError(err error) {
+	r.errorMsg = err
+	r.loading = false
+	r.loadingSession = false
+}
+
+func (r *ResumeWindow) GetItemCount() int {
+	return len(r.sessions)
+}
+
+func (r *ResumeWindow) GetSelectedSession(index int) *Session {
+	if index < 0 || index >= len(r.sessions) {
+		return nil
+	}
+	return &r.sessions[index]
 }
 
 func sessionTitlePreview(session Session) string {
@@ -164,111 +177,46 @@ func formatMessageCount(messages []llms.MessageContent) string {
 	return fmt.Sprintf("%d msgs", count)
 }
 
-func (m *SessionSelectionModal) Render() string {
+// RenderList renders the session list with the given selection
+func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int) string {
 	var content strings.Builder
 
-	if m.loading {
+	if r.loading {
 		content.WriteString("Loading sessions...\n")
-		m.BaseModal.Content = content.String()
-		return m.BaseModal.Render()
+		return content.String()
 	}
 
-	if m.loadingSession {
+	if r.loadingSession {
 		content.WriteString("Loading selected session...\n")
 		content.WriteString("Please wait...")
-		m.BaseModal.Content = content.String()
-		return m.BaseModal.Render()
+		return content.String()
 	}
 
-	if m.err != nil {
-		content.WriteString(fmt.Sprintf("Error loading sessions: %v\n\n", m.err))
-		content.WriteString("Press Esc to close")
-		m.BaseModal.Content = content.String()
-		return m.BaseModal.Render()
+	if r.errorMsg != nil {
+		content.WriteString(fmt.Sprintf("Error loading sessions: %v\n\n", r.errorMsg))
+		return content.String()
 	}
 
-	if len(m.sessions) == 0 {
+	if len(r.sessions) == 0 {
 		content.WriteString("No previous sessions found.\n")
 		content.WriteString("Start chatting to create a new session!\n\n")
-		content.WriteString("Press Esc to close")
-		m.BaseModal.Content = content.String()
-		return m.BaseModal.Render()
+		return content.String()
 	}
 
-	instructionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
-	content.WriteString(instructionStyle.Render("↑/↓: Navigate • 1-9: Quick select • Enter: Select • Esc/Q: Cancel"))
-	content.WriteString("\n\n")
-
-	// Total items = sessions + cancel option
-	totalItems := len(m.sessions) + 1
-
-	visible := m.visibleSlots()
-	if visible < 1 {
-		visible = 1
-	}
-	if visible > totalItems {
-		visible = totalItems
-	}
-
-	maxOffset := totalItems - visible
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-	if m.scrollOffset > maxOffset {
-		m.scrollOffset = maxOffset
-	}
-	if m.scrollOffset < 0 {
-		m.scrollOffset = 0
-	}
-	if m.selected < 0 {
-		m.selected = 0
-	}
-	if m.selected >= totalItems {
-		m.selected = totalItems - 1
-	}
-	if visible > 0 {
-		if m.selected < m.scrollOffset {
-			m.scrollOffset = m.selected
-		} else if m.selected >= m.scrollOffset+visible {
-			m.scrollOffset = m.selected - visible + 1
-		}
-	}
-
-	start := m.scrollOffset
-	end := m.scrollOffset + visible
+	totalItems := len(r.sessions)
+	start := scrollOffset
+	end := scrollOffset + visibleSlots
 	if end > totalItems {
 		end = totalItems
 	}
 
 	for i := start; i < end; i++ {
-		isSelected := i == m.selected
+		isSelected := i == selectedIndex
+		session := r.sessions[i]
 
-		// Check if this is the cancel option (last item)
-		if i == len(m.sessions) {
-			prefix := "   "
-			if isSelected {
-				prefix = "▶ "
-			}
-
-			var line strings.Builder
-			line.WriteString(prefix)
-			line.WriteString("Cancel")
-
-			lineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-			if isSelected {
-				lineStyle = lineStyle.Foreground(lipgloss.Color("62")).Bold(true)
-			}
-
-			content.WriteString(lineStyle.Render(line.String()))
-			content.WriteString("\n")
-			continue
-		}
-
-		session := m.sessions[i]
-
-		prefix := fmt.Sprintf(" %d. ", i+1)
+		prefix := "  "
 		if isSelected {
-			prefix = fmt.Sprintf("▶%d. ", i+1)
+			prefix = "▶ "
 		}
 
 		timeStr := formatRelativeTime(session.LastUpdated)
@@ -292,88 +240,18 @@ func (m *SessionSelectionModal) Render() string {
 		content.WriteString("\n")
 	}
 
-	if totalItems > visible {
-		scrollInfo := fmt.Sprintf("\n%d-%d of %d items", start+1, end, totalItems)
+	if totalItems > visibleSlots {
+		scrollInfo := fmt.Sprintf("\n%d-%d of %d sessions", start+1, end, totalItems)
 		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
 		content.WriteString(scrollStyle.Render(scrollInfo))
 	}
 
-	m.BaseModal.Content = content.String()
-	return m.BaseModal.Render()
+	return content.String()
 }
 
-func (m *SessionSelectionModal) Update(msg tea.Msg) (*SessionSelectionModal, tea.Cmd) {
-	if m.loading || m.loadingSession || m.err != nil || len(m.sessions) == 0 {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
-			if keyMsg.String() == "esc" || keyMsg.String() == "q" {
-				return m, func() tea.Msg { return modalCancelledMsg{} }
-			}
-		}
-		return m, nil
-	}
-
-	// Total items = sessions + cancel option
-	totalItems := len(m.sessions) + 1
-	visible := m.visibleSlots()
-	if visible < 1 {
-		visible = 1
-	}
-	maxOffset := totalItems - visible
-	if maxOffset < 0 {
-		maxOffset = 0
-	}
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "up", "k":
-			if m.selected > 0 {
-				m.selected--
-				if m.selected < m.scrollOffset {
-					m.scrollOffset = m.selected
-				}
-				if m.scrollOffset < 0 {
-					m.scrollOffset = 0
-				}
-			}
-		case "down", "j":
-			if m.selected < totalItems-1 {
-				m.selected++
-				if m.selected >= m.scrollOffset+visible {
-					m.scrollOffset = m.selected - visible + 1
-				}
-				if m.scrollOffset > maxOffset {
-					m.scrollOffset = maxOffset
-				}
-			}
-		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			num := int(msg.String()[0] - '1')
-			if num < len(m.sessions) {
-				m.selected = num
-				m.loadingSession = true
-				return m, m.loadSelectedSession()
-			}
-		case "enter":
-			// If cancel option is selected (last item)
-			if m.selected == len(m.sessions) {
-				return m, func() tea.Msg { return modalCancelledMsg{} }
-			}
-			m.loadingSession = true
-			return m, m.loadSelectedSession()
-		case "esc", "q":
-			return m, func() tea.Msg { return modalCancelledMsg{} }
-		}
-	}
-
-	return m, nil
-}
-
-func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
-	if len(m.sessions) == 0 || m.selected < 0 || m.selected >= len(m.sessions) {
-		return func() tea.Msg { return modalCancelledMsg{} }
-	}
-
-	sessionID := m.sessions[m.selected].ID
+// LoadSession loads a session by ID
+func (r *ResumeWindow) LoadSession(sessionID string) tea.Cmd {
+	r.loadingSession = true
 
 	return func() tea.Msg {
 		config, err := LoadConfig()

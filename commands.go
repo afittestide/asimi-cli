@@ -147,7 +147,8 @@ func handleHelpCommand(model *TUIModel, args []string) tea.Cmd {
 func handleNewSessionCommand(model *TUIModel, args []string) tea.Cmd {
 	model.saveSession()
 	model.sessionActive = true
-	model.chat = NewChatComponent(model.chat.Width, model.chat.Height)
+	chat := model.content.GetChat()
+	*chat = NewChatComponent(chat.Width, chat.Height)
 
 	model.rawSessionHistory = make([]string, 0)
 
@@ -166,7 +167,14 @@ func handleNewSessionCommand(model *TUIModel, args []string) tea.Cmd {
 }
 
 func handleQuitCommand(model *TUIModel, args []string) tea.Cmd {
-	// Save the session before quitting
+	// Check if we're in a non-chat view (help, models, resume)
+	// If so, return to chat instead of quitting the application
+	if model.content.GetActiveView() != ViewChat {
+		model.content.ShowChat()
+		return nil
+	}
+
+	// Save the session before quitting the application
 	model.saveSession()
 	// Quit the application
 	return tea.Quit

@@ -4,149 +4,52 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// HelpViewer is a modal component for displaying help documentation
-type HelpViewer struct {
-	viewport viewport.Model
-	width    int
-	height   int
-	topic    string
-	visible  bool
+// HelpWindow is a simplified component for displaying help documentation
+// Navigation is handled by ContentComponent
+type HelpWindow struct {
+	width  int
+	height int
+	topic  string
 }
 
-// NewHelpViewer creates a new help viewer
-func NewHelpViewer() *HelpViewer {
-	vp := viewport.New(80, 20)
-	vp.Style = lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#F952F9")). // Terminal7 prompt border
-		Padding(1)
-
-	return &HelpViewer{
-		viewport: vp,
-		width:    80,
-		height:   20,
-		visible:  false,
+// NewHelpWindow creates a new help window
+func NewHelpWindow() HelpWindow {
+	return HelpWindow{
+		width:  80,
+		height: 20,
+		topic:  "index",
 	}
 }
 
-// Show displays the help viewer with the given topic
-func (h *HelpViewer) Show(topic string) {
-	h.visible = true
-	h.topic = topic
-	h.viewport.SetContent(h.renderHelpContent(topic))
-	h.viewport.GotoTop()
-}
-
-// Hide closes the help viewer
-func (h *HelpViewer) Hide() {
-	h.visible = false
-}
-
-// IsVisible returns whether the help viewer is currently visible
-func (h *HelpViewer) IsVisible() bool {
-	return h.visible
-}
-
-// SetSize updates the dimensions of the help viewer
-func (h *HelpViewer) SetSize(width, height int) {
+// SetSize updates the dimensions of the help window
+func (h *HelpWindow) SetSize(width, height int) {
 	h.width = width
 	h.height = height
-	h.viewport.Width = width - 4 // Account for borders and padding
-	h.viewport.Height = height - 4
 }
 
-// Update handles input for the help viewer
-func (h *HelpViewer) Update(msg tea.Msg) (*HelpViewer, tea.Cmd) {
-	if !h.visible {
-		return h, nil
+// SetTopic sets the help topic to display
+func (h *HelpWindow) SetTopic(topic string) {
+	if topic == "" {
+		topic = "index"
 	}
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "esc":
-			h.Hide()
-			return h, nil
-		case "g":
-			// Go to top (like vim's gg)
-			h.viewport.GotoTop()
-			return h, nil
-		case "G":
-			// Go to bottom (like vim's G)
-			h.viewport.GotoBottom()
-			return h, nil
-		case "ctrl+d":
-			// Scroll down half page
-			h.viewport.HalfViewDown()
-			return h, nil
-		case "ctrl+u":
-			// Scroll up half page
-			h.viewport.HalfViewUp()
-			return h, nil
-		case "ctrl+f":
-			// Scroll down full page
-			h.viewport.ViewDown()
-			return h, nil
-		case "ctrl+b":
-			// Scroll up full page
-			h.viewport.ViewUp()
-			return h, nil
-		}
-	}
-
-	var cmd tea.Cmd
-	h.viewport, cmd = h.viewport.Update(msg)
-	return h, cmd
+	h.topic = topic
 }
 
-// View renders the help viewer
-func (h *HelpViewer) View() string {
-	if !h.visible {
-		return ""
-	}
+// GetTopic returns the current topic
+func (h *HelpWindow) GetTopic() string {
+	return h.topic
+}
 
-	// Create title bar
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#F952F9")).
-		Background(lipgloss.Color("#000000")).
-		Padding(0, 1)
-
-	title := titleStyle.Render(fmt.Sprintf(" Help: %s ", h.topic))
-
-	// Create footer with navigation hints
-	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#01FAFA")).
-		Background(lipgloss.Color("#000000")).
-		Padding(0, 1)
-
-	footer := footerStyle.Render(" q/ESC: close | j/k: scroll | g/G: top/bottom | Ctrl+d/u: half page | Ctrl+f/b: full page ")
-
-	// Combine title, viewport, and footer
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		h.viewport.View(),
-		footer,
-	)
-
-	// Center the help viewer on screen
-	return lipgloss.Place(
-		h.width,
-		h.height,
-		lipgloss.Center,
-		lipgloss.Center,
-		content,
-	)
+// RenderContent generates the styled help content for the current topic
+func (h *HelpWindow) RenderContent() string {
+	return h.renderHelpContent(h.topic)
 }
 
 // renderHelpContent generates the help content for a given topic
-func (h *HelpViewer) renderHelpContent(topic string) string {
+func (h *HelpWindow) renderHelpContent(topic string) string {
 	// Style definitions
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -208,7 +111,7 @@ func (h *HelpViewer) renderHelpContent(topic string) string {
 }
 
 // getHelpTopic returns the help content for a specific topic
-func (h *HelpViewer) getHelpTopic(topic string) string {
+func (h *HelpWindow) getHelpTopic(topic string) string {
 	topics := map[string]string{
 		"index":      helpIndex,
 		"":           helpIndex, // Default topic

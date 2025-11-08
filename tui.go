@@ -26,17 +26,14 @@ type TUIModel struct {
 	theme         *Theme // Add theme here
 
 	// UI Components
-	status              StatusComponent
-	prompt              PromptComponent
-	chat                ChatComponent
-	completions         CompletionDialog
-	commandLine         *CommandLineComponent
-	modal               *BaseModal
-	helpViewer          *HelpViewer
-	providerModal       *ProviderSelectionModal
-	codeInputModal      *CodeInputModal
-	modelSelectionModal *ModelSelectionModal
-	sessionModal        *SessionSelectionModal
+	status          StatusComponent
+	prompt          PromptComponent
+	content         ContentComponent
+	completions     CompletionDialog
+	commandLine     *CommandLineComponent
+	modal           *BaseModal
+	providerModal   *ProviderSelectionModal
+	codeInputModal  *CodeInputModal
 
 	// UI Flags & State
 	showCompletionDialog bool
@@ -113,11 +110,10 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore
 		// Initialize components
 		status:         status,
 		prompt:         prompt,
-		chat:           NewChatComponent(80, 18),
+		content:        NewContentComponent(80, 18),
 		completions:    NewCompletionDialog(),
 		commandLine:    NewCommandLineComponent(),
 		modal:          nil,
-		helpViewer:     NewHelpViewer(),
 		providerModal:  nil,
 		codeInputModal: nil,
 
@@ -281,14 +277,14 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
-		// Handle chat scrolling first (including touch gestures)
-		var chatCmd tea.Cmd
+		// Handle content scrolling first (including touch gestures)
+		var contentCmd tea.Cmd
 		if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown ||
 			msg.Type == tea.MouseLeft || msg.Type == tea.MouseMotion {
-			m.chat, chatCmd = m.chat.Update(msg)
+			m.content, contentCmd = m.content.Update(msg)
 		}
 		model, cmd := m.handleMouseMsg(msg)
-		return model, tea.Batch(chatCmd, cmd)
+		return model, tea.Batch(contentCmd, cmd)
 
 	case tea.WindowSizeMsg:
 		return m.handleWindowSizeMsg(msg)
@@ -352,7 +348,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.ctrlCPressedTime = now
 
-		m.chat.AddMessage("\nCTRL-C\n")
+		m.content.GetChat().AddMessage("\nCTRL-C\n")
 		m.handleEscape()
 		m.commandLine.AddToast("Press CTRL-C in less than 2s to exit", "info", 3*time.Second)
 		return m, nil
@@ -368,23 +364,30 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCtrlZ()
 	}
 
-	// Handle help viewer first if it's visible
-	if m.helpViewer != nil && m.helpViewer.IsVisible() {
-		m.helpViewer, cmd = m.helpViewer.Update(msg)
-		// If help viewer is now hidden, restore focus to prompt
-		if !m.helpViewer.IsVisible() {
-			m.prompt.Focus()
+	// Handle command line input when in command mode - MUST be before other handlers
+	if m.commandLine.IsInCommandMode() {
+		cmd, handled := m.commandLine.HandleKey(msg)
+		if handled && cmd != nil {
+			// Component handled the key and returned a message
+			return m, cmd
 		}
-		return m, cmd
+		// Component didn't handle it or returned nil
+		return m, nil
 	}
 
-	// Handle modals first (they need to handle their own escape keys)
-	if m.sessionModal != nil {
-		m.sessionModal, cmd = m.sessionModal.Update(msg)
-		return m, cmd
-	}
-	if m.modelSelectionModal != nil {
-		m.modelSelectionModal, cmd = m.modelSelectionModal.Update(msg)
+	// Handle non-chat views (help, models, resume)
+	if m.content.GetActiveView() != ViewChat {
+		// Allow `:` to enter command line mode even in non-chat views
+		if keyStr == ":" {
+			m.commandLine.EnterCommandMode("")
+			m.prompt.Blur()
+			return m, nil
+		}
+		m.content, cmd = m.content.Update(msg)
+		// If view switched back to chat, restore focus to prompt
+		if m.content.GetActiveView() == ViewChat {
+			m.prompt.Focus()
+		}
 		return m, cmd
 	}
 	if m.codeInputModal != nil {
@@ -406,17 +409,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// For 'q', return immediately
 			return m, nil
 		}
-	}
-
-	// Handle command line input when in command mode
-	if m.commandLine.IsInCommandMode() {
-		cmd, handled := m.commandLine.HandleKey(msg)
-		if handled && cmd != nil {
-			// Component handled the key and returned a message
-			return m, cmd
-		}
-		// Component didn't handle it or returned nil
-		return m, nil
 	}
 
 	// Handle escape key for vi mode transitions BEFORE other escape handling
@@ -696,7 +688,7 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleCtrlZ handles Ctrl+Z to send the application to background
 func (m TUIModel) handleCtrlZ() (tea.Model, tea.Cmd) {
 	// Display message to user
-	m.chat.AddMessage("\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
+	m.content.GetChat().AddMessage("\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
 
 	// Send SIGTSTP signal to self to suspend the process
 	return m, tea.Suspend
@@ -759,7 +751,7 @@ func (m TUIModel) handleCompletionSelection() (tea.Model, tea.Cmd) {
 				m.commandLine.AddToast(fmt.Sprintf("Error reading file: %v", err), "error", time.Second*3)
 			} else if m.session != nil {
 				m.session.AddContextFile(filePath, string(content))
-				m.chat.AddMessage(fmt.Sprintf("Loaded file: %s", filePath))
+				m.content.GetChat().AddMessage(fmt.Sprintf("Loaded file: %s", filePath))
 			}
 			currentValue := m.prompt.Value()
 			lastAt := strings.LastIndex(currentValue, "@")
@@ -840,7 +832,7 @@ func (m *TUIModel) saveHistoryPresentState() {
 	} else {
 		m.historyPresentSessionSnapshot = 0
 	}
-	m.historyPresentChatSnapshot = len(m.chat.Messages)
+	m.historyPresentChatSnapshot = len(m.content.GetChat().Messages)
 	m.historySaved = true
 }
 
@@ -973,7 +965,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			if m.session != nil {
 				m.session.RollbackTo(entry.SessionSnapshot)
 			}
-			m.chat.TruncateTo(entry.ChatSnapshot)
+			m.content.GetChat().TruncateTo(entry.ChatSnapshot)
 			m.toolCallMessageIndex = make(map[string]int)
 
 			// Now continue with the normal flow from this rolled-back state
@@ -982,7 +974,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 
 		// Add user input to raw history
 		m.addToRawHistory("USER", content)
-		chatSnapshot := len(m.chat.Messages)
+		chatSnapshot := len(m.content.GetChat().Messages)
 		var sessionSnapshot int
 		if m.session != nil {
 			sessionSnapshot = m.session.GetMessageSnapshot()
@@ -990,7 +982,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		if m.historyCursor < len(m.promptHistory) {
 			m.promptHistory = m.promptHistory[:m.historyCursor]
 		}
-		m.chat.AddMessage(fmt.Sprintf("You: %s", content))
+		m.content.GetChat().AddMessage(fmt.Sprintf("You: %s", content))
 		if m.session != nil {
 			m.sessionActive = true
 			m.prompt.SetValue("")
@@ -1060,7 +1052,7 @@ func (m TUIModel) handleAtKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.completionMode = "file"
 	files, err := getFileTree(".")
 	if err != nil {
-		m.chat.AddMessage(fmt.Sprintf("Error scanning files: %v", err))
+		m.content.GetChat().AddMessage(fmt.Sprintf("Error scanning files: %v", err))
 	} else {
 		m.updateFileCompletions(files)
 	}
@@ -1072,9 +1064,9 @@ func (m TUIModel) handleAtKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m TUIModel) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.MouseWheelUp:
-		m.chat.Viewport.LineUp(1)
+		m.content.GetChat().Viewport.LineUp(1)
 	case tea.MouseWheelDown:
-		m.chat.Viewport.LineDown(1)
+		m.content.GetChat().Viewport.LineDown(1)
 	}
 	return m, nil
 }
@@ -1085,11 +1077,6 @@ func (m TUIModel) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd
 	m.height = msg.Height
 	m.updateComponentDimensions()
 
-	// Update help viewer size
-	if m.helpViewer != nil {
-		m.helpViewer.SetSize(msg.Width, msg.Height)
-	}
-
 	return m, nil
 }
 
@@ -1099,7 +1086,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.addToRawHistory("AI_RESPONSE", string(msg))
 		m.stopStreaming()
-		m.chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
+		m.content.GetChat().AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
 		refreshGitInfo()
 
 	case ToolCallScheduledMsg:
@@ -1107,33 +1094,33 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Add a new message and store its index
 		message := formatToolCall(msg.Call.Tool.Name(), "📋", msg.Call.Input, "", nil)
-		m.chat.AddMessage(message)
-		m.toolCallMessageIndex[msg.Call.ID] = len(m.chat.Messages) - 1
+		m.content.GetChat().AddMessage(message)
+		m.toolCallMessageIndex[msg.Call.ID] = len(m.content.GetChat().Messages) - 1
 
 	case ToolCallExecutingMsg:
 		m.addToRawHistory("TOOL_EXECUTING", fmt.Sprintf("%s with input: %s", msg.Call.Tool.Name(), msg.Call.Input))
 		formatted := formatToolCall(msg.Call.Tool.Name(), "⚙️", msg.Call.Input, "", nil)
 		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.chat.Messages) {
-			m.chat.Messages[idx] = formatted
-			m.chat.UpdateContent()
+		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
+			m.content.GetChat().Messages[idx] = formatted
+			m.content.GetChat().UpdateContent()
 		} else {
 			// Fallback: add a new message if we don't have the index
-			m.chat.AddMessage(formatted)
+			m.content.GetChat().AddMessage(formatted)
 		}
 
 	case ToolCallSuccessMsg:
 		m.addToRawHistory("TOOL_SUCCESS", fmt.Sprintf("%s\nInput: %s\nOutput: %s", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Result))
 		formatted := formatToolCall(msg.Call.Tool.Name(), "✅", msg.Call.Input, msg.Call.Result, nil)
 		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.chat.Messages) {
-			m.chat.Messages[idx] = formatted
-			m.chat.UpdateContent()
+		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
+			m.content.GetChat().Messages[idx] = formatted
+			m.content.GetChat().UpdateContent()
 			// Clean up the index mapping
 			delete(m.toolCallMessageIndex, msg.Call.ID)
 		} else {
 			// Fallback: add a new message if we don't have the index
-			m.chat.AddMessage(formatted)
+			m.content.GetChat().AddMessage(formatted)
 		}
 		refreshGitInfo()
 
@@ -1141,19 +1128,19 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addToRawHistory("TOOL_ERROR", fmt.Sprintf("%s\nInput: %s\nError: %v", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Error))
 		formatted := formatToolCall(msg.Call.Tool.Name(), "⁉️", msg.Call.Input, "", msg.Call.Error)
 		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.chat.Messages) {
-			m.chat.Messages[idx] = formatted
-			m.chat.UpdateContent()
+		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
+			m.content.GetChat().Messages[idx] = formatted
+			m.content.GetChat().UpdateContent()
 			// Clean up the index mapping
 			delete(m.toolCallMessageIndex, msg.Call.ID)
 		} else {
 			// Fallback: add a new message if we don't have the index
-			m.chat.AddMessage(formatted)
+			m.content.GetChat().AddMessage(formatted)
 		}
 
 	case errMsg:
 		m.addToRawHistory("ERROR", fmt.Sprintf("%v", msg.err))
-		m.chat.AddMessage(fmt.Sprintf("Error: %v", msg.err))
+		m.content.GetChat().AddMessage(fmt.Sprintf("Error: %v", msg.err))
 
 	case streamStartMsg:
 		// Streaming has started
@@ -1174,18 +1161,18 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if len(m.chat.Messages) == 0 || !strings.HasPrefix(m.chat.Messages[len(m.chat.Messages)-1], "Asimi:") {
-			m.chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
-			slog.Debug("added_new_message", "total_messages", len(m.chat.Messages))
+		if len(m.content.GetChat().Messages) == 0 || !strings.HasPrefix(m.content.GetChat().Messages[len(m.content.GetChat().Messages)-1], "Asimi:") {
+			m.content.GetChat().AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
+			slog.Debug("added_new_message", "total_messages", len(m.content.GetChat().Messages))
 		} else {
-			m.chat.AppendToLastMessage(string(msg))
-			slog.Debug("appended_to_last_message", "total_messages", len(m.chat.Messages))
+			m.content.GetChat().AppendToLastMessage(string(msg))
+			slog.Debug("appended_to_last_message", "total_messages", len(m.content.GetChat().Messages))
 		}
 		m.saveSession()
 
 	case streamCompleteMsg:
 		m.addToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
-		slog.Debug("streamCompleteMsg", "messages_count", len(m.chat.Messages))
+		slog.Debug("streamCompleteMsg", "messages_count", len(m.content.GetChat().Messages))
 		m.stopStreaming()
 		if m.projectInitializing && m.session != nil {
 			m.session.ClearHistory()
@@ -1198,7 +1185,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Streaming was interrupted by user
 		m.addToRawHistory("STREAM_INTERRUPTED", fmt.Sprintf("AI streaming interrupted, partial content: %s", msg.partialContent))
 		slog.Debug("streamInterruptedMsg", "partial_content_length", len(msg.partialContent))
-		m.chat.AddMessage("\nESC")
+		m.content.GetChat().AddMessage("\nESC")
 		m.stopStreaming()
 		if m.projectInitializing {
 			m.projectInitializing = false
@@ -1208,7 +1195,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamErrorMsg:
 		m.addToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
 		slog.Error("streamErrorMsg", "error", msg.err)
-		m.chat.AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
+		m.content.GetChat().AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1222,7 +1209,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Max turns exceeded, mark session as inactive and show warning
 		m.addToRawHistory("STREAM_MAX_TURNS_EXCEEDED", fmt.Sprintf("AI streaming ended after reaching max turns limit: %d", msg.maxTurns))
 		slog.Warn("streamMaxTurnsExceededMsg", "max_turns", msg.maxTurns)
-		m.chat.AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
+		m.content.GetChat().AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1236,7 +1223,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Max tokens reached, mark session as inactive and show warning
 		m.addToRawHistory("STREAM_MAX_TOKENS_REACHED", fmt.Sprintf("AI response truncated due to length limit: %s", msg.content))
 		slog.Warn("streamMaxTokensReachedMsg", "content_length", len(msg.content))
-		m.chat.AddMessage("\n\n⚠️  Response truncated due to length limit")
+		m.content.GetChat().AddMessage("\n\n⚠️  Response truncated due to length limit")
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1248,14 +1235,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case showHelpMsg:
 		// Show the help viewer with the requested topic
-		if m.helpViewer != nil {
-			m.helpViewer.Show(msg.topic)
-		}
+		m.content.ShowHelp(msg.topic)
 		return m, nil
 
 	case showContextMsg:
 		m.addToRawHistory("CONTEXT", msg.content)
-		m.chat.AddMessage(msg.content)
+		m.content.GetChat().AddMessage(msg.content)
 		m.sessionActive = true
 
 	case waitingTickMsg:
@@ -1296,14 +1281,14 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addToRawHistory("OAUTH_ERROR", msg.err)
 		errToast := fmt.Sprintf("OAuth failed: %s", msg.err)
 		m.commandLine.AddToast(errToast, "error", 4000)
-		m.chat.AddMessage(errToast)
+		m.content.GetChat().AddMessage(errToast)
 		m.sessionActive = false
 
 	case modalCancelledMsg:
 		m.providerModal = nil
 		m.codeInputModal = nil
-		m.modelSelectionModal = nil
-		m.sessionModal = nil
+		// Return to chat view
+		m.content.ShowChat()
 		m.commandLine.AddToast("Cancelled", "info", 2000)
 
 	case authCodeEnteredMsg:
@@ -1311,12 +1296,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.completeAnthropicOAuth(msg.code, msg.verifier)
 
 	case showModelSelectionMsg:
-		m.modelSelectionModal = NewModelSelectionModal(m.config.LLM.Model)
+		m.content.SetModelsLoading()
 		// Fetch models in background
 		return m, m.fetchModelsCommand()
 
 	case modelSelectedMsg:
-		m.modelSelectionModal = nil
+		m.content.ShowChat()
 		oldModel := m.config.LLM.Model
 		m.config.LLM.Model = msg.model.ID
 
@@ -1342,18 +1327,13 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case modelsLoadedMsg:
-		if m.modelSelectionModal != nil {
-			m.modelSelectionModal.SetModels(msg.models)
-		}
+		m.content.ShowModels(msg.models, m.config.LLM.Model)
 
 	case modelsLoadErrorMsg:
-		if m.modelSelectionModal != nil {
-			m.modelSelectionModal.SetError(msg.error)
-		}
+		m.content.SetModelsError(msg.error)
 
 	case sessionsLoadedMsg:
-		m.sessionModal = NewSessionSelectionModal()
-		m.sessionModal.SetSessions(msg.sessions)
+		m.content.ShowResume(msg.sessions)
 
 	case commandReadyMsg:
 		// Command ready from command line component
@@ -1443,7 +1423,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionSelectedMsg:
-		m.sessionModal = nil
+		m.content.ShowChat()
 		if msg.session != nil {
 			if m.session != nil {
 				// Copy all persisted fields from loaded session to existing session
@@ -1467,7 +1447,8 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Rebuild chat UI from messages
-			m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
+			chat := m.content.GetChat()
+			*chat = NewChatComponent(chat.Width, chat.Height)
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {
@@ -1481,7 +1462,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if msgContent.Role == llms.ChatMessageTypeAI {
 								prefix = "Asimi: "
 							}
-							m.chat.AddMessage(prefix + textPart.Text)
+							m.content.GetChat().AddMessage(prefix + textPart.Text)
 						}
 					}
 				}
@@ -1492,7 +1473,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case sessionResumeErrorMsg:
-		m.sessionModal = nil
+		m.content.ShowChat()
 		m.commandLine.AddToast(fmt.Sprintf("Failed to resume session: %v", msg.err), "error", 4000)
 
 	case llmInitSuccessMsg:
@@ -1513,13 +1494,13 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Clear any existing conversation to start fresh
-		// m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
+		// m.chat = NewChatComponent(m.content.GetChat().Width, m.content.GetChat().Height)
 		// m.session.ClearHistory()
 		m.projectInitializing = true
 		m.toolCallMessageIndex = make(map[string]int)
 
 		// Add a message to show we're starting initialization
-		m.chat.AddMessage("🚀 Starting project initialization...")
+		m.content.GetChat().AddMessage("🚀 Starting project initialization...")
 
 		// Send the initialization prompt to the AI
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1540,17 +1521,17 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	}
 
-	// Restore focus to prompt if no modals are active
+	// Restore focus to prompt if no modals are active and view is chat
 	if m.providerModal == nil && m.codeInputModal == nil &&
-		m.modelSelectionModal == nil && m.sessionModal == nil &&
 		!m.commandLine.IsInCommandMode() &&
-		(m.helpViewer == nil || !m.helpViewer.IsVisible()) {
+		m.content.GetActiveView() == ViewChat {
 		m.prompt.Focus()
 	}
 
-	var chatCmd tea.Cmd
-	m.chat, chatCmd = m.chat.Update(msg)
-	return m, chatCmd
+	// Update content (which handles chat updates)
+	var contentCmd tea.Cmd
+	m.content, contentCmd = m.content.Update(msg)
+	return m, contentCmd
 }
 
 func (m *TUIModel) updateFileCompletions(files []string) {
@@ -1708,9 +1689,8 @@ func (m *TUIModel) updateComponentDimensions() {
 	m.status.SetWidth(width + 2)
 	m.commandLine.SetWidth(width + 2)
 
-	// Full width layout
-	m.chat.SetWidth(width)
-	m.chat.SetHeight(chatHeight)
+	// Full width layout - content handles chat and other views
+	m.content.SetSize(width, chatHeight)
 
 	m.prompt.SetWidth(width)
 	m.prompt.SetHeight(promptHeight)
@@ -1744,7 +1724,23 @@ func (m TUIModel) View() string {
 
 	t1 := time.Now()
 	viEnabled, viMode, viPending := m.prompt.ViModeStatus()
-	m.status.SetViMode(viEnabled, viMode, viPending)
+	// Override mode display if viewing non-chat content
+	activeView := m.content.GetActiveView()
+	if activeView != ViewChat {
+		// Show view name instead of vi mode
+		var viewName string
+		switch activeView {
+		case ViewHelp:
+			viewName = "HELP"
+		case ViewModels:
+			viewName = "MODELS"
+		case ViewResume:
+			viewName = "RESUME"
+		}
+		m.status.SetViMode(viEnabled, viewName, "")
+	} else {
+		m.status.SetViMode(viEnabled, viMode, viPending)
+	}
 	slog.Debug("[bubbletea] View: ViModeStatus", "duration", time.Since(t1))
 
 	// Calculate modal height if present
@@ -1791,20 +1787,20 @@ func (m TUIModel) renderMainContent(modalHeight int) string {
 		contentHeight = 0
 	}
 
+	// First check if we're viewing help/models/resume - these take precedence
+	if m.content.GetActiveView() != ViewChat {
+		return m.content.View()
+	}
+
+	// Then check for special modes
 	switch {
 	case m.rawMode:
 		return m.renderRawSessionView(m.width, contentHeight)
 	case !m.sessionActive:
 		return m.renderHomeView(m.width, contentHeight)
 	default:
-		// Dynamically adjust chat height if modal is present
-		if modalHeight > 0 {
-			// Temporarily adjust chat viewport height
-			adjustedChat := m.chat
-			adjustedChat.SetHeight(contentHeight)
-			return adjustedChat.View()
-		}
-		return m.chat.View()
+		// Use content component which handles chat view
+		return m.content.View()
 	}
 }
 
@@ -1891,13 +1887,8 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 func (m TUIModel) applyModalOverlays(view string) string {
 	result := view
 
-	// Note: m.modal (help modal) is now rendered in composeBaseView above the prompt
-	// Only apply centered overlays for other modals here
-
-	// Render help viewer if visible (full screen overlay)
-	if m.helpViewer != nil && m.helpViewer.IsVisible() {
-		return m.helpViewer.View()
-	}
+	// Note: m.modal (BaseModal) is now rendered in composeBaseView above the prompt
+	// Only apply centered overlays for OAuth modals here
 
 	if m.providerModal != nil {
 		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.providerModal.Render())
@@ -1905,14 +1896,6 @@ func (m TUIModel) applyModalOverlays(view string) string {
 
 	if m.codeInputModal != nil {
 		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.codeInputModal.Render())
-	}
-
-	if m.modelSelectionModal != nil {
-		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.modelSelectionModal.Render())
-	}
-
-	if m.sessionModal != nil {
-		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.sessionModal.Render())
 	}
 
 	return result
