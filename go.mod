@@ -28,7 +28,7 @@ require (
 )
 
 // IMPORTANT: We have some changes pending for langchaingo, go to keep this
-replace github.com/tmc/langchaingo => /Users/daonb/src/langchaingo
+replace github.com/tmc/langchaingo => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
