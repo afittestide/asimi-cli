@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewSessionSelectionModal(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 
 	assert.NotNil(t, modal)
 	assert.NotNil(t, modal.BaseModal)
@@ -25,7 +25,7 @@ func TestNewSessionSelectionModal(t *testing.T) {
 }
 
 func TestSessionSelectionModalSetSessions(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 
 	sessions := []Session{
 		{
@@ -54,7 +54,7 @@ func TestSessionSelectionModalSetSessions(t *testing.T) {
 }
 
 func TestSessionSelectionModalSetError(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 
 	testErr := assert.AnError
 	modal.SetError(testErr)
@@ -64,7 +64,7 @@ func TestSessionSelectionModalSetError(t *testing.T) {
 }
 
 func TestSessionSelectionModalRenderLoading(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 
 	output := modal.Render()
 
@@ -73,7 +73,7 @@ func TestSessionSelectionModalRenderLoading(t *testing.T) {
 }
 
 func TestSessionSelectionModalRenderError(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	modal.SetError(assert.AnError)
 
 	output := modal.Render()
@@ -83,7 +83,7 @@ func TestSessionSelectionModalRenderError(t *testing.T) {
 }
 
 func TestSessionSelectionModalRenderEmpty(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	modal.SetSessions([]Session{})
 
 	output := modal.Render()
@@ -94,7 +94,7 @@ func TestSessionSelectionModalRenderEmpty(t *testing.T) {
 }
 
 func TestSessionSelectionModalRenderWithSessions(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 
 	sessions := []Session{
 		{
@@ -132,7 +132,7 @@ func TestSessionSelectionModalRenderWithSessions(t *testing.T) {
 }
 
 func TestSessionSelectionModalNavigationUp(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	sessions := createTestSessions(3)
 	modal.SetSessions(sessions)
 
@@ -148,7 +148,7 @@ func TestSessionSelectionModalNavigationUp(t *testing.T) {
 }
 
 func TestSessionSelectionModalNavigationDown(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	sessions := createTestSessions(3)
 	modal.SetSessions(sessions)
 
@@ -164,7 +164,7 @@ func TestSessionSelectionModalNavigationDown(t *testing.T) {
 }
 
 func TestSessionSelectionModalNavigationBoundaries(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	sessions := createTestSessions(2)
 	modal.SetSessions(sessions)
 
@@ -214,7 +214,7 @@ func TestSessionSelectionModalQuickSelect(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			modal := NewSessionSelectionModal()
+			modal := NewSessionSelectionModal(nil)
 			modal.SetSessions(sessions)
 
 			keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)}
@@ -227,7 +227,7 @@ func TestSessionSelectionModalQuickSelect(t *testing.T) {
 }
 
 func TestSessionSelectionModalQuickSelectOutOfRange(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	sessions := createTestSessions(2)
 	modal.SetSessions(sessions)
 
@@ -244,7 +244,7 @@ func TestSessionSelectionModalEnterKey(t *testing.T) {
 	sessions := createTestSessions(2)
 
 	t.Run("enter on session triggers load", func(t *testing.T) {
-		modal := NewSessionSelectionModal()
+		modal := NewSessionSelectionModal(nil)
 		modal.SetSessions(sessions)
 		modal.selected = 0
 		keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
@@ -259,7 +259,7 @@ func TestSessionSelectionModalEnterKey(t *testing.T) {
 	})
 
 	t.Run("enter on cancel option triggers cancel", func(t *testing.T) {
-		modal := NewSessionSelectionModal()
+		modal := NewSessionSelectionModal(nil)
 		modal.SetSessions(sessions)
 		modal.selected = len(sessions) // Cancel option
 		keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
@@ -273,7 +273,7 @@ func TestSessionSelectionModalEnterKey(t *testing.T) {
 }
 
 func TestSessionSelectionModalEscapeKey(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	sessions := createTestSessions(2)
 	modal.SetSessions(sessions)
 
@@ -305,7 +305,7 @@ func TestSessionSelectionModalEscapeKey(t *testing.T) {
 }
 
 func TestSessionSelectionModalScrolling(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	visible := modal.visibleSlots()
 	sessions := createTestSessions(visible + 5) // More than the visible slots
 	modal.SetSessions(sessions)
@@ -350,7 +350,7 @@ func TestSessionSelectionModalScrolling(t *testing.T) {
 }
 
 func TestSessionSelectionModalVimKeys(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	sessions := createTestSessions(3)
 	modal.SetSessions(sessions)
 
@@ -370,7 +370,7 @@ func TestSessionSelectionModalVimKeys(t *testing.T) {
 }
 
 func TestSessionSelectionModalLoadingState(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 
 	t.Run("no interaction when loading", func(t *testing.T) {
 		assert.True(t, modal.loading)
@@ -395,7 +395,7 @@ func TestSessionSelectionModalLoadingState(t *testing.T) {
 }
 
 func TestSessionSelectionModalErrorState(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	modal.SetError(assert.AnError)
 
 	t.Run("no interaction when error", func(t *testing.T) {
@@ -418,7 +418,7 @@ func TestSessionSelectionModalErrorState(t *testing.T) {
 }
 
 func TestSessionSelectionModalEmptyState(t *testing.T) {
-	modal := NewSessionSelectionModal()
+	modal := NewSessionSelectionModal(nil)
 	modal.SetSessions([]Session{})
 
 	t.Run("no interaction when empty", func(t *testing.T) {
@@ -491,7 +491,7 @@ func TestFormatRelativeTimeInModal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test indirectly through modal rendering
-			modal := NewSessionSelectionModal()
+			modal := NewSessionSelectionModal(nil)
 			sessions := []Session{
 				{
 					ID:          "test",
@@ -518,7 +518,7 @@ func TestSessionSelectionModalLifecycle(t *testing.T) {
 
 	t.Run("complete user flow", func(t *testing.T) {
 		// Create modal
-		modal := NewSessionSelectionModal()
+		modal := NewSessionSelectionModal(nil)
 		require.NotNil(t, modal)
 		require.True(t, modal.loading)
 

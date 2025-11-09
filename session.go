@@ -1045,16 +1045,15 @@ type SessionIndex struct {
 }
 
 type SessionStore struct {
-	storageDir         string
-	projectSlug        string
-	projectRoot        string
-	legacySessionsRoot string
-	legacyIndexPath    string
-	maxSessions        int
-	maxAgeDays         int
-	saveChan           chan *Session
-	stopChan           chan struct{}
-	closeOnce          sync.Once
+	storageDir  string
+	projectSlug string
+	projectRoot string
+	branchSlug  string
+	maxSessions int
+	maxAgeDays  int
+	saveChan    chan *Session
+	stopChan    chan struct{}
+	closeOnce   sync.Once
 }
 
 func generateSessionID() string {
@@ -1065,6 +1064,19 @@ func generateSessionID() string {
 	suffix := hex.EncodeToString(randomBytes)
 
 	return fmt.Sprintf("%s-%s", timestamp, suffix)
+}
+
+func branchSlugOrDefault(branch string) string {
+	if branch == "" {
+		branch = "main"
+	}
+
+	slug := sanitizeSegment(branch)
+	if slug == "" {
+		return "main"
+	}
+
+	return slug
 }
 
 func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionStore, error) {
@@ -1081,13 +1093,7 @@ func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionSt
 
 	// Get current branch name, sanitize it for use in path
 	branch := repoInfo.Branch
-	if branch == "" {
-		branch = "main" // Default branch name
-	}
-	branchSlug := sanitizeSegment(branch)
-	if branchSlug == "" {
-		branchSlug = "main"
-	}
+	branchSlug := branchSlugOrDefault(branch)
 
 	repoBase := filepath.Join(homeDir, ".local", "share", "asimi", "repo")
 	projectDir := filepath.Join(repoBase, filepath.FromSlash(slug))
@@ -1098,19 +1104,14 @@ func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionSt
 	}
 
 	store := &SessionStore{
-		storageDir:         storageDir,
-		projectSlug:        slug,
-		projectRoot:        projectRoot,
-		legacySessionsRoot: filepath.Join(homeDir, ".local", "share", "asimi", "sessions"),
-		legacyIndexPath:    filepath.Join(homeDir, ".local", "share", "asimi", "sessions", "index.json"),
-		maxSessions:        maxSessions,
-		maxAgeDays:         maxAgeDays,
-		saveChan:           make(chan *Session, 100),
-		stopChan:           make(chan struct{}),
-	}
-
-	if err := store.migrateLegacySessions(); err != nil {
-		slog.Warn("failed to migrate legacy sessions", "error", err)
+		storageDir:  storageDir,
+		projectSlug: slug,
+		projectRoot: projectRoot,
+		branchSlug:  branchSlug,
+		maxSessions: maxSessions,
+		maxAgeDays:  maxAgeDays,
+		saveChan:    make(chan *Session, 100),
+		stopChan:    make(chan struct{}),
 	}
 
 	if err := store.CleanupOldSessions(); err != nil {
@@ -1120,99 +1121,6 @@ func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionSt
 	go store.saveWorker()
 
 	return store, nil
-}
-
-func (store *SessionStore) migrateLegacySessions() error {
-	if store.legacyIndexPath == "" {
-		return nil
-	}
-
-	data, err := os.ReadFile(store.legacyIndexPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read legacy index: %w", err)
-	}
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil
-	}
-
-	var legacyIndex SessionIndex
-	if err := json.Unmarshal(data, &legacyIndex); err != nil {
-		return fmt.Errorf("failed to parse legacy session index: %w", err)
-	}
-
-	cleanRoot := filepath.Clean(store.projectRoot)
-	var migrated []Session
-	var remaining []Session
-
-	for _, session := range legacyIndex.Sessions {
-		workingDir := filepath.Clean(session.WorkingDir)
-		if workingDir == "" {
-			workingDir = cleanRoot
-		}
-		if workingDir == cleanRoot {
-			if err := store.migrateLegacySessionData(session); err != nil {
-				slog.Warn("failed to migrate legacy session", "session_id", session.ID, "error", err)
-				continue
-			}
-			session.ProjectSlug = store.projectSlug
-			migrated = append(migrated, session)
-		} else {
-			remaining = append(remaining, session)
-		}
-	}
-
-	if len(migrated) == 0 {
-		return nil
-	}
-
-	if err := store.saveIndex(&SessionIndex{Sessions: migrated}); err != nil {
-		return fmt.Errorf("failed to write migrated session index: %w", err)
-	}
-
-	if data, err := json.MarshalIndent(SessionIndex{Sessions: remaining}, "", "  "); err == nil {
-		_ = os.WriteFile(store.legacyIndexPath, data, 0644)
-	}
-
-	return nil
-}
-
-func (store *SessionStore) migrateLegacySessionData(session Session) error {
-	if store.legacySessionsRoot == "" {
-		return nil
-	}
-
-	destDir := filepath.Join(store.storageDir, "session-"+session.ID)
-	if err := os.MkdirAll(store.storageDir, 0755); err != nil {
-		return fmt.Errorf("failed to prepare session directory: %w", err)
-	}
-	_ = os.RemoveAll(destDir)
-
-	candidates := []string{}
-	if session.ProjectSlug != "" {
-		candidates = append(candidates, filepath.Join(store.legacySessionsRoot, session.ProjectSlug, "session-"+session.ID))
-	}
-	candidates = append(candidates, filepath.Join(store.legacySessionsRoot, "session-"+session.ID))
-
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			if err := os.Rename(candidate, destDir); err != nil {
-				if copyErr := copyDirectory(candidate, destDir); copyErr != nil {
-					return copyErr
-				}
-				if err := os.RemoveAll(candidate); err != nil {
-					slog.Warn("failed to remove legacy session directory", "path", candidate, "error", err)
-				}
-			}
-			parent := filepath.Dir(candidate)
-			_ = os.Remove(parent)
-			return nil
-		}
-	}
-
-	return nil
 }
 
 func (store *SessionStore) saveWorker() {
@@ -1511,24 +1419,9 @@ func (store *SessionStore) LoadSession(id string) (*Session, error) {
 	sessionDir := filepath.Join(store.storageDir, "session-"+id)
 	sessionFile := filepath.Join(sessionDir, "session.json")
 
-	data, readErr := os.ReadFile(sessionFile)
-	if readErr != nil {
-		candidates := []string{}
-		if store.legacySessionsRoot != "" {
-			if slug != "" {
-				candidates = append(candidates, filepath.Join(store.legacySessionsRoot, slug, "session-"+id, "session.json"))
-			}
-			candidates = append(candidates, filepath.Join(store.legacySessionsRoot, "session-"+id, "session.json"))
-		}
-		for _, candidate := range candidates {
-			data, readErr = os.ReadFile(candidate)
-			if readErr == nil {
-				break
-			}
-		}
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read session file: %w", readErr)
-		}
+	data, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	var persisted persistedSession
@@ -1661,66 +1554,35 @@ func (store *SessionStore) CleanupOldSessions() error {
 }
 
 func (store *SessionStore) removeSessionDir(slug, id string) {
-	var paths []string
-	paths = append(paths, filepath.Join(store.storageDir, "session-"+id))
-	if store.legacySessionsRoot != "" {
-		if slug != "" {
-			paths = append(paths, filepath.Join(store.legacySessionsRoot, slug, "session-"+id))
-		}
-		paths = append(paths, filepath.Join(store.legacySessionsRoot, "session-"+id))
+	path := filepath.Join(store.storageDir, "session-"+id)
+	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
+		slog.Warn("failed to remove session", "session_id", id, "path", path, "error", err)
 	}
-
-	seen := make(map[string]struct{})
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		seen[path] = struct{}{}
-
-		if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
-			slog.Warn("failed to remove session", "session_id", id, "path", path, "error", err)
-		}
-	}
-}
-
-func copyDirectory(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode().Perm())
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, info.Mode())
-	})
 }
 
 func (store *SessionStore) loadIndex() (*SessionIndex, error) {
 	indexFile := filepath.Join(store.storageDir, "index.json")
 
 	if _, err := os.Stat(indexFile); os.IsNotExist(err) {
+		slog.Error("Session store index is missing", "path", indexFile)
 		return &SessionIndex{Sessions: []Session{}}, nil
 	}
 
 	data, err := os.ReadFile(indexFile)
 	if err != nil {
+		slog.Error("Failed to read session store index ", "path", indexFile)
 		return nil, fmt.Errorf("failed to read index file: %w", err)
+	}
+
+	// Handle empty index file
+	if len(strings.TrimSpace(string(data))) == 0 {
+		slog.Warn("Session store index is empty, initializing new index", "path", indexFile)
+		return &SessionIndex{Sessions: []Session{}}, nil
 	}
 
 	var index SessionIndex
 	if err := json.Unmarshal(data, &index); err != nil {
+		slog.Error("Session store index failed to unmarshal", "path", indexFile)
 		return nil, fmt.Errorf("failed to unmarshal index: %w", err)
 	}
 

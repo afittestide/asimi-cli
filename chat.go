@@ -111,6 +111,16 @@ func (c *ChatComponent) AddMessage(message string) {
 	c.UserScrolled = false
 }
 
+// AddMessages adds multiple messages to the chat component in batch
+// This is much faster than calling AddMessage repeatedly since it only calls UpdateContent once
+func (c *ChatComponent) AddMessages(messages []string) {
+	c.Messages = append(c.Messages, messages...)
+	c.UpdateContent()
+	// Reset auto-scroll when new messages are added
+	c.AutoScroll = true
+	c.UserScrolled = false
+}
+
 // Replace last message
 func (c *ChatComponent) ReplaceLastMessage(message string) {
 	c.Messages[len(c.Messages)-1] = message

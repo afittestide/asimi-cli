@@ -42,7 +42,7 @@ just measure          # Measure run_in_shell performance
 - `kong` - CLI parsing
 - `langchaingo` - LLM communications
 - `go-git` - Git operations (NEVER shell out to git)
-- `podman/docker` - Container management (NEVER shell out)
+- `podman/docker` - Container management in `podman_runner.go` (NEVER shell out)
 
 ## Testing
 
@@ -73,5 +73,5 @@ Tasks are tracked in:
 
 ## Logs & Config
 
-- Logs: `~/.local/share/asimi/asimi.log`
+- Logs: `~/.local/share/asimi/asimi.log` (or `./asimi.log` in the project root when `--debug`)
 - Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`

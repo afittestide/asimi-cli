@@ -29,9 +29,10 @@ type SessionSelectionModal struct {
 	loading        bool
 	loadingSession bool
 	err            error
+	sessionStore   *SessionStore
 }
 
-func NewSessionSelectionModal() *SessionSelectionModal {
+func NewSessionSelectionModal(store *SessionStore) *SessionSelectionModal {
 	baseModal := NewBaseModal("Resume Session", "", 70, 15)
 
 	return &SessionSelectionModal{
@@ -42,6 +43,7 @@ func NewSessionSelectionModal() *SessionSelectionModal {
 		loading:        true,
 		loadingSession: false,
 		err:            nil,
+		sessionStore:   store,
 	}
 }
 
@@ -164,7 +166,6 @@ func formatMessageCount(messages []llms.MessageContent) string {
 	return fmt.Sprintf("%d msgs", count)
 }
 
-
 func (m *SessionSelectionModal) Render() string {
 	var content strings.Builder
 
@@ -279,7 +280,7 @@ func (m *SessionSelectionModal) Render() string {
 		var line strings.Builder
 		line.WriteString(prefix)
 		line.WriteString(fmt.Sprintf("[%s] %s", timeStr, title))
-		
+
 		if messageCount != "" {
 			line.WriteString(fmt.Sprintf(" (%s)", messageCount))
 		}
@@ -375,30 +376,14 @@ func (m *SessionSelectionModal) loadSelectedSession() tea.Cmd {
 	}
 
 	sessionID := m.sessions[m.selected].ID
+	store := m.sessionStore
+	if store == nil {
+		return func() tea.Msg {
+			return sessionResumeErrorMsg{err: fmt.Errorf("session store not initialized")}
+		}
+	}
 
 	return func() tea.Msg {
-		config, err := LoadConfig()
-		if err != nil {
-			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load config: %w", err)}
-		}
-
-		maxSessions := 50
-		maxAgeDays := 30
-		if config.Session.MaxSessions > 0 {
-			maxSessions = config.Session.MaxSessions
-		}
-		if config.Session.MaxAgeDays > 0 {
-			maxAgeDays = config.Session.MaxAgeDays
-		}
-
-		repoInfo := GetRepoInfo()
-		store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
-		if err != nil {
-			return sessionResumeErrorMsg{err: fmt.Errorf("failed to create session store: %w", err)}
-		}
-		defer store.Close()
-
-		// Load the session
 		session, err := store.LoadSession(sessionID)
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load session: %w", err)}
