@@ -1,31 +1,30 @@
 # Architecture Vision
 
-Asimi comes with an ambitious vision - a new type of development environment:
+Asimi has a vision - a vision of a Holistic Development Environment
 
-
+```
 ```
                       /---------------------------------------\
                       |      The Holistic Development         |
                       |                     Environment       |
 +---------------------+---------------------------------------+
-| 5.  Immersive &     |                                       |
-|     Networked       |  Mobile App, Code Conferencing,       |
-|     User            |  3D Assembly Line, Asimi CLI,         |
-|     Interfaces      |  IDE plugins                          |
-|                     |                                       |
+| 6.  Programmers     |                                       |
+|     & Applications  |  TBD, Mobile App, Code Conferencing,  |
+|                     |  Asimi CLI, IDE plugins               |
 +---------------------+---------------------------------------+
-| 4. API &            |  REST & WeBRTC API                    |
-|    Orchestration    +  - - - - - - - - - - - - - - - - - - -+
-|                     |  Guardrails, Subagents and LLMs Router|
-|                     |                                       |
+| 5. Orchestration    |                                       |
+|                     |  Guardrails, Subagents & Model Router |
++---------------------+---------------------------------------+
+| 4. API              |                                       |
+|                     |  REST & WebRTC APIs                   |
 +---------------------+---------------------------------------+
 | 3. Harness          |                                       |
 |    & Toolchest      |  custom tools, go-git, podman go,     |
 |                     |  Kanban                               |
 +---------------------+---------------------------------------+
 | 2. Core             |                                       |
-|                     |  Host OS, Container mgmt,             |
-|                     |  Local/Remote Model, System Tools     |
+|                     |  Host OS, Container mgmt, Kanaban     | 
+|                     |  Local/Remote Model                   |
 +---------------------+---------------------------------------+
 | 1. Metal            |                                       |
 |                     |  CPU, GPU, RAM, Storage               |

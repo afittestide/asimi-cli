@@ -8,27 +8,53 @@ Asimi is an opinionated command-line interface that brings AI-powered coding ass
 
 ## ✨ Features
 
-- **🎨 Beautiful TUI** - Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for a smooth, interactive experience
-- **📝 Markdown Support** - Rich markdown rendering with syntax highlighting using [Glamour](https://github.com/charmbracelet/glamour)
-- **🤖 Multiple AI Providers** - Support for ollama, Claude, OpenAI, Gemini, and Qwen models
-- **🔧 Powerful Tools** - Integrated file operations, shell commands, and context management
-- **⌨️ Vi Mode** - Using vi-style line editing by default
+  **📦 **Integrated Podman Sandboxes** - Agent's shell run in its own container
+- **🎨 vi mimicry ** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
+- **🤖 Multiple AI Providers** - Support for ollama, Claude, Gemini and soon, more
+- **🔧 Fast Shell** - Asimi's persistent, containerized shell is running more than 100 times faster 
 - **📊 Context Awareness** - Smart token counting and context visualization
 - **🎯 Session Management** - Save and resume your coding sessions
+
+We're still missing MCP support. If it's critical for you, please consider helping out #
+
+
 ## 🚀 Quick Start
 
-### Installation
+Please choose your installer flavor:
+
+### Brew
+
+```
+brew install asimi
+```
+
+### Download Binaries
+
+TODO: add link to latest release page
+
+### One line installer
+
+TODO: add a one line installer . The script will be part installed at https://asimi.dev/installer
+
+### Go
+
 
 ```bash
 go install github.com/asimi/asimi-cli
 ./asimi
 ```
 
+
 ### First Steps
 
-1. **Login to your AI provider:**
+1. **Add the infrastructure to your project**
+   `:init` To add:
+
+   
+2. **Login to your AI provider:**
    `:login`
 
+<<<<<<< Updated upstream
 2. **Get help:**
    `:help` - Comprehensive help system with vim-like navigation
    `:help quickref` - Quick reference guide
@@ -39,16 +65,23 @@ go install github.com/asimi/asimi-cli
    - `:context` - View token usage and context
    - `:new` - Start a new conversation
    - `:resume` - resume an old session
+=======
+3. **Chat**
+
+## ⌨️ vi
+
+Asimi aims to looks and feels like a reincarnation of vi for the AI Age.
+This means the `/` is out. The commands are still there, but now you use `:`
+to move to a special command line to enter your command.
+>>>>>>> Stashed changes
 
 
-## ⌨️ Vi Mode
-
-Asimi comes with default proper vi editing.
 
 ### Modes
 
-- **Insert Mode** (Green border; status bar shows `-- INSERT --`): Type normally
+- **Insert Mode** (Green border; status bar shows `-- INSERT --`): For entering long text
 - **Normal Mode** (Yellow border; status bar shows `-- NORMAL --`): Navigation and editing only
+- **Command Mode** (Yellow border; status bar shows `-- NORMAL --`): Navigation and editing only
 
 ### Quick Reference
 
@@ -101,30 +134,16 @@ just run
 # Run tests
 just test
 
-# measure harness performance
+# measure shell's  performance
 just measure
 ```
 
-### Project Structure
-
-Flat. Please refrain from adding directories and files.
-
-## 🎨 Theme
-
-Asimi uses a custom color scheme inspired by Terminal7:
-
-- **Prompt Border**: `#F952F9` (Magenta)
-- **Chat Border**: `#F4DB53` (Yellow)
-- **Text Color**: `#01FAFA` (Cyan)
-- **Warning**: `#F4DB53` (Yellow)
-- **Error**: `#F54545` (Red)
-
 ## 📦 Libraries
 
+- **[LangChainGo](https://github.com/tmc/langchaingo)** - LLM communications and tools
 - **[Bubble Tea](https://github.com/charmbracelet/bubbletea)** - Terminal UI framework
 - **[Koanf](https://github.com/knadh/koanf)** - Configuration management
 - **[Kong](https://github.com/alecthomas/kong)** - CLI argument parser
-- **[LangChainGo](https://github.com/tmc/langchaingo)** - LLM communications and tools
 - **[Glamour](https://github.com/charmbracelet/glamour)** - Markdown rendering
 
 ## 🔒 Security
@@ -133,8 +152,7 @@ Asimi takes security seriously:
 
 - API keys are stored securely in your system keyring
 - No data is sent to third parties except your chosen AI provider
-- All file operations require explicit confirmation
-- Shell commands are executed with proper sandboxing
+- Shell commands are executed in a containerized sandbox
 
 ## 🤝 Contributing
 
@@ -143,7 +161,6 @@ We welcome contributions! Here are some ways you can help:
 1. **Report bugs** - Open an issue with details
 2. **Suggest features** - Share your ideas
 3. **Submit PRs** - Fix bugs or add features
-4. **Improve docs** - Help others understand Asimi
 
 ### Commit Message Style
 
@@ -185,7 +202,7 @@ See `conf.toml.example` for a complete list of configuration options.
 
 ### Environment Variables
 
-- **`EDITOR`** - Preferred text editor for export commands (e.g., `nvim`, `emacs`, `code`)
+- **`EDITOR`** - Preferred text editor for export commands
 - **`ASIMI_LAZYGIT_CMD`** - Custom lazygit command path
 - **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token for Anthropic API (takes priority over keyring). Supports three formats:
   - Raw access token: `sk-ant-...`
@@ -195,7 +212,7 @@ See `conf.toml.example` for a complete list of configuration options.
 - **`ANTHROPIC_BASE_URL`** - Custom base URL for Anthropic API (e.g., for proxy or custom endpoint)
 
 
-Logs are rotated and stored in `~/.local/share/asimi/`
+Logs are rotated and stored in `~/.local/share/asimi/`. When running with `--debug`, logs are instead written to `asimi.log` in the project root for quick inspection.
 
 ## 🐛 Troubleshooting
 
@@ -241,11 +258,13 @@ See [CHANGELOG.md](CHANGELOG.md) for planned features and recent changes.
 ## 🙏 Acknowledgments
 
 - Built with ❤️ using Go
-- Inspired by modern CLI tools and AI assistants
-- Special thanks to the Bubble Tea and LangChain communities
+- Inspired by vi and modern coding agents
+- Special thanks to the Bubble Tea and LangChainGo communities
 
 ---
 
 **Made with 🪾 by the Asimi team**
 
 *Safe, fun, and high-quality code generation*
+
+------

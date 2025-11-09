@@ -476,7 +476,7 @@ func (d *toolCallDisplay) complete() {
 	fmt.Print("\n")
 }
 
-// formatWithStatus formats the tool call with appropriate status indicator
+// formatWithStatus formats the tool call for the UI
 func (d *toolCallDisplay) formatWithStatus() string {
 	// Get the base format from the tool
 	var baseFormat string
