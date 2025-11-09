@@ -16,7 +16,7 @@ func TestHistoryStore_NewHistoryStore(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	repoInfo := GetRepoInfo()
-	store, err := NewHistoryStore(repoInfo)
+	store, err := NewPromptHistoryStore(repoInfo)
 	require.NoError(t, err)
 	require.NotNil(t, store)
 	require.NotEmpty(t, store.filePath)
@@ -26,7 +26,7 @@ func TestHistoryStore_NewHistoryStore(t *testing.T) {
 	if expectedSlug == "" {
 		expectedSlug = defaultProjectSlug
 	}
-	expectedPath := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), "history.json")
+	expectedPath := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), "prompt_history.json")
 	require.Equal(t, expectedPath, store.filePath)
 }
 

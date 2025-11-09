@@ -198,15 +198,38 @@ func ProvideModelClient(params ModelClientParams) {
 	})
 }
 
-// ProvideCommandHistory creates and returns the command history store
-func ProvideCommandHistory(repoInfo RepoInfo, logger *slog.Logger) (*HistoryStore, error) {
-	logger.Info("loading command history")
-	historyStore, err := NewHistoryStore(repoInfo)
+// PromptHistoryResult holds the prompt history store
+type PromptHistoryResult struct {
+	fx.Out
+	PromptHistory *HistoryStore `name:"prompt"`
+}
+
+// CommandHistoryResult holds the command history store
+type CommandHistoryResult struct {
+	fx.Out
+	CommandHistory *HistoryStore `name:"command"`
+}
+
+// ProvidePromptHistory creates and returns the prompt history store
+func ProvidePromptHistory(repoInfo RepoInfo, logger *slog.Logger) (PromptHistoryResult, error) {
+	logger.Info("loading prompt history")
+	historyStore, err := NewPromptHistoryStore(repoInfo)
 	if err != nil {
-		logger.Warn("failed to initialize history store", "error", err)
-		return nil, nil // Don't fail, just return nil
+		logger.Warn("failed to initialize prompt history store", "error", err)
+		return PromptHistoryResult{PromptHistory: nil}, nil // Don't fail, just return nil
 	}
-	return historyStore, nil
+	return PromptHistoryResult{PromptHistory: historyStore}, nil
+}
+
+// ProvideCommandHistory creates and returns the command history store
+func ProvideCommandHistory(repoInfo RepoInfo, logger *slog.Logger) (CommandHistoryResult, error) {
+	logger.Info("loading command history")
+	historyStore, err := NewCommandHistoryStore(repoInfo)
+	if err != nil {
+		logger.Warn("failed to initialize command history store", "error", err)
+		return CommandHistoryResult{CommandHistory: nil}, nil // Don't fail, just return nil
+	}
+	return CommandHistoryResult{CommandHistory: historyStore}, nil
 }
 
 // ProvideSessionHistory creates and returns the session history store
@@ -233,9 +256,20 @@ func ProvideSessionHistory(config *Config, repoInfo RepoInfo, logger *slog.Logge
 	return store, nil
 }
 
+// TUIModelParams holds parameters for TUI model creation
+type TUIModelParams struct {
+	fx.In
+	Config         *Config
+	RepoInfo       RepoInfo
+	PromptHistory  *HistoryStore `name:"prompt"`
+	CommandHistory *HistoryStore `name:"command"`
+	SessionStore   *SessionStore
+	Logger         *slog.Logger
+}
+
 // ProvideTUIModel creates and returns the TUI model
-func ProvideTUIModel(config *Config, repoInfo RepoInfo, historyStore *HistoryStore, sessionStore *SessionStore, logger *slog.Logger) *TUIModel {
-	return NewTUIModel(config, &repoInfo, historyStore, sessionStore)
+func ProvideTUIModel(params TUIModelParams) *TUIModel {
+	return NewTUIModel(params.Config, &params.RepoInfo, params.PromptHistory, params.CommandHistory, params.SessionStore)
 }
 
 // TUIProgramParams holds parameters for TUI program initialization

@@ -122,6 +122,7 @@ func runInteractiveMode() error {
 			ProvideConfig,
 			ProvideRepoInfo,
 			ProvideShellRunner,
+			ProvidePromptHistory,
 			ProvideCommandHistory,
 			ProvideSessionHistory,
 			ProvideTUIModel,

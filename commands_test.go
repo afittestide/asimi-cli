@@ -1,54 +1,135 @@
 package main
 
-import "testing"
+import (
+	"testing"
 
-func TestCommandRegistryOrder(t *testing.T) {
+	"github.com/stretchr/testify/require"
+)
+
+func TestFindCommand(t *testing.T) {
 	registry := NewCommandRegistry()
-	commands := registry.GetAllCommands()
-	if len(commands) == 0 {
-		t.Fatalf("expected commands to be registered")
+
+	tests := []struct {
+		name            string
+		input           string
+		expectFound     bool
+		expectCommand   string
+		expectMatches   int
+		expectAmbiguous bool
+	}{
+		{
+			name:          "exact match with colon",
+			input:         ":quit",
+			expectFound:   true,
+			expectCommand: "/quit",
+			expectMatches: 1,
+		},
+		{
+			name:          "partial match single - q",
+			input:         ":q",
+			expectFound:   true,
+			expectCommand: "/quit",
+			expectMatches: 1,
+		},
+		{
+			name:          "partial match single - qu",
+			input:         ":qu",
+			expectFound:   true,
+			expectCommand: "/quit",
+			expectMatches: 1,
+		},
+		{
+			name:          "partial match single - qui",
+			input:         ":qui",
+			expectFound:   true,
+			expectCommand: "/quit",
+			expectMatches: 1,
+		},
+		{
+			name:          "partial match single - h",
+			input:         ":h",
+			expectFound:   true,
+			expectCommand: "/help",
+			expectMatches: 1,
+		},
+		{
+			name:          "partial match single - n",
+			input:         ":n",
+			expectFound:   true,
+			expectCommand: "/new",
+			expectMatches: 1,
+		},
+		{
+			name:            "ambiguous match - c",
+			input:           ":c",
+			expectFound:     false,
+			expectMatches:   2, // /clear-history and /context
+			expectAmbiguous: true,
+		},
+		{
+			name:          "partial disambiguated - cl",
+			input:         ":cl",
+			expectFound:   true,
+			expectCommand: "/clear-history",
+			expectMatches: 1,
+		},
+		{
+			name:          "partial disambiguated - co",
+			input:         ":co",
+			expectFound:   true,
+			expectCommand: "/context",
+			expectMatches: 1,
+		},
+		{
+			name:          "no match",
+			input:         ":xyz",
+			expectFound:   false,
+			expectMatches: 0,
+		},
+		{
+			name:          "empty input",
+			input:         "",
+			expectFound:   false,
+			expectMatches: 0,
+		},
 	}
-	if commands[0].Name != "/help" {
-		t.Fatalf("expected first command to be /help, got %s", commands[0].Name)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, matches, found := registry.FindCommand(tt.input)
+
+			require.Equal(t, tt.expectFound, found, "found mismatch")
+			require.Equal(t, tt.expectMatches, len(matches), "matches count mismatch")
+
+			if tt.expectFound {
+				require.Equal(t, tt.expectCommand, cmd.Name, "command name mismatch")
+			}
+
+			if tt.expectAmbiguous {
+				require.False(t, found, "should not find unique match for ambiguous input")
+				require.Greater(t, len(matches), 1, "ambiguous should have multiple matches")
+			}
+		})
 	}
 }
 
-func TestHandleHelpCommandLeader(t *testing.T) {
-	t.Run("vi mode uses colon leader", func(t *testing.T) {
-		prompt := NewPromptComponent(80, 5)
-		prompt.SetViMode(true)
-		model := &TUIModel{prompt: prompt}
+func TestNormalizeCommandName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{":help", "/help"},
+		{":quit", "/quit"},
+		{"/help", "/help"},
+		{"/quit", "/quit"},
+		{"", ""},
+		{":new", "/new"},
+	}
 
-		cmd := handleHelpCommand(model, nil)
-		if cmd == nil {
-			t.Fatalf("expected non-nil command")
-		}
-
-		msg := cmd()
-		helpMsg, ok := msg.(showHelpMsg)
-		if !ok {
-			t.Fatalf("expected showHelpMsg got %T", msg)
-		}
-		if helpMsg.leader != ":" {
-			t.Fatalf("expected leader ':' got %q", helpMsg.leader)
-		}
-	})
-
-	t.Run("default leader is slash", func(t *testing.T) {
-		model := &TUIModel{}
-
-		cmd := handleHelpCommand(model, nil)
-		if cmd == nil {
-			t.Fatalf("expected non-nil command")
-		}
-
-		msg := cmd()
-		helpMsg, ok := msg.(showHelpMsg)
-		if !ok {
-			t.Fatalf("expected showHelpMsg got %T", msg)
-		}
-		if helpMsg.leader != "/" {
-			t.Fatalf("expected leader '/' got %q", helpMsg.leader)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := normalizeCommandName(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
 }

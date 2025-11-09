@@ -25,7 +25,7 @@ func TestFetchAnthropicModels_LoadsFromKeyring(t *testing.T) {
 	testToken := "test-token-12345"
 	testRefreshToken := "test-refresh-token"
 	expiry := time.Now().Add(24 * time.Hour)
-	
+
 	err := SaveTokenToKeyring("anthropic", testToken, testRefreshToken, expiry)
 	if err != nil {
 		t.Skipf("Skipping test: keyring not available: %v", err)
@@ -36,13 +36,13 @@ func TestFetchAnthropicModels_LoadsFromKeyring(t *testing.T) {
 	// Note: This will fail with a network error since we're using a fake token,
 	// but we're just testing that it loads the token from keyring
 	_, err = fetchAnthropicModels(config)
-	
+
 	// Verify that the config was updated with the token from keyring
 	if config.LLM.AuthToken != testToken {
-		t.Errorf("Expected AuthToken to be loaded from keyring, got %q, want %q", 
+		t.Errorf("Expected AuthToken to be loaded from keyring, got %q, want %q",
 			config.LLM.AuthToken, testToken)
 	}
-	
+
 	if config.LLM.RefreshToken != testRefreshToken {
 		t.Errorf("Expected RefreshToken to be loaded from keyring, got %q, want %q",
 			config.LLM.RefreshToken, testRefreshToken)
@@ -62,7 +62,7 @@ func TestFetchAnthropicModels_LoadsAPIKeyFromKeyring(t *testing.T) {
 
 	// Save a test API key to the keyring
 	testAPIKey := "sk-ant-test-key-12345"
-	
+
 	err := SaveAPIKeyToKeyring("anthropic", testAPIKey)
 	if err != nil {
 		t.Skipf("Skipping test: keyring not available: %v", err)
@@ -71,10 +71,10 @@ func TestFetchAnthropicModels_LoadsAPIKeyFromKeyring(t *testing.T) {
 
 	// Call fetchAnthropicModels - it should load the API key from keyring
 	_, err = fetchAnthropicModels(config)
-	
+
 	// Verify that the config was updated with the API key from keyring
 	if config.LLM.APIKey != testAPIKey {
-		t.Errorf("Expected APIKey to be loaded from keyring, got %q, want %q", 
+		t.Errorf("Expected APIKey to be loaded from keyring, got %q, want %q",
 			config.LLM.APIKey, testAPIKey)
 	}
 }
@@ -95,11 +95,11 @@ func TestFetchAnthropicModels_NoCredentials(t *testing.T) {
 
 	// Call fetchAnthropicModels - it should return an error
 	_, err := fetchAnthropicModels(config)
-	
+
 	if err == nil {
 		t.Error("Expected error when no credentials available, got nil")
 	}
-	
+
 	expectedError := "no authentication configured for anthropic provider"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error %q, got %q", expectedError, err.Error())

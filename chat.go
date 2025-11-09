@@ -96,6 +96,9 @@ func (c *ChatComponent) SetWidth(width int) {
 
 // SetHeight updates the height of the chat component
 func (c *ChatComponent) SetHeight(height int) {
+	if height < 0 {
+		height = 0
+	}
 	c.Height = height
 	c.Style = c.Style.Height(height)
 	c.Viewport.Height = height

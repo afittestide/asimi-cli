@@ -285,6 +285,13 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 	if os.Getenv("container") != "" {
 		t.Skip("Skipping Podman test when running inside a container")
 	}
+
+	// This test requires podman and the asimi-shell image to be available
+	// Skip if they're not available (e.g., in CI or on systems without podman)
+	if os.Getenv("ASIMI_TEST_PODMAN") == "" {
+		t.Skip("Skipping Podman test. Set ASIMI_TEST_PODMAN=1 to run this test (requires podman and asimi-shell image)")
+	}
+
 	repoInfo := GetRepoInfo()
 	runner := newPodmanShellRunner(false, nil, repoInfo)
 

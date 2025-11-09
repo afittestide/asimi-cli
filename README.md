@@ -29,8 +29,13 @@ go install github.com/asimi/asimi-cli
 1. **Login to your AI provider:**
    `:login`
 
-2. **Try some commands:**
-   - `:help` - Show available commands
+2. **Get help:**
+   `:help` - Comprehensive help system with vim-like navigation
+   `:help quickref` - Quick reference guide
+   `?` (in NORMAL mode) - Quick help overlay
+
+3. **Try some commands:**
+   - `:help` - Show help system
    - `:context` - View token usage and context
    - `:new` - Start a new conversation
    - `:resume` - resume an old session
@@ -72,6 +77,7 @@ Use `:` instead of `/` in vi mode (e.g., `:help`, `:new`, `:quit`)
 
 **Exit Vi Mode:**
 Press `Esc` to go from insert to normal mode. Run `/vi` or `:vi` to disable vi mode entirely.
+
 
 ## 🛠️ Development
 

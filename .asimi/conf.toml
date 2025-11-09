@@ -6,12 +6,6 @@ source = '/Users/daonb/src/langchaingo'
 [llm]
 model = 'claude-sonnet-4-5-20250929'
 provider = 'anthropic'
-# provider = "ollama"
-# model = "gemma3:1b"
 
 [run_in_shell]
-# Commands that should run on the host instead of in the container
-# These are regex patterns matched against the command string
-run_on_host = [
-    '^gh\s.*',  # GitHub CLI commands
-]
+run_on_host = ['^gh\s.*']
