@@ -26,16 +26,17 @@ type TUIModel struct {
 	theme         *Theme // Add theme here
 
 	// UI Components
-	status          StatusComponent
-	prompt          PromptComponent
-	content         ContentComponent
-	completions     CompletionDialog
-	commandLine     *CommandLineComponent
-	modal           *BaseModal
-	providerModal   *ProviderSelectionModal
-	codeInputModal  *CodeInputModal
+	status         StatusComponent
+	prompt         PromptComponent
+	content        ContentComponent
+	completions    CompletionDialog
+	commandLine    *CommandLineComponent
+	modal          *BaseModal
+	providerModal  *ProviderSelectionModal
+	codeInputModal *CodeInputModal
 
 	// UI Flags & State
+	Mode                 string // Current UI mode for status display
 	showCompletionDialog bool
 	completionMode       string // "file" or "command"
 	sessionActive        bool
@@ -118,6 +119,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore
 		codeInputModal: nil,
 
 		// UI Flags
+		Mode:                 ViModeInsert, // Start in insert mode
 		showCompletionDialog: false,
 		completionMode:       "",
 		sessionActive:        false,
@@ -379,9 +381,8 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.content.GetActiveView() != ViewChat {
 		// Allow `:` to enter command line mode even in non-chat views
 		if keyStr == ":" {
-			m.commandLine.EnterCommandMode("")
 			m.prompt.Blur()
-			return m, nil
+			return m, m.commandLine.EnterCommandMode("")
 		}
 		m.content, cmd = m.content.Update(msg)
 		// If view switched back to chat, restore focus to prompt
@@ -422,7 +423,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.completions.Hide()
 			m.completionMode = ""
 		}
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Visual mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViVisualMode() {
@@ -434,7 +435,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.completions.Hide()
 			m.completionMode = ""
 		}
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Command-line mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViCommandLineMode() {
@@ -443,7 +444,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showCompletionDialog = false
 		m.completions.Hide()
 		m.completionMode = ""
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Learning mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViLearningMode() {
@@ -456,7 +457,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.completions.Hide()
 			m.completionMode = ""
 		}
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 
 	// Handle escape key after modals have had a chance to process it
@@ -559,48 +560,48 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		// Enter insert mode at cursor
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "I":
 		// Enter insert mode at beginning of line
 		m.prompt.TextArea.CursorStart()
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "a":
 		// Enter insert mode after cursor (move cursor forward first)
 		// Note: In vi, 'a' appends after the current character
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "A":
 		// Enter insert mode at end of line
 		m.prompt.TextArea.CursorEnd()
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "o":
 		// Open new line below and enter insert mode
 		m.prompt.TextArea.CursorEnd()
 		m.prompt.TextArea.InsertString("\n")
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "O":
 		// Open new line above and enter insert mode
 		m.prompt.TextArea.CursorStart()
 		m.prompt.TextArea.InsertString("\n")
 		m.prompt.TextArea.CursorUp()
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "v":
 		// Enter visual mode (character-wise)
 		m.prompt.EnterViVisualMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "visual"} }
 	case "V":
 		// Enter visual line mode (for now, same as visual mode)
 		m.prompt.EnterViVisualMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "visual"} }
 	case ":":
 		// Enter command mode in the command line (bottom of screen)
-		m.commandLine.EnterCommandMode("")
+		enterCmd := m.commandLine.EnterCommandMode("")
 		m.prompt.Blur()
-		return m, nil
+		return m, enterCmd
 	case "?":
 		// Show help modal
 		helpText := "\n\n"
@@ -622,7 +623,7 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Enter learning mode
 		m.prompt.EnterViLearningMode()
 		m.prompt.SetValue("#")
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "learning"} }
 	default:
 		// Pass other keys to the textarea for navigation
 		m.prompt, _ = m.prompt.Update(msg)
@@ -928,7 +929,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		// Return to normal mode
 		m.prompt.EnterViNormalMode()
 		m.prompt.SetValue("")
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 
 	isCommand := strings.HasPrefix(content, ":")
@@ -945,6 +946,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 				cmds = append(cmds, command)
 				m.prompt.SetValue("")
 				m.prompt.EnterViInsertMode()
+				cmds = append(cmds, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} })
 				// Ensure prompt has focus after command
 				m.prompt.Focus()
 			} else {
@@ -1035,13 +1037,13 @@ func (m TUIModel) handleSlashKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleColonKey handles the colon key - enters command mode in command line
 func (m TUIModel) handleColonKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Enter command mode in the command line
-	m.commandLine.EnterCommandMode("")
+	enterCmd := m.commandLine.EnterCommandMode("")
 	m.prompt.Blur()
 
 	// Show command completions immediately
 	m.updateCommandLineCompletions()
 
-	return m, nil
+	return m, enterCmd
 }
 
 // handleAtKey handles the @ key for file completion
@@ -1235,8 +1237,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case showHelpMsg:
 		// Show the help viewer with the requested topic
-		m.content.ShowHelp(msg.topic)
-		return m, nil
+		return m, m.content.ShowHelp(msg.topic)
 
 	case showContextMsg:
 		m.addToRawHistory("CONTEXT", msg.content)
@@ -1288,8 +1289,8 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.providerModal = nil
 		m.codeInputModal = nil
 		// Return to chat view
-		m.content.ShowChat()
 		m.commandLine.AddToast("Cancelled", "info", 2000)
+		return m, m.content.ShowChat()
 
 	case authCodeEnteredMsg:
 		m.codeInputModal = nil
@@ -1301,7 +1302,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.fetchModelsCommand()
 
 	case modelSelectedMsg:
-		m.content.ShowChat()
 		oldModel := m.config.LLM.Model
 		m.config.LLM.Model = msg.model.ID
 
@@ -1325,15 +1325,26 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commandLine.AddToast(fmt.Sprintf("Model changed to %s", modelName), "success", 3000)
 			}
 		}
+		return m, nil
 
 	case modelsLoadedMsg:
-		m.content.ShowModels(msg.models, m.config.LLM.Model)
+		return m, m.content.ShowModels(msg.models, m.config.LLM.Model)
 
 	case modelsLoadErrorMsg:
 		m.content.SetModelsError(msg.error)
 
 	case sessionsLoadedMsg:
-		m.content.ShowResume(msg.sessions)
+		return m, m.content.ShowResume(msg.sessions)
+
+	case ChangeModeMsg:
+		// Centralized mode management - update Mode and status
+		m.Mode = msg.NewMode
+		m.status.SetMode(m.Mode)
+		if m.Mode == "resume" || m.Mode == "models" {
+			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
+		}
+
+		return m, nil
 
 	case commandReadyMsg:
 		// Command ready from command line component
@@ -1423,7 +1434,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case sessionSelectedMsg:
-		m.content.ShowChat()
 		if msg.session != nil {
 			if m.session != nil {
 				// Copy all persisted fields from loaded session to existing session
@@ -1471,10 +1481,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			timeStr := formatRelativeTime(msg.session.LastUpdated)
 			m.commandLine.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
 		}
+		return m, nil
 
 	case sessionResumeErrorMsg:
-		m.content.ShowChat()
 		m.commandLine.AddToast(fmt.Sprintf("Failed to resume session: %v", msg.err), "error", 4000)
+		return m, m.content.ShowChat()
 
 	case llmInitSuccessMsg:
 		// LLM initialization completed successfully
@@ -1723,25 +1734,9 @@ func (m TUIModel) View() string {
 	}
 
 	t1 := time.Now()
-	viEnabled, viMode, viPending := m.prompt.ViModeStatus()
-	// Override mode display if viewing non-chat content
-	activeView := m.content.GetActiveView()
-	if activeView != ViewChat {
-		// Show view name instead of vi mode
-		var viewName string
-		switch activeView {
-		case ViewHelp:
-			viewName = "HELP"
-		case ViewModels:
-			viewName = "MODELS"
-		case ViewResume:
-			viewName = "RESUME"
-		}
-		m.status.SetViMode(viEnabled, viewName, "")
-	} else {
-		m.status.SetViMode(viEnabled, viMode, viPending)
-	}
-	slog.Debug("[bubbletea] View: ViModeStatus", "duration", time.Since(t1))
+	// Mode is already set by ChangeModeMsg handler, which also updates status
+	// Just log for debugging
+	slog.Debug("[bubbletea] View: using Mode", "mode", m.Mode, "duration", time.Since(t1))
 
 	// Calculate modal height if present
 	t2 := time.Now()

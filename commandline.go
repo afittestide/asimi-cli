@@ -18,13 +18,18 @@ type Toast struct {
 
 // CommandLine messages for TUI coordination
 type (
-	commandReadyMsg         struct{ command string }
-	commandCancelledMsg     struct{}
-	commandTextChangedMsg   struct{} // Signals completion update needed
-	navigateCompletionMsg   struct{ direction int } // -1 for up, +1 for down
-	acceptCompletionMsg     struct{} // Tab pressed
-	navigateHistoryMsg      struct{ direction int } // For completion or history
+	commandReadyMsg       struct{ command string }
+	commandCancelledMsg   struct{}
+	commandTextChangedMsg struct{}                // Signals completion update needed
+	navigateCompletionMsg struct{ direction int } // -1 for up, +1 for down
+	acceptCompletionMsg   struct{}                // Tab pressed
+	navigateHistoryMsg    struct{ direction int } // For completion or history
 )
+
+// Mode management - single unified message for all mode changes
+type ChangeModeMsg struct {
+	NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume"
+}
 
 // CommandLineMode represents the state of the command line
 type CommandLineMode int
@@ -106,21 +111,27 @@ func (cl *CommandLineComponent) ClearToasts() {
 }
 
 // EnterCommandMode enters command mode with optional initial text
-func (cl *CommandLineComponent) EnterCommandMode(initialText string) {
+func (cl *CommandLineComponent) EnterCommandMode(initialText string) tea.Cmd {
 	cl.mode = CommandLineCommand
 	cl.command = initialText
 	cl.cursorPos = len(initialText)
 	cl.showCursor = true
 	cl.cursorBlink = true
+	return func() tea.Msg {
+		return ChangeModeMsg{NewMode: "command"}
+	}
 }
 
 // ExitCommandMode exits command mode and returns to idle
-func (cl *CommandLineComponent) ExitCommandMode() {
+func (cl *CommandLineComponent) ExitCommandMode() tea.Cmd {
 	cl.mode = CommandLineIdle
 	cl.command = ""
 	cl.cursorPos = 0
 	cl.historySaved = false
 	cl.historyPending = ""
+	return func() tea.Msg {
+		return ChangeModeMsg{NewMode: "insert"}
+	}
 }
 
 // IsInCommandMode returns true if in command mode
@@ -374,20 +385,36 @@ func (cl *CommandLineComponent) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch keyStr {
 	case "esc":
 		// Cancel command mode
-		cl.ExitCommandMode()
-		return func() tea.Msg { return commandCancelledMsg{} }, true
+		exitCmd := cl.ExitCommandMode()
+		return tea.Batch(
+			exitCmd,
+			func() tea.Msg { return commandCancelledMsg{} },
+		), true
 
 	case "enter":
 		// Execute command
 		cmdText := cl.GetCommand()
-		cl.ExitCommandMode()
+		exitCmd := cl.ExitCommandMode()
 		if cmdText != "" {
 			cl.AddToHistory(cmdText)
-			return func() tea.Msg { return commandReadyMsg{command: cmdText} }, true
+			return tea.Batch(
+				exitCmd,
+				func() tea.Msg { return commandReadyMsg{command: cmdText} },
+			), true
 		}
-		return func() tea.Msg { return commandCancelledMsg{} }, true
+		return tea.Batch(
+			exitCmd,
+			func() tea.Msg { return commandCancelledMsg{} },
+		), true
 
 	case "backspace", "ctrl+h":
+		if cl.cursorPos == 0 {
+			exitCmd := cl.ExitCommandMode()
+			return tea.Batch(
+				exitCmd,
+				func() tea.Msg { return commandCancelledMsg{} },
+			), true
+		}
 		cl.DeleteCharBackward()
 		return func() tea.Msg { return commandTextChangedMsg{} }, true
 

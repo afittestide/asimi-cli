@@ -209,8 +209,9 @@ func TestTUIModelSubmit(t *testing.T) {
 				require.Nil(t, cmd)
 			}
 
-			require.Equal(t, tc.expectedMessageCount, len(model.chat.Messages))
-			require.Contains(t, model.chat.Messages[len(model.chat.Messages)-1], tc.expectedLastMessage, "prompt", tc.name)
+			chat := model.content.GetChat()
+			require.Equal(t, tc.expectedMessageCount, len(chat.Messages))
+			require.Contains(t, chat.Messages[len(chat.Messages)-1], tc.expectedLastMessage, "prompt", tc.name)
 		})
 	}
 }
@@ -272,15 +273,9 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 				model.completions.Show()
 			},
 			verify: func(t *testing.T, model *TUIModel, cmd tea.Cmd) {
-				require.NotNil(t, cmd)
-				msg := cmd()
-				newModel, cmd := model.Update(msg)
 				require.Nil(t, cmd)
-				updatedModel, ok := newModel.(TUIModel)
-				require.True(t, ok)
-				require.NotNil(t, updatedModel.helpViewer)
-				require.True(t, updatedModel.helpViewer.IsVisible())
-				require.Equal(t, "index", updatedModel.helpViewer.topic)
+				require.Equal(t, ViewHelp, model.content.GetActiveView())
+				require.Equal(t, "index", model.content.help.GetTopic())
 			},
 		},
 	}
@@ -295,6 +290,13 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 			newModel, cmd := model.Update(tc.key)
 			updatedModel, ok := newModel.(TUIModel)
 			require.True(t, ok)
+
+			for cmd != nil {
+				msg := cmd()
+				newModel, cmd = updatedModel.Update(msg)
+				updatedModel, ok = newModel.(TUIModel)
+				require.True(t, ok)
+			}
 
 			tc.verify(t, &updatedModel, cmd)
 		})
@@ -629,6 +631,19 @@ func TestCommandLine(t *testing.T) {
 	require.Empty(t, commandLine.toasts)
 }
 
+func TestCommandLineBackspaceAtLineStartExitsCommandMode(t *testing.T) {
+	commandLine := NewCommandLineComponent()
+	commandLine.EnterCommandMode("")
+	require.True(t, commandLine.IsInCommandMode())
+
+	cmd, handled := commandLine.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	require.True(t, handled)
+	require.NotNil(t, cmd)
+	require.False(t, commandLine.IsInCommandMode())
+	require.Equal(t, "", commandLine.GetCommand())
+	require.Equal(t, 0, commandLine.cursorPos)
+}
+
 // TestTUIModelUpdateFileCompletions tests the file completion functionality with multiple files
 func TestTUIModelUpdateFileCompletions(t *testing.T) {
 	model, _ := newTestModel(t)
@@ -731,14 +746,13 @@ func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
 
 func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
 	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
-	require.NotNil(t, model.helpViewer)
-	require.False(t, model.helpViewer.IsVisible())
+	require.Equal(t, ViewChat, model.content.GetActiveView())
 
 	newModel, _ := model.handleCustomMessages(showHelpMsg{topic: "modes"})
 	updatedModel, ok := newModel.(TUIModel)
 	require.True(t, ok)
-	require.True(t, updatedModel.helpViewer.IsVisible())
-	require.Equal(t, "modes", updatedModel.helpViewer.topic)
+	require.Equal(t, ViewHelp, updatedModel.content.GetActiveView())
+	require.Equal(t, "modes", updatedModel.content.help.GetTopic())
 }
 
 // Tests from tui_history_test.go
@@ -970,22 +984,23 @@ func TestWaitingTickMsg_NotWaiting(t *testing.T) {
 // TestHistoryRollback_OnSubmit tests that submitting a historical prompt rolls back state
 func TestHistoryRollback_OnSubmit(t *testing.T) {
 	model, _ := newTestModel(t)
+	chat := model.content.GetChat()
 
 	// Clear the welcome message for cleaner testing
-	model.chat.Messages = []string{}
-	model.chat.UpdateContent()
+	chat.Messages = []string{}
+	chat.UpdateContent()
 
 	// Simulate a conversation
-	model.chat.AddMessage("You: first")
-	model.chat.AddMessage("Asimi: response1")
+	chat.AddMessage("You: first")
+	chat.AddMessage("Asimi: response1")
 	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
 		Prompt:          "first",
 		SessionSnapshot: 1,
 		ChatSnapshot:    0, // Before adding messages
 	})
 
-	model.chat.AddMessage("You: second")
-	model.chat.AddMessage("Asimi: response2")
+	chat.AddMessage("You: second")
+	chat.AddMessage("Asimi: response2")
 	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
 		Prompt:          "second",
 		SessionSnapshot: 1, // Session hasn't changed (no actual LLM calls)
@@ -1003,7 +1018,7 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	require.True(t, model.historySaved)
 
 	// Simulate submitting the historical prompt
-	chatLenBefore := len(model.chat.Messages)
+	chatLenBefore := len(chat.Messages)
 	sessionLenBefore := len(model.session.Messages)
 
 	// The handleEnterKey function should detect historySaved and roll back
@@ -1011,13 +1026,13 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	if model.historySaved && model.historyCursor < len(model.promptHistory) {
 		entry := model.promptHistory[model.historyCursor]
 		model.session.RollbackTo(entry.SessionSnapshot)
-		model.chat.TruncateTo(entry.ChatSnapshot)
+		chat.TruncateTo(entry.ChatSnapshot)
 	}
 
 	// Verify rollback occurred
 	require.Equal(t, 1, len(model.session.Messages), "Session should be rolled back to system message")
-	require.Equal(t, 0, len(model.chat.Messages), "Chat should be rolled back to empty")
-	require.Less(t, len(model.chat.Messages), chatLenBefore)
+	require.Equal(t, 0, len(chat.Messages), "Chat should be rolled back to empty")
+	require.Less(t, len(chat.Messages), chatLenBefore)
 	require.Equal(t, len(model.session.Messages), sessionLenBefore) // Session didn't change in this test
 }
 
@@ -1118,8 +1133,9 @@ func TestCancelActiveStreaming_NotActive(t *testing.T) {
 func TestSaveHistoryPresentState(t *testing.T) {
 	model, _ := newTestModel(t)
 	model.prompt.SetValue("current prompt")
-	model.chat.AddMessage("message 1")
-	model.chat.AddMessage("message 2")
+	chat := model.content.GetChat()
+	chat.AddMessage("message 1")
+	chat.AddMessage("message 2")
 
 	// Save present state
 	model.saveHistoryPresentState()
@@ -1389,9 +1405,10 @@ func TestFileCompletion(t *testing.T) {
 	require.Contains(t, contextFiles["main.go"], "package main")
 
 	// Assert that the prompt was not sent and the editor is still focused
-	require.NotEmpty(t, tuiModel.chat.Messages)
-	require.True(t, containsMessage(tuiModel.chat.Messages, "Loaded file: main.go"),
-		"messages", tuiModel.chat.Messages)
+	chat := tuiModel.content.GetChat()
+	require.NotEmpty(t, chat.Messages)
+	require.True(t, containsMessage(chat.Messages, "Loaded file: main.go"),
+		"messages", chat.Messages)
 	require.True(t, tuiModel.prompt.TextArea.Focused(), "The editor should remain focused")
 }
 
@@ -1437,9 +1454,8 @@ func TestColonCommandCompletionE2E(t *testing.T) {
 	tuiModel, ok := finalModel.(TUIModel)
 	require.True(t, ok)
 
-	require.NotNil(t, tuiModel.helpViewer)
-	require.True(t, tuiModel.helpViewer.IsVisible())
-	require.Equal(t, "index", tuiModel.helpViewer.topic)
+	require.Equal(t, ViewHelp, tuiModel.content.GetActiveView())
+	require.Equal(t, "index", tuiModel.content.help.GetTopic())
 }
 
 func TestLiveAgentE2E(t *testing.T) {
