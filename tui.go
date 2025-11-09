@@ -1259,7 +1259,8 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			auth := &AuthAnthropic{}
 			authURL, verifier, err := auth.authorize()
 			if err != nil {
-				m.commandLine.AddToast(fmt.Sprintf("Auth failed: %v", err), "error", 4000)
+				slog.Warn("Anthropic Auth failed", "error", err)
+				m.commandLine.AddToast("Authorization failed", "error", 4000)
 				return m, nil
 			}
 
@@ -1307,13 +1308,15 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Save config and reinitialize session
 		if err := SaveConfig(m.config); err != nil {
-			m.commandLine.AddToast(fmt.Sprintf("Failed to save config: %v", err), "error", 4000)
+			slog.Error("Failed to save config", "error", err)
+			m.commandLine.AddToast("Failed to save config: %v", "error", 4000)
 			// Revert model change
 			m.config.LLM.Model = oldModel
 		} else {
 			// Reinitialize session with new model
 			if err := m.reinitializeSession(); err != nil {
-				m.commandLine.AddToast(fmt.Sprintf("Failed to update model: %v", err), "error", 4000)
+				slog.Error("Failed to reinitialize session", "error", err)
+				m.commandLine.AddToast("Failed to re-init model. Please try again", "error", 4000)
 				// Revert model change
 				m.config.LLM.Model = oldModel
 				SaveConfig(m.config) // Try to save the reverted config
@@ -1495,7 +1498,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmInitErrorMsg:
 		// LLM initialization failed
 		slog.Warn("LLM initialization failed", "error", msg.err)
-		m.commandLine.AddToast(fmt.Sprintf("Warning: Running without AI capabilities: %v", msg.err), "warning", 5000)
+		m.commandLine.AddToast("Warning: Running without an LLM", "warning", 5000)
 
 	case initializeProjectMsg:
 		// Handle project initialization

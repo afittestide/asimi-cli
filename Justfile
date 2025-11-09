@@ -76,7 +76,7 @@ infrabuild:
     @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman stop 2>/dev/null || true
     @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman rm 2>/dev/null || true
     @echo "Building new asimi-dev image..."
-    podman build -t asimi-dev:latest -f .asimi/Dockerfile .
+    podman build -t asimi-shell:latest -f .asimi/Dockerfile .
 
 # Build production container
 build-container:
