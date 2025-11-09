@@ -2,10 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"go.uber.org/fx"
@@ -60,19 +57,14 @@ type LoggerResult struct {
 
 // ProvideLogger creates and returns a logger instance
 func ProvideLogger() (LoggerResult, error) {
-	homeDir, err := os.UserHomeDir()
+	logPath, err := getLogFilePath()
 	if err != nil {
-		return LoggerResult{}, fmt.Errorf("failed to get user home directory: %w", err)
-	}
-
-	logDir := filepath.Join(homeDir, ".local", "share", "asimi")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		return LoggerResult{}, fmt.Errorf("failed to create log directory %s: %w", logDir, err)
+		return LoggerResult{}, err
 	}
 
 	// Set up lumberjack for log rotation
 	logFile := &lumberjack.Logger{
-		Filename:   filepath.Join(logDir, "asimi.log"),
+		Filename:   logPath,
 		MaxSize:    10, // megabytes
 		MaxBackups: 3,
 		MaxAge:     28, // days

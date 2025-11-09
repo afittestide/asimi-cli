@@ -45,20 +45,33 @@ var cli struct {
 // Update the version as part of the version release process
 var version = "0.2.0-rc.4"
 
-func initLogger() {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get user home directory: %w", err))
+func getLogFilePath() (string, error) {
+	var logDir string
+
+	if !cli.Debug {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		logDir = filepath.Join(homeDir, ".local", "share", "asimi")
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create log directory %s: %w", logDir, err)
+		}
+
 	}
 
-	logDir := filepath.Join(homeDir, ".local", "share", "asimi")
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		panic(fmt.Errorf("failed to create log directory %s: %w", logDir, err))
+	return filepath.Join(logDir, "asimi.log"), nil
+}
+
+func initLogger() {
+	logPath, err := getLogFilePath()
+	if err != nil {
+		panic(fmt.Errorf("failed to determine log file path: %w", err))
 	}
 
 	// Set up lumberjack for log rotation
 	logFile := &lumberjack.Logger{
-		Filename:   filepath.Join(logDir, "asimi.log"),
+		Filename:   logPath,
 		MaxSize:    10, // megabytes
 		MaxBackups: 3,
 		MaxAge:     28, // days

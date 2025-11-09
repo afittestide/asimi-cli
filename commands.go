@@ -211,39 +211,54 @@ func handleClearHistoryCommand(model *TUIModel, args []string) tea.Cmd {
 
 func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 	return func() tea.Msg {
-		config, err := LoadConfig()
-		if err != nil {
-			return sessionResumeErrorMsg{err: err}
+		if model == nil || model.config == nil {
+			return sessionResumeErrorMsg{err: fmt.Errorf("resume unavailable: missing configuration")}
 		}
 
-		if !config.Session.Enabled {
+		if !model.config.Session.Enabled {
 			return showContextMsg{content: "Session resume is disabled in configuration."}
 		}
 
-		maxSessions := 50
-		maxAgeDays := 30
-		listLimit := 0
-
-		if config.Session.MaxSessions > 0 {
-			maxSessions = config.Session.MaxSessions
-		}
-		if config.Session.MaxAgeDays > 0 {
-			maxAgeDays = config.Session.MaxAgeDays
-		}
-		if config.Session.ListLimit >= 0 {
-			listLimit = config.Session.ListLimit
-		}
-
 		repoInfo := GetRepoInfo()
-		// TODO: why a new store? this could be slow
-		store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
-		if err != nil {
-			return sessionResumeErrorMsg{err: err}
+
+		currentBranch := branchSlugOrDefault(repoInfo.Branch)
+		if model.sessionStore == nil ||
+			model.sessionStore.projectRoot != repoInfo.ProjectRoot ||
+			model.sessionStore.branchSlug != currentBranch {
+
+			maxSessions := 50
+			if model.config.Session.MaxSessions > 0 {
+				maxSessions = model.config.Session.MaxSessions
+			}
+
+			maxAgeDays := 30
+			if model.config.Session.MaxAgeDays > 0 {
+				maxAgeDays = model.config.Session.MaxAgeDays
+			}
+
+			store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
+			if err != nil {
+				return sessionResumeErrorMsg{err: fmt.Errorf("failed to initialize session store: %w", err)}
+			}
+
+			if model.sessionStore != nil {
+				model.sessionStore.Close()
+			}
+			model.sessionStore = store
 		}
 
-		sessions, err := store.ListSessions(listLimit)
+		if model.sessionStore == nil {
+			return sessionResumeErrorMsg{err: fmt.Errorf("session store not initialized")}
+		}
+
+		listLimit := 0
+		if model.config.Session.ListLimit >= 0 {
+			listLimit = model.config.Session.ListLimit
+		}
+
+		sessions, err := model.sessionStore.ListSessions(listLimit)
 		if err != nil {
-			return sessionResumeErrorMsg{err: err}
+			return sessionResumeErrorMsg{err: fmt.Errorf("failed to list sessions: %w", err)}
 		}
 
 		return sessionsLoadedMsg{sessions: sessions}
