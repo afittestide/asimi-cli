@@ -333,3 +333,248 @@ type failingPodmanRunner struct{}
 func (failingPodmanRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	return RunInShellOutput{}, PodmanUnavailableError{reason: "podman unavailable"}
 }
+
+func TestValidatePathWithinProject(t *testing.T) {
+	// Create a temporary directory to act as project root
+	tempDir := t.TempDir()
+
+	// Change to the temp directory so GetRepoInfo() returns it as project root
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer os.Chdir(originalDir)
+
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		path        string
+		shouldError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid relative path",
+			path:        "test.txt",
+			shouldError: false,
+		},
+		{
+			name:        "valid nested path",
+			path:        "subdir/test.txt",
+			shouldError: false,
+		},
+		{
+			name:        "valid path with ./",
+			path:        "./test.txt",
+			shouldError: false,
+		},
+		{
+			name:        "path traversal with ..",
+			path:        "../outside.txt",
+			shouldError: true,
+			errorMsg:    "outside the current working directory",
+		},
+		{
+			name:        "path traversal in middle",
+			path:        "subdir/../../outside.txt",
+			shouldError: true,
+			errorMsg:    "outside the current working directory",
+		},
+		{
+			name:        "absolute path outside project",
+			path:        "/etc/passwd",
+			shouldError: true,
+			errorMsg:    "outside the current working directory",
+		},
+		{
+			name:        "empty path",
+			path:        "",
+			shouldError: true,
+			errorMsg:    "path cannot be empty",
+		},
+		{
+			name:        "absolute path within project",
+			path:        filepath.Join(tempDir, "test.txt"),
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePathWithinProject(tt.path)
+			if tt.shouldError {
+				assert.Error(t, err)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestWriteFileToolPathValidation(t *testing.T) {
+	// Create a temporary directory to act as project root
+	tempDir := t.TempDir()
+
+	// Change to the temp directory
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer os.Chdir(originalDir)
+
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+
+	tool := WriteFileTool{}
+
+	t.Run("write file within project", func(t *testing.T) {
+		input := `{"path": "test.txt", "content": "hello world"}`
+		result, err := tool.Call(context.Background(), input)
+		assert.NoError(t, err)
+		assert.Contains(t, result, "Successfully wrote to test.txt")
+
+		// Verify file was created
+		content, err := os.ReadFile("test.txt")
+		assert.NoError(t, err)
+		assert.Equal(t, "hello world", string(content))
+	})
+
+	t.Run("write file in subdirectory", func(t *testing.T) {
+		input := `{"path": "subdir/test.txt", "content": "nested content"}`
+		result, err := tool.Call(context.Background(), input)
+		assert.NoError(t, err)
+		assert.Contains(t, result, "Successfully wrote to subdir/test.txt")
+
+		// Verify file was created
+		content, err := os.ReadFile("subdir/test.txt")
+		assert.NoError(t, err)
+		assert.Equal(t, "nested content", string(content))
+	})
+
+	t.Run("reject path traversal", func(t *testing.T) {
+		input := `{"path": "../outside.txt", "content": "malicious"}`
+		_, err := tool.Call(context.Background(), input)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the current working directory")
+
+		// Verify file was not created
+		_, err = os.ReadFile("../outside.txt")
+		assert.Error(t, err)
+	})
+
+	t.Run("reject absolute path outside project", func(t *testing.T) {
+		input := `{"path": "/tmp/outside.txt", "content": "malicious"}`
+		_, err := tool.Call(context.Background(), input)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the current working directory")
+	})
+
+	t.Run("reject complex path traversal", func(t *testing.T) {
+		input := `{"path": "subdir/../../outside.txt", "content": "malicious"}`
+		_, err := tool.Call(context.Background(), input)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the current working directory")
+	})
+}
+
+func TestReplaceTextToolPathValidation(t *testing.T) {
+	// Create a temporary directory to act as project root
+	tempDir := t.TempDir()
+
+	// Change to the temp directory
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer os.Chdir(originalDir)
+
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+
+	// Create a test file
+	testContent := "hello world\nthis is a test"
+	err = os.WriteFile("test.txt", []byte(testContent), 0644)
+	require.NoError(t, err)
+
+	tool := ReplaceTextTool{}
+
+	t.Run("replace text within project", func(t *testing.T) {
+		input := `{"path": "test.txt", "old_text": "hello", "new_text": "goodbye"}`
+		result, err := tool.Call(context.Background(), input)
+		assert.NoError(t, err)
+		assert.Contains(t, result, "Successfully modified file")
+
+		// Verify replacement
+		content, err := os.ReadFile("test.txt")
+		assert.NoError(t, err)
+		assert.Contains(t, string(content), "goodbye world")
+	})
+
+	t.Run("reject path traversal", func(t *testing.T) {
+		// Create a file outside the project
+		outsideFile := filepath.Join(filepath.Dir(tempDir), "outside.txt")
+		err := os.WriteFile(outsideFile, []byte("outside content"), 0644)
+		require.NoError(t, err)
+		defer os.Remove(outsideFile)
+
+		input := `{"path": "../outside.txt", "old_text": "outside", "new_text": "modified"}`
+		_, err = tool.Call(context.Background(), input)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the current working")
+
+		// Verify file was not modified
+		content, err := os.ReadFile(outsideFile)
+		assert.NoError(t, err)
+		assert.Equal(t, "outside content", string(content))
+	})
+
+	t.Run("reject absolute path outside project", func(t *testing.T) {
+		input := `{"path": "/etc/hosts", "old_text": "localhost", "new_text": "malicious"}`
+		_, err := tool.Call(context.Background(), input)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "outside the current working")
+	})
+}
+
+func TestPathValidationWithSymlinks(t *testing.T) {
+	// Skip on Windows as symlink behavior is different
+	if os.Getenv("GOOS") == "windows" {
+		t.Skip("Skipping symlink test on Windows")
+	}
+
+	// Create a temporary directory to act as project root
+	tempDir := t.TempDir()
+
+	// Change to the temp directory
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer os.Chdir(originalDir)
+
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+
+	// Create a directory outside the project
+	outsideDir := filepath.Join(filepath.Dir(tempDir), "outside")
+	err = os.MkdirAll(outsideDir, 0755)
+	require.NoError(t, err)
+	defer os.RemoveAll(outsideDir)
+
+	// Create a symlink inside the project pointing outside
+	symlinkPath := filepath.Join(tempDir, "symlink")
+	err = os.Symlink(outsideDir, symlinkPath)
+	if err != nil {
+		t.Skip("Unable to create symlink, skipping test")
+	}
+
+	tool := WriteFileTool{}
+
+	t.Run("reject write through symlink to outside", func(t *testing.T) {
+		input := `{"path": "symlink/malicious.txt", "content": "bad content"}`
+		_, err := tool.Call(context.Background(), input)
+		// This should either fail validation or fail to write
+		// The exact behavior depends on how filepath.Abs handles symlinks
+		if err == nil {
+			// If it succeeded, verify it didn't write outside
+			_, statErr := os.Stat(filepath.Join(outsideDir, "malicious.txt"))
+			assert.Error(t, statErr, "File should not be created outside project")
+		}
+	})
+}
