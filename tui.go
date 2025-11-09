@@ -1763,9 +1763,7 @@ func (m TUIModel) View() string {
 	slog.Debug("[bubbletea] View: composeBaseView", "duration", time.Since(t6))
 
 	if m.showCompletionDialog {
-		t7 := time.Now()
 		view = m.overlayCompletionDialog(view, promptView, commandLineView)
-		slog.Debug("[bubbletea] View: overlayCompletionDialog", "duration", time.Since(t7))
 	}
 
 	t8 := time.Now()
@@ -1851,17 +1849,16 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 		return baseView
 	}
 
-	promptHeight := lipgloss.Height(promptView)
 	commandLineHeight := 0
 	if commandLineView != "" {
 		commandLineHeight = 1
 	}
-	statusHeight := 1
-	bottomOffset := promptHeight + commandLineHeight + statusHeight
+	bottomOffset := commandLineHeight
 
 	dialogHeight := lipgloss.Height(dialog)
 	yPos := m.height - bottomOffset - dialogHeight
 
+	// TODO: fix the overlaying so it looks good
 	dialogOverlay := lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, baseView)
 	dialogPositioned := lipgloss.Place(m.width, dialogHeight, lipgloss.Left, lipgloss.Top, dialog)
 
