@@ -73,5 +73,5 @@ Tasks are tracked in:
 
 ## Logs & Config
 
-- Logs: `~/.local/share/asimi/asimi.log` (or `./asimi.log` in the project root when `--debug`)
+- Logs: ./asimi.log
 - Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`
