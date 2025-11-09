@@ -243,7 +243,6 @@ func (m *TUIModel) shutdown() {
 
 // Init implements bubbletea.Model
 func (m TUIModel) Init() tea.Cmd {
-	slog.Debug("[bubbletea] Init() called")
 	// Bubbletea will automatically send a WindowSizeMsg after Init
 	// We don't need to do anything special here
 	return nil
@@ -254,7 +253,6 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	start := time.Now()
 
 	// Log all messages in debug mode
-	slog.Debug("[bubbletea] Update()", "msg_type", fmt.Sprintf("%T", msg))
 
 	defer func() {
 		duration := time.Since(start)
@@ -1337,7 +1335,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case sessionsLoadedMsg:
-		m.sessionModal = NewSessionSelectionModal()
+		m.sessionModal = NewSessionSelectionModal(m.sessionStore)
 		m.sessionModal.SetSessions(msg.sessions)
 
 	case sessionSelectedMsg:
@@ -1364,8 +1362,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				slog.Warn("Resumed session without active LLM - some features may be limited")
 			}
 
-			// Rebuild chat UI from messages
-			m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
+			// Rebuild chat UI from messages - REUSE existing chat component to avoid re-initializing markdown renderer
+			// Clear existing messages and repopulate
+			m.chat.Messages = make([]string, 0)
+
+			// Collect all messages first, then add them in one batch
+			var chatMessages []string
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {
@@ -1379,11 +1381,17 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if msgContent.Role == llms.ChatMessageTypeAI {
 								prefix = "Asimi: "
 							}
-							m.chat.AddMessage(prefix + textPart.Text)
+							chatMessages = append(chatMessages, prefix+textPart.Text)
 						}
 					}
 				}
 			}
+
+			// Add all messages in one batch - much faster than adding one at a time
+			if len(chatMessages) > 0 {
+				m.chat.AddMessages(chatMessages)
+			}
+
 			m.sessionActive = true
 			timeStr := formatRelativeTime(msg.session.LastUpdated)
 			m.toastManager.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
@@ -1401,7 +1409,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmInitErrorMsg:
 		// LLM initialization failed
 		slog.Warn("LLM initialization failed", "error", msg.err)
-		m.toastManager.AddToast(fmt.Sprintf("Warning: Running without AI capabilities: %v", msg.err), "warning", 5000)
+		m.toastManager.AddToast("Running without a 🦙", "warning", 5000)
 
 	case initializeProjectMsg:
 		// Handle project initialization
@@ -1567,14 +1575,10 @@ func (m *TUIModel) updateComponentDimensions() {
 func (m TUIModel) View() string {
 	start := time.Now()
 
-	slog.Debug("[bubbletea] View() called")
-
 	defer func() {
 		duration := time.Since(start)
 		if duration > 100*time.Millisecond {
 			slog.Warn("[bubbletea] View() SLOW", "duration", duration)
-		} else {
-			slog.Debug("[bubbletea] View() completed", "duration", duration)
 		}
 	}()
 
@@ -1582,44 +1586,28 @@ func (m TUIModel) View() string {
 		return "Initializing..."
 	}
 
-	t1 := time.Now()
 	viEnabled, viMode, viPending := m.prompt.ViModeStatus()
 	m.status.SetViMode(viEnabled, viMode, viPending)
-	slog.Debug("[bubbletea] View: ViModeStatus", "duration", time.Since(t1))
 
 	// Calculate modal height if present
-	t2 := time.Now()
 	modalHeight := 0
 	if m.modal != nil {
 		modalHeight = lipgloss.Height(m.modal.Render())
 	}
-	slog.Debug("[bubbletea] View: modal height", "duration", time.Since(t2))
 
-	t3 := time.Now()
 	mainContent := m.renderMainContent(modalHeight)
-	slog.Debug("[bubbletea] View: renderMainContent", "duration", time.Since(t3))
 
-	t4 := time.Now()
 	promptView := m.prompt.View()
-	slog.Debug("[bubbletea] View: prompt.View", "duration", time.Since(t4))
 
-	t5 := time.Now()
 	viModeToastLine := m.renderViModeAndToast()
-	slog.Debug("[bubbletea] View: renderViModeAndToast", "duration", time.Since(t5))
 
-	t6 := time.Now()
 	view := m.composeBaseView(mainContent, promptView, viModeToastLine)
-	slog.Debug("[bubbletea] View: composeBaseView", "duration", time.Since(t6))
 
 	if m.showCompletionDialog {
-		t7 := time.Now()
 		view = m.overlayCompletionDialog(view, promptView, viModeToastLine)
-		slog.Debug("[bubbletea] View: overlayCompletionDialog", "duration", time.Since(t7))
 	}
 
-	t8 := time.Now()
 	result := m.applyModalOverlays(view)
-	slog.Debug("[bubbletea] View: applyModalOverlays", "duration", time.Since(t8))
 
 	return result
 }
@@ -1648,15 +1636,10 @@ func (m TUIModel) renderMainContent(modalHeight int) string {
 func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine string) string {
 	// If help modal is active, insert it above the prompt
 	if m.modal != nil {
-		t1 := time.Now()
 		modalRender := m.modal.Render()
-		slog.Debug("[bubbletea] composeBaseView: modal.Render", "duration", time.Since(t1))
 
-		t2 := time.Now()
 		statusView := m.status.View()
-		slog.Debug("[bubbletea] composeBaseView: status.View (with modal)", "duration", time.Since(t2))
 
-		t3 := time.Now()
 		result := lipgloss.JoinVertical(
 			lipgloss.Left,
 			mainContent,
@@ -1665,15 +1648,11 @@ func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine strin
 			viModeToastLine,
 			statusView,
 		)
-		slog.Debug("[bubbletea] composeBaseView: JoinVertical (with modal)", "duration", time.Since(t3))
 		return result
 	}
 
-	t1 := time.Now()
 	statusView := m.status.View()
-	slog.Debug("[bubbletea] composeBaseView: status.View", "duration", time.Since(t1))
 
-	t2 := time.Now()
 	result := lipgloss.JoinVertical(
 		lipgloss.Left,
 		mainContent,
@@ -1681,7 +1660,6 @@ func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine strin
 		viModeToastLine,
 		statusView,
 	)
-	slog.Debug("[bubbletea] composeBaseView: JoinVertical", "duration", time.Since(t2))
 	return result
 }
 
