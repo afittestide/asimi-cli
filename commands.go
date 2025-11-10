@@ -51,7 +51,7 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/clear-history", "Clear all prompt history", handleClearHistoryCommand)
 	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
-	registry.RegisterCommand("/init", "Initialize project with missing infrastructure files (AGENTS.md, Justfile, Dockerfile)", handleInitCommand)
+	registry.RegisterCommand("/init", "Init project to work with asimi", handleInitCommand)
 
 	return registry
 }
@@ -321,7 +321,12 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 
 		if len(missingFiles) == 0 {
 			if !forceMode {
-				return showContextMsg{content: "All infrastructure files already exist:\n✓ AGENTS.md\n✓ Justfile\n✓ .asimi/Dockerfile\n\nUse `:init force` to regenerate them."}
+				return showContextMsg{content: strings.Join([]string{"All infrastructure files already exist:",
+					"✓ AGENTS.md",
+					"✓ Justfile",
+					"✓ .agents/Sandbox",
+					"",
+					"Use `:init force` to regenerate them."}, "/n")}
 			}
 
 			if program != nil {
@@ -372,9 +377,9 @@ func checkMissingInfraFiles() []string {
 		missing = append(missing, "Justfile")
 	}
 
-	// Check for .asimi/Dockerfile
-	if _, err := os.Stat(".asimi/Dockerfile"); os.IsNotExist(err) {
-		missing = append(missing, ".asimi/Dockerfile")
+	// Check for .agents/Sandbox
+	if _, err := os.Stat(".agents/Sandbox"); os.IsNotExist(err) {
+		missing = append(missing, ".agents/Sandbox")
 	}
 
 	return missing

@@ -67,4 +67,4 @@ Once a change is finished and ALL tests pass update the CHANGELOG.md
 ## Logs & Config
 
 - Logs: ./asimi.log
-- Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`
+- Config: `~/.config/asimi/asimi.toml` or `.agents/asimi.toml`

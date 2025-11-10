@@ -108,10 +108,10 @@ func getFileTree(root string) ([]string, error) {
 	var files []string
 	// Directories to ignore at any level
 	ignoreDirs := map[string]bool{
-		".git":    true,
-		"vendor":  true,
-		".asimi":  true,
-		"archive": true,
+		".git":      true,
+		"vendor":    true,
+		"worktrees": true,
+		"archive":   true,
 	}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {

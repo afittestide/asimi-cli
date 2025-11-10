@@ -8,12 +8,13 @@ Asimi is an opinionated command-line interface that brings AI-powered coding ass
 
 ## ✨ Features
 
-  **📦 **Integrated Podman Sandboxes** - Agent's shell run in its own container
-- **🎨 vi mimicry ** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
-- **🤖 Multiple AI Providers** - Support for ollama, Claude, Gemini and soon, more
-- **🔧 Fast Shell** - Asimi's persistent, containerized shell is running more than 100 times faster 
-- **📊 Context Awareness** - Smart token counting and context visualization
-- **🎯 Session Management** - Save and resume your coding sessions
+  📦 **Integrated Podman Sandboxes** - Agent's shell run in its own container
+- 🎨 **vi mimicry ** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
+- 🤖 **Multiple AI Providers** - Support for Ollama and Claude foe now. More are comming [TODO: Add a link to issues with a label of "new providers"]
+-  **Less Clutter** - Asimi's special files are under `.agents` directory and TOML is used for .conf
+- 🔧 Fast Shell** - Asimi's persistent, containerized shell is >100 times faster than the others
+- 📊 Context Awareness** - Smart token counting and context visualization
+- 🎯 Session Management** - Save and resume your coding sessions
 
 We're still missing MCP support. If it's critical for you, please consider helping out #
 
@@ -187,7 +188,7 @@ git commit -m "fixed context overflow bug"
 
 ## 📝 Configuration
 
-Asimi stores its configuration in `~/.config/asimi/conf.toml` (user-level) or `.asimi/conf.toml` (project-level):
+Asimi stores its configuration in `~/.config/asimi/asimi.toml` (user-level) or `.agents/asimi.toml` (project-level):
 
 ```toml
 [llm]
@@ -209,8 +210,6 @@ run_on_host = ['^gh ']
 - **`model`** - Model name (provider-specific)
 - **`max_output_tokens`** - Maximum tokens in AI responses
 - **`max_turns`** - Maximum conversation turns before stopping
-
-See `conf.toml.example` for a complete list of configuration options.
 
 ### Environment Variables
 

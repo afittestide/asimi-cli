@@ -231,8 +231,8 @@ func TestLoadConfig(t *testing.T) {
 	})
 
 	t.Run("load with project config", func(t *testing.T) {
-		// Create .asimi directory and config
-		err := os.MkdirAll(".asimi", 0755)
+		// Create .agents directory and config
+		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
 
 		configContent := `[llm]
@@ -244,9 +244,9 @@ api_key = "test-key"
 enabled = false
 max_sessions = 100
 `
-		err = os.WriteFile(".asimi/conf.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
 		require.NoError(t, err)
-		defer os.RemoveAll(".asimi")
+		defer os.RemoveAll(".agents")
 
 		config, err := LoadConfig()
 		require.NoError(t, err)
@@ -264,15 +264,15 @@ max_sessions = 100
 		defer os.Unsetenv("ASIMI_LLM_MODEL")
 
 		// Create project config with different values
-		err := os.MkdirAll(".asimi", 0755)
+		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".asimi")
+		defer os.RemoveAll(".agents")
 
 		configContent := `[llm]
 provider = "openai"
 model = "gpt-4"
 `
-		err = os.WriteFile(".asimi/conf.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
 		require.NoError(t, err)
 
 		config, err := LoadConfig()
@@ -287,15 +287,15 @@ model = "gpt-4"
 		defer os.Unsetenv("OPENAI_API_KEY")
 
 		// Create config with openai provider but no api_key
-		err := os.MkdirAll(".asimi", 0755)
+		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".asimi")
+		defer os.RemoveAll(".agents")
 
 		configContent := `[llm]
 provider = "openai"
 model = "gpt-4"
 `
-		err = os.WriteFile(".asimi/conf.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
 		require.NoError(t, err)
 
 		config, err := LoadConfig()
@@ -308,15 +308,15 @@ model = "gpt-4"
 		defer os.Unsetenv("ANTHROPIC_API_KEY")
 
 		// Create config with anthropic provider but no api_key
-		err := os.MkdirAll(".asimi", 0755)
+		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".asimi")
+		defer os.RemoveAll(".agents")
 
 		configContent := `[llm]
 provider = "anthropic"
 model = "claude-3-opus"
 `
-		err = os.WriteFile(".asimi/conf.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
 		require.NoError(t, err)
 
 		config, err := LoadConfig()
@@ -350,26 +350,26 @@ func TestSaveConfig(t *testing.T) {
 		err := SaveConfig(config)
 		require.NoError(t, err)
 
-		// Check that .asimi directory was created
-		_, err = os.Stat(".asimi")
+		// Check that .agents directory was created
+		_, err = os.Stat(".agents")
 		assert.NoError(t, err)
 
 		// Check that config file was created
-		_, err = os.Stat(".asimi/conf.toml")
+		_, err = os.Stat(".agents/asimi.toml")
 		assert.NoError(t, err)
 	})
 
 	t.Run("save config updates existing file", func(t *testing.T) {
 		// Create initial config
-		err := os.MkdirAll(".asimi", 0755)
+		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".asimi")
+		defer os.RemoveAll(".agents")
 
 		initialContent := `[llm]
 provider = "openai"
 model = "gpt-3.5-turbo"
 `
-		err = os.WriteFile(".asimi/conf.toml", []byte(initialContent), 0644)
+		err = os.WriteFile(".agents/asimi.toml", []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		// Update config
@@ -390,9 +390,9 @@ model = "gpt-3.5-turbo"
 
 	t.Run("save config preserves other settings", func(t *testing.T) {
 		// Create config with multiple settings
-		err := os.MkdirAll(".asimi", 0755)
+		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".asimi")
+		defer os.RemoveAll(".agents")
 
 		initialContent := `[llm]
 provider = "openai"
@@ -403,7 +403,7 @@ api_key = "test-key"
 enabled = true
 max_sessions = 50
 `
-		err = os.WriteFile(".asimi/conf.toml", []byte(initialContent), 0644)
+		err = os.WriteFile(".agents/asimi.toml", []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		// Update only model
@@ -454,7 +454,7 @@ func TestUpdateUserLLMAuthIntegration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check the file
-		configPath := filepath.Join(configDir, "conf.toml")
+		configPath := filepath.Join(configDir, "asimi.toml")
 		_, err = os.Stat(configPath)
 		assert.NoError(t, err, "Config file should be created")
 	})

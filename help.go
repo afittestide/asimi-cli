@@ -324,7 +324,7 @@ COMMAND-LINE mode, then type the command and press Enter.
 ## Project Initialization
 
   :init             - Initialize project with infrastructure files
-                      Creates: AGENTS.md, Justfile, .asimi/Dockerfile
+                      Creates: AGENTS.md, Justfile, .agents/Sandbox
   :init force       - Force regenerate all infrastructure files
 
 ## Examples
@@ -640,7 +640,7 @@ Asimi can be configured through configuration files and environment variables.
 ## Configuration Files
 
 Asimi looks for configuration in this order:
-  1. .asimi/conf.toml      (project-level)
+  1. .agents/asimi.toml        (project-level)
   2. ~/.config/asimi/conf.toml (user-level)
 
 ## Basic Configuration
