@@ -25,7 +25,7 @@ infrabuild:
     @mkdir -p infra
     @podman machine init --disk-size 30 2>/dev/null || true
     @podman machine start 2>/dev/null || true
-    podman build -t asimi-dev:latest -f .agents/Sandbox .
+    podman build -t asimi-shell:latest -f .agents/Sandbox .
 
 # Clean up the development infrastructure
 infraclean:

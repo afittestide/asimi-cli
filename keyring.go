@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	keyringService = "asimi-cli"
+	keyringService = "dev.asimi.asimi-cli"
 	keyringPrefix  = "oauth_"
 )
 
