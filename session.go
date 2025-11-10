@@ -1040,6 +1040,146 @@ func (s *Session) GetContextUsagePercent() float64 {
 	return (float64(info.UsedTokens) / float64(info.TotalTokens)) * 100
 }
 
+// CompactHistory summarizes the conversation history to reduce context usage
+// It uses the high-end model to create a comprehensive summary that includes:
+// - All diffs/changes made to files
+// - Key decisions and outcomes
+// - Important technical details
+// The summary replaces the conversation history while preserving the system message
+func (s *Session) CompactHistory(ctx context.Context, compactPrompt string) (string, error) {
+	if len(s.Messages) <= 2 {
+		return "", fmt.Errorf("not enough conversation history to compact")
+	}
+
+	// Build the content to summarize
+	var contentBuilder strings.Builder
+	
+	// Collect all diffs and file changes
+	contentBuilder.WriteString("## File Changes and Diffs\n\n")
+	fileChanges := s.extractFileChanges()
+	if len(fileChanges) > 0 {
+		for path, changes := range fileChanges {
+			contentBuilder.WriteString(fmt.Sprintf("### %s\n\n", path))
+			for _, change := range changes {
+				contentBuilder.WriteString(change)
+				contentBuilder.WriteString("\n\n")
+			}
+		}
+	} else {
+		contentBuilder.WriteString("No file changes recorded.\n\n")
+	}
+
+	// Collect conversation messages (excluding tool calls)
+	contentBuilder.WriteString("## Conversation History\n\n")
+	for i := 1; i < len(s.Messages); i++ {
+		msg := s.Messages[i]
+		
+		switch msg.Role {
+		case llms.ChatMessageTypeHuman:
+			contentBuilder.WriteString("**User:**\n")
+			for _, part := range msg.Parts {
+				if textPart, ok := part.(llms.TextContent); ok {
+					contentBuilder.WriteString(textPart.Text)
+					contentBuilder.WriteString("\n\n")
+				}
+			}
+			
+		case llms.ChatMessageTypeAI:
+			contentBuilder.WriteString("**Assistant:**\n")
+			// Only include text content, skip tool calls
+			for _, part := range msg.Parts {
+				if textPart, ok := part.(llms.TextContent); ok {
+					contentBuilder.WriteString(textPart.Text)
+					contentBuilder.WriteString("\n\n")
+				}
+			}
+		}
+	}
+
+	// Build the compaction request
+	fullPrompt := fmt.Sprintf("%s\n\n---\n\n%s", compactPrompt, contentBuilder.String())
+
+	// Save the current messages
+	originalMessages := s.Messages
+	systemMessage := s.Messages[0]
+
+	// Create a temporary message history with just the system message and compaction request
+	s.Messages = []llms.MessageContent{
+		systemMessage,
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart(fullPrompt)},
+		},
+	}
+
+	// Generate the summary using the LLM
+	choice, err := s.generateLLMResponse(ctx, nil)
+	if err != nil {
+		// Restore original messages on error
+		s.Messages = originalMessages
+		return "", fmt.Errorf("failed to generate summary: %w", err)
+	}
+
+	summary := choice.Content
+	if choice.ReasoningContent != "" {
+		summary = choice.ReasoningContent + "\n\n" + choice.Content
+	}
+
+	// Replace the conversation history with the summary
+	s.Messages = []llms.MessageContent{
+		systemMessage,
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart("Previous conversation summary:\n\n" + summary)},
+		},
+		{
+			Role:  llms.ChatMessageTypeAI,
+			Parts: []llms.ContentPart{llms.TextPart("I understand. I have the context from the previous conversation and am ready to continue.")},
+		},
+	}
+
+	// Reset tool call tracking
+	s.lastToolCallKey = ""
+	s.toolCallRepetitionCount = 0
+
+	return summary, nil
+}
+
+// extractFileChanges extracts all file changes from tool call responses
+func (s *Session) extractFileChanges() map[string][]string {
+	changes := make(map[string][]string)
+	
+	for _, msg := range s.Messages {
+		if msg.Role != llms.ChatMessageTypeTool {
+			continue
+		}
+		
+		for _, part := range msg.Parts {
+			if toolResp, ok := part.(llms.ToolCallResponse); ok {
+				// Track write_file and replace_text operations
+				if toolResp.Name == "write_file" || toolResp.Name == "replace_text" {
+					// Try to extract the file path from the response
+					// The response format varies, but we can try to parse it
+					content := toolResp.Content
+					if strings.Contains(content, "Successfully") || strings.Contains(content, "wrote") {
+						// Extract file path - this is a simple heuristic
+						lines := strings.Split(content, "\n")
+						for _, line := range lines {
+							if strings.Contains(line, "Successfully") || strings.Contains(line, "wrote") {
+								changes["file-changes"] = append(changes["file-changes"], content)
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return changes
+}
+
+
 type SessionIndex struct {
 	Sessions []Session `json:"sessions"`
 }

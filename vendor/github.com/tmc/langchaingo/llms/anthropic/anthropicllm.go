@@ -174,10 +174,9 @@ func processAnthropicResponse(result *anthropicclient.MessageResponsePayload) (*
 		return nil, ErrEmptyResponse
 	}
 
-	// Consolidate all content into a single choice to match OpenAI's behavior.
-	// This fixes streaming tool calls by ensuring everything is in Choices[0].
-	var rawTextContent strings.Builder
-	var cleanedTextContent strings.Builder
+	// Consolidate all content into a single choice to match OpenAI's behavior
+	// This fixes streaming tool calls by ensuring everything is in Choices[0]
+	var textContent strings.Builder
 	var toolCalls []llms.ToolCall
 	var allThinkingContent strings.Builder
 	var thinkingSignature string
@@ -186,8 +185,6 @@ func processAnthropicResponse(result *anthropicclient.MessageResponsePayload) (*
 		switch content.GetType() {
 		case "text":
 			if tc, ok := content.(*anthropicclient.TextContent); ok {
-				rawTextContent.WriteString(tc.Text)
-
 				// Extract thinking content from the response text
 				thinkingContent, outputContent := extractThinkingFromText(tc.Text)
 
@@ -205,10 +202,11 @@ func processAnthropicResponse(result *anthropicclient.MessageResponsePayload) (*
 					contentToAdd = outputContent
 				}
 
-				// Accumulate cleaned text content exactly as returned
-				if contentToAdd != "" {
-					cleanedTextContent.WriteString(contentToAdd)
+				// Accumulate text content
+				if textContent.Len() > 0 && contentToAdd != "" {
+					textContent.WriteString("\n")
 				}
+				textContent.WriteString(contentToAdd)
 			} else {
 				return nil, fmt.Errorf("anthropic: %w for text message", ErrInvalidContentType)
 			}
@@ -255,22 +253,24 @@ func processAnthropicResponse(result *anthropicclient.MessageResponsePayload) (*
 		"OutputTokens":             result.Usage.OutputTokens,
 		"CacheCreationInputTokens": result.Usage.CacheCreationInputTokens,
 		"CacheReadInputTokens":     result.Usage.CacheReadInputTokens,
-		"ThinkingContent":          allThinkingContent.String(),
-		"OutputContent":            cleanedTextContent.String(),
 	}
 
+	// Add thinking content if present
+	if allThinkingContent.Len() > 0 {
+		generationInfo["ThinkingContent"] = allThinkingContent.String()
+		generationInfo["OutputContent"] = textContent.String()
+	}
 	if thinkingSignature != "" {
 		generationInfo["ThinkingSignature"] = thinkingSignature
 	}
 
 	// Create single consolidated choice
 	choice := &llms.ContentChoice{
-		Content:        rawTextContent.String(),
+		Content:        textContent.String(),
 		ToolCalls:      toolCalls,
 		StopReason:     result.StopReason,
 		GenerationInfo: generationInfo,
 	}
-	choice.ReasoningContent = allThinkingContent.String()
 
 	// Set legacy FuncCall for backwards compatibility
 	if len(toolCalls) > 0 {

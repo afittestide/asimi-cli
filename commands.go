@@ -12,12 +12,18 @@ import (
 //go:embed prompts/initialize.txt
 var initializePrompt string
 
+//go:embed prompts/compact.txt
+var compactPrompt string
+
 // Command represents a slash command
 type Command struct {
 	Name        string
 	Description string
 	Handler     func(*TUIModel, []string) tea.Cmd
 }
+
+// compactConversationMsg is sent when the compact command is executed
+type compactConversationMsg struct{}
 
 // CommandRegistry holds all available commands
 type CommandRegistry struct {
@@ -52,6 +58,7 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
 	registry.RegisterCommand("/init", "Init project to work with asimi", handleInitCommand)
+	registry.RegisterCommand("/compact", "Compact conversation history to reduce context usage", handleCompactCommand)
 
 	return registry
 }
@@ -383,4 +390,27 @@ func checkMissingInfraFiles() []string {
 	}
 
 	return missing
+}
+
+func handleCompactCommand(model *TUIModel, args []string) tea.Cmd {
+	if model.session == nil {
+		return func() tea.Msg {
+			return showContextMsg{content: "No active session to compact. Start a conversation first."}
+		}
+	}
+
+	return func() tea.Msg {
+		// Check if there's enough conversation to compact
+		if len(model.session.Messages) <= 2 {
+			return showContextMsg{content: "Not enough conversation history to compact. Continue chatting first."}
+		}
+
+		// Show compacting message
+		if program != nil {
+			program.Send(showContextMsg{content: "Compacting conversation history...\nThis may take a moment as we summarize the conversation."})
+		}
+
+		// Send the compact request
+		return compactConversationMsg{}
+	}
 }

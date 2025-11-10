@@ -1533,6 +1533,53 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}()
 		}
 
+	case compactConversationMsg:
+		// Handle conversation compaction
+		slog.Debug("got compactConversationMsg")
+		if m.session == nil {
+			m.commandLine.AddToast("No LLM session available for compaction", "error", 4000)
+			return m, nil
+		}
+
+		// Add a message to show we're compacting
+		m.content.GetChat().AddMessage("🗜️  Compacting conversation history...")
+
+		// Perform the compaction in a goroutine
+		go func() {
+			ctx := context.Background()
+			summary, err := m.session.CompactHistory(ctx, compactPrompt)
+			if err != nil {
+				if program != nil {
+					program.Send(compactErrorMsg{err: err})
+				}
+				return
+			}
+			if program != nil {
+				program.Send(compactCompleteMsg{summary: summary})
+			}
+		}()
+
+	case compactCompleteMsg:
+		// Compaction completed successfully
+		slog.Debug("compaction completed")
+		
+		// Get context info to show the improvement
+		info := m.session.GetContextInfo()
+		
+		// Add success message
+		m.content.GetChat().AddMessage(fmt.Sprintf("✅ Conversation compacted successfully!\n\nContext usage: %s/%s tokens (%.1f%%)",
+			formatTokenCount(info.UsedTokens),
+			formatTokenCount(info.TotalTokens),
+			percentage(info.UsedTokens, info.TotalTokens)))
+		
+		m.commandLine.AddToast("Conversation history compacted", "success", 3000)
+
+	case compactErrorMsg:
+		// Compaction failed
+		slog.Warn("compaction failed", "error", msg.err)
+		m.content.GetChat().AddMessage(fmt.Sprintf("❌ Failed to compact conversation: %v\n\nYour conversation context was left unchanged.", msg.err))
+		m.commandLine.AddToast("Compaction failed - context unchanged", "error", 3000)
+
 	}
 
 	// Restore focus to prompt if no modals are active and view is chat
