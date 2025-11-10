@@ -78,7 +78,6 @@ type LLMConfig struct {
 	PreferredNotifChannel         string            `koanf:"preferred_notif_channel"`
 	Theme                         string            `koanf:"theme"`
 	Verbose                       bool              `koanf:"verbose"`
-	ViMode                        *bool             `koanf:"vi_mode"` // Pointer to distinguish between unset and false
 	AnthropicAPIKey               string            `koanf:"anthropic_api_key"`
 	AnthropicAuthToken            string            `koanf:"anthropic_auth_token"`
 	AnthropicCustomHeaders        string            `koanf:"anthropic_custom_headers"`
@@ -727,20 +726,6 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-// IsViModeEnabled returns true if vi mode should be enabled (default: true)
-func (c *Config) IsViModeEnabled() bool {
-	if c.LLM.ViMode == nil {
-		return true // Default to enabled
-	}
-	return *c.LLM.ViMode
-}
-
-// boolPtr returns a pointer to the provided bool value.
-// It keeps tests and runtime code concise when configuring optional flags.
-func boolPtr(v bool) *bool {
-	return &v
 }
 
 func getOAuthConfig(provider string) (oauthProviderConfig, error) {

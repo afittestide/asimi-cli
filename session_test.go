@@ -218,8 +218,15 @@ func (m *sessionMockLLMWriteRead) GenerateContent(ctx context.Context, messages 
 func TestSession_WriteAndReadFile(t *testing.T) {
 	t.Parallel()
 
-	// Create a temp file path
-	tmp := t.TempDir()
+	// Create a temp file path under repo-controlled directory to avoid /tmp quotas
+	tmpBase := filepath.Join("test_tmp")
+	err := os.MkdirAll(tmpBase, 0o755)
+	require.NoError(t, err)
+	tmp, err := os.MkdirTemp(tmpBase, "session")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		os.RemoveAll(tmp)
+	})
 	path := tmp + "/wr_test.txt"
 
 	// We encode the path into the system message content via the template; to avoid

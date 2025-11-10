@@ -22,6 +22,70 @@ import (
 	"github.com/yargevad/filepathx"
 )
 
+// validatePathWithinProject checks if a file path is within the current working directory.
+// It prevents path traversal attacks and ensures files are only modified within the current directory tree.
+func validatePathWithinProject(path string) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Get the current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Convert both paths to absolute paths
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("failed to resolve path: %w", err)
+	}
+
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return fmt.Errorf("failed to resolve current directory: %w", err)
+	}
+
+	// Clean the paths to resolve any .. or . components
+	absPath = filepath.Clean(absPath)
+	absCwd = filepath.Clean(absCwd)
+
+	// Evaluate symlinks to get the real path
+	// This prevents writing through symlinks to locations outside the current directory
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		// If the file doesn't exist yet, check the parent directory
+		parentDir := filepath.Dir(absPath)
+		realParentPath, evalErr := filepath.EvalSymlinks(parentDir)
+		if evalErr != nil {
+			// Parent doesn't exist either, use the cleaned absolute path
+			realPath = absPath
+		} else {
+			// Reconstruct the path with the real parent
+			realPath = filepath.Join(realParentPath, filepath.Base(absPath))
+		}
+	}
+
+	realCwd, err := filepath.EvalSymlinks(absCwd)
+	if err != nil {
+		// If cwd symlink evaluation fails, use the cleaned path
+		realCwd = absCwd
+	}
+
+	// Check if the file path is within the current working directory
+	relPath, err := filepath.Rel(realCwd, realPath)
+	if err != nil {
+		return fmt.Errorf("failed to determine relative path: %w", err)
+	}
+
+	// If the relative path starts with "..", it's outside the current directory
+	if strings.HasPrefix(relPath, "..") {
+		return fmt.Errorf("access denied: path '%s' is outside the current working directory '%s'", path, cwd)
+	}
+
+	return nil
+}
+
 // ReadFileInput is the input for the ReadFileTool
 type ReadFileInput struct {
 	Path   string `json:"path"`
@@ -131,7 +195,7 @@ func (t WriteFileTool) Name() string {
 }
 
 func (t WriteFileTool) Description() string {
-	return "Writes content to a file. The input should be a JSON object with 'path' and 'content' fields."
+	return "Writes content to a file, creating or overwriting it. The input should be a JSON object with 'path' and 'content' fields. The path must be within the current working directory."
 }
 
 func (t WriteFileTool) Call(ctx context.Context, input string) (string, error) {
@@ -144,6 +208,19 @@ func (t WriteFileTool) Call(ctx context.Context, input string) (string, error) {
 	// Clean up path and content
 	params.Path = strings.Trim(params.Path, `"'`)
 	params.Content = strings.Trim(params.Content, `"'`)
+
+	// Validate that the path is within the project root
+	if err := validatePathWithinProject(params.Path); err != nil {
+		return "", err
+	}
+
+	// Create parent directory if it doesn't exist
+	dir := filepath.Dir(params.Path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
 
 	err = os.WriteFile(params.Path, []byte(params.Content), 0644)
 	if err != nil {
@@ -267,7 +344,7 @@ func (t ReplaceTextTool) Name() string {
 }
 
 func (t ReplaceTextTool) Description() string {
-	return "Replaces all occurrences of a string in a file with another string. The input should be a JSON object with 'path', 'old_text', and 'new_text' fields."
+	return "Replaces all occurrences of a string in a file with another string. The input should be a JSON object with 'path', 'old_text', and 'new_text' fields. The path must be within the current working directory."
 }
 
 func (t ReplaceTextTool) Call(ctx context.Context, input string) (string, error) {
@@ -275,6 +352,11 @@ func (t ReplaceTextTool) Call(ctx context.Context, input string) (string, error)
 	err := json.Unmarshal([]byte(input), &params)
 	if err != nil {
 		return "", fmt.Errorf("invalid input: %w. The input should be a JSON object with 'path', 'old_text', and 'new_text' fields", err)
+	}
+
+	// Validate that the path is within the project root
+	if err := validatePathWithinProject(params.Path); err != nil {
+		return "", err
 	}
 
 	content, err := os.ReadFile(params.Path)

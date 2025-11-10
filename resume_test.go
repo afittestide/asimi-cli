@@ -1,551 +1,164 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
 )
 
-func TestNewSessionSelectionModal(t *testing.T) {
-	modal := NewSessionSelectionModal()
+func TestNewResumeWindowDefaults(t *testing.T) {
+	window := NewResumeWindow()
 
-	assert.NotNil(t, modal)
-	assert.NotNil(t, modal.BaseModal)
-	assert.Equal(t, "Resume Session", modal.BaseModal.Title)
-	assert.Equal(t, 0, modal.selected)
-	assert.Equal(t, 0, modal.scrollOffset)
-	assert.GreaterOrEqual(t, modal.visibleSlots(), 1)
-	assert.True(t, modal.loading)
-	assert.Nil(t, modal.err)
-	assert.Empty(t, modal.sessions)
+	assert.Equal(t, 70, window.width)
+	assert.Equal(t, 15, window.height)
+	assert.Equal(t, 8, window.maxVisible)
+	assert.False(t, window.loading)
+	assert.Empty(t, window.sessions)
+	assert.Nil(t, window.errorMsg)
 }
 
-func TestSessionSelectionModalSetSessions(t *testing.T) {
-	modal := NewSessionSelectionModal()
+func TestResumeWindowSetSizeAdjustsVisibleSlots(t *testing.T) {
+	window := NewResumeWindow()
 
-	sessions := []Session{
-		{
-			ID:          "session-1",
-			FirstPrompt: "Test prompt 1",
-			Messages:    []llms.MessageContent{{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "test"}}}},
-			Model:       "gpt-4",
-			LastUpdated: time.Now(),
-		},
-		{
-			ID:          "session-2",
-			FirstPrompt: "Test prompt 2",
-			Messages:    []llms.MessageContent{{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "test"}}}},
-			Model:       "claude-3",
-			LastUpdated: time.Now().Add(-1 * time.Hour),
-		},
-	}
+	window.SetSize(80, 10)
+	assert.Equal(t, 80, window.width)
+	assert.Equal(t, 10, window.height)
+	assert.Equal(t, 6, window.maxVisible)
 
-	modal.SetSessions(sessions)
-
-	assert.Equal(t, 2, len(modal.sessions))
-	assert.False(t, modal.loading)
-	assert.Nil(t, modal.err)
-	assert.Equal(t, "session-1", modal.sessions[0].ID)
-	assert.Equal(t, "session-2", modal.sessions[1].ID)
+	window.SetSize(50, 2)
+	assert.Equal(t, 1, window.maxVisible) // min clamp
 }
 
-func TestSessionSelectionModalSetError(t *testing.T) {
-	modal := NewSessionSelectionModal()
-
-	testErr := assert.AnError
-	modal.SetError(testErr)
-
-	assert.False(t, modal.loading)
-	assert.Equal(t, testErr, modal.err)
-}
-
-func TestSessionSelectionModalRenderLoading(t *testing.T) {
-	modal := NewSessionSelectionModal()
-
-	output := modal.Render()
-
-	assert.Contains(t, output, "Loading sessions")
-	assert.Contains(t, output, "Resume Session")
-}
-
-func TestSessionSelectionModalRenderError(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	modal.SetError(assert.AnError)
-
-	output := modal.Render()
-
-	assert.Contains(t, output, "Error loading sessions")
-	assert.Contains(t, output, "Press Esc to close")
-}
-
-func TestSessionSelectionModalRenderEmpty(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	modal.SetSessions([]Session{})
-
-	output := modal.Render()
-
-	assert.Contains(t, output, "No previous sessions found")
-	assert.Contains(t, output, "Start chatting to create a new session")
-	assert.Contains(t, output, "Press Esc to close")
-}
-
-func TestSessionSelectionModalRenderWithSessions(t *testing.T) {
-	modal := NewSessionSelectionModal()
-
-	sessions := []Session{
-		{
-			ID:          "session-1",
-			FirstPrompt: "First test prompt",
-			Messages:    []llms.MessageContent{{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "First test prompt"}}}},
-			Model:       "gpt-4",
-			LastUpdated: time.Now(),
-			WorkingDir:  "/test/dir",
-		},
-		{
-			ID:          "session-2",
-			FirstPrompt: "Second test prompt",
-			Messages:    []llms.MessageContent{{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "Second test prompt"}}}},
-			Model:       "claude-3",
-			LastUpdated: time.Now().Add(-1 * time.Hour),
-		},
-	}
-
-	modal.SetSessions(sessions)
-	output := modal.Render()
-
-	// Check for navigation instructions
-	assert.Contains(t, output, "↑/↓: Navigate")
-	assert.Contains(t, output, "Enter: Select")
-	assert.Contains(t, output, "Esc/Q: Cancel")
-
-	// Check for session content
-	assert.Contains(t, output, "First test prompt")
-	assert.Contains(t, output, "Second test prompt")
-	assert.Contains(t, output, "1 msg")
-
-	// Check for Cancel option
-	assert.Contains(t, output, "Cancel")
-}
-
-func TestSessionSelectionModalNavigationUp(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(3)
-	modal.SetSessions(sessions)
-
-	// Start at position 2
-	modal.selected = 2
-
-	// Navigate up
-	keyMsg := tea.KeyMsg{Type: tea.KeyUp}
-	updatedModal, cmd := modal.Update(keyMsg)
-
-	assert.Equal(t, 1, updatedModal.selected)
-	assert.Nil(t, cmd)
-}
-
-func TestSessionSelectionModalNavigationDown(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(3)
-	modal.SetSessions(sessions)
-
-	// Start at position 0
-	modal.selected = 0
-
-	// Navigate down
-	keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-	updatedModal, cmd := modal.Update(keyMsg)
-
-	assert.Equal(t, 1, updatedModal.selected)
-	assert.Nil(t, cmd)
-}
-
-func TestSessionSelectionModalNavigationBoundaries(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(2)
-	modal.SetSessions(sessions)
-
-	t.Run("cannot go above first item", func(t *testing.T) {
-		modal.selected = 0
-		keyMsg := tea.KeyMsg{Type: tea.KeyUp}
-		updatedModal, _ := modal.Update(keyMsg)
-		assert.Equal(t, 0, updatedModal.selected)
-	})
-
-	t.Run("can navigate to cancel option", func(t *testing.T) {
-		modal.selected = 0
-		// Navigate down to last session
-		keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-		updatedModal, _ := modal.Update(keyMsg)
-		assert.Equal(t, 1, updatedModal.selected)
-
-		// Navigate down to cancel option (index 2, which is len(sessions))
-		keyMsg = tea.KeyMsg{Type: tea.KeyDown}
-		updatedModal, _ = updatedModal.Update(keyMsg)
-		assert.Equal(t, 2, updatedModal.selected)
-	})
-
-	t.Run("cannot go below cancel option", func(t *testing.T) {
-		// Total items = 2 sessions + 1 cancel = 3 items (indices 0-2)
-		modal.selected = 2 // Cancel option
-		keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-		updatedModal, _ := modal.Update(keyMsg)
-		assert.Equal(t, 2, updatedModal.selected)
-	})
-}
-
-func TestSessionSelectionModalQuickSelect(t *testing.T) {
-	sessions := createTestSessions(5)
-
-	tests := []struct {
-		name     string
-		key      string
-		expected int
-	}{
-		{"select first", "1", 0},
-		{"select second", "2", 1},
-		{"select third", "3", 2},
-		{"select fourth", "4", 3},
-		{"select fifth", "5", 4},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			modal := NewSessionSelectionModal()
-			modal.SetSessions(sessions)
-
-			keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)}
-			updatedModal, cmd := modal.Update(keyMsg)
-
-			assert.Equal(t, tt.expected, updatedModal.selected)
-			assert.NotNil(t, cmd) // Should trigger session load
-		})
-	}
-}
-
-func TestSessionSelectionModalQuickSelectOutOfRange(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(2)
-	modal.SetSessions(sessions)
-
-	// Try to select session 5 when only 2 exist
-	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("5")}
-	updatedModal, cmd := modal.Update(keyMsg)
-
-	// Selection should not change
-	assert.Equal(t, 0, updatedModal.selected)
-	assert.Nil(t, cmd)
-}
-
-func TestSessionSelectionModalEnterKey(t *testing.T) {
-	sessions := createTestSessions(2)
-
-	t.Run("enter on session triggers load", func(t *testing.T) {
-		modal := NewSessionSelectionModal()
-		modal.SetSessions(sessions)
-		modal.selected = 0
-		keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
-		_, cmd := modal.Update(keyMsg)
-
-		assert.NotNil(t, cmd)
-		// Execute the command to verify it returns the right message type
-		msg := cmd()
-		_, ok := msg.(sessionResumeErrorMsg)
-		// It will be an error because we don't have a real session store
-		assert.True(t, ok)
-	})
-
-	t.Run("enter on cancel option triggers cancel", func(t *testing.T) {
-		modal := NewSessionSelectionModal()
-		modal.SetSessions(sessions)
-		modal.selected = len(sessions) // Cancel option
-		keyMsg := tea.KeyMsg{Type: tea.KeyEnter}
-		_, cmd := modal.Update(keyMsg)
-
-		assert.NotNil(t, cmd)
-		msg := cmd()
-		_, ok := msg.(modalCancelledMsg)
-		assert.True(t, ok)
-	})
-}
-
-func TestSessionSelectionModalEscapeKey(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(2)
-	modal.SetSessions(sessions)
-
-	tests := []struct {
-		name string
-		key  tea.KeyType
-	}{
-		{"escape key", tea.KeyEsc},
-		{"q key", tea.KeyRunes},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var keyMsg tea.KeyMsg
-			if tt.key == tea.KeyRunes {
-				keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
-			} else {
-				keyMsg = tea.KeyMsg{Type: tt.key}
-			}
-
-			_, cmd := modal.Update(keyMsg)
-			assert.NotNil(t, cmd)
-
-			msg := cmd()
-			_, ok := msg.(modalCancelledMsg)
-			assert.True(t, ok)
-		})
-	}
-}
-
-func TestSessionSelectionModalScrolling(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	visible := modal.visibleSlots()
-	sessions := createTestSessions(visible + 5) // More than the visible slots
-	modal.SetSessions(sessions)
-
-	t.Run("scroll down when reaching bottom of visible area", func(t *testing.T) {
-		modal.selected = 0
-		modal.scrollOffset = 0
-
-		// Navigate down beyond the initial visible range
-		for i := 0; i < visible; i++ {
-			keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-			modal, _ = modal.Update(keyMsg)
-		}
-
-		// Should have scrolled
-		assert.Equal(t, visible, modal.selected)
-		expectedOffset := modal.selected - visible + 1
-		if expectedOffset < 0 {
-			expectedOffset = 0
-		}
-		assert.Equal(t, expectedOffset, modal.scrollOffset)
-	})
-
-	t.Run("scroll up when reaching top of visible area", func(t *testing.T) {
-		modal.selected = visible
-		if visible > 2 {
-			modal.scrollOffset = visible / 2
-		} else {
-			modal.scrollOffset = 0
-		}
-
-		// Navigate up
-		keyMsg := tea.KeyMsg{Type: tea.KeyUp}
-		updatedModal, _ := modal.Update(keyMsg)
-
-		assert.Equal(t, visible-1, updatedModal.selected)
-		// Scroll offset should adjust if needed
-		if updatedModal.selected < updatedModal.scrollOffset {
-			assert.Equal(t, updatedModal.selected, updatedModal.scrollOffset)
-		}
-	})
-}
-
-func TestSessionSelectionModalVimKeys(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	sessions := createTestSessions(3)
-	modal.SetSessions(sessions)
-
-	t.Run("k key moves up", func(t *testing.T) {
-		modal.selected = 1
-		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")}
-		updatedModal, _ := modal.Update(keyMsg)
-		assert.Equal(t, 0, updatedModal.selected)
-	})
-
-	t.Run("j key moves down", func(t *testing.T) {
-		modal.selected = 0
-		keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}
-		updatedModal, _ := modal.Update(keyMsg)
-		assert.Equal(t, 1, updatedModal.selected)
-	})
-}
-
-func TestSessionSelectionModalLoadingState(t *testing.T) {
-	modal := NewSessionSelectionModal()
-
-	t.Run("no interaction when loading", func(t *testing.T) {
-		assert.True(t, modal.loading)
-
-		keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-		updatedModal, cmd := modal.Update(keyMsg)
-
-		// Should not change selection
-		assert.Equal(t, 0, updatedModal.selected)
-		assert.Nil(t, cmd)
-	})
-
-	t.Run("can cancel when loading", func(t *testing.T) {
-		keyMsg := tea.KeyMsg{Type: tea.KeyEsc}
-		_, cmd := modal.Update(keyMsg)
-
-		assert.NotNil(t, cmd)
-		msg := cmd()
-		_, ok := msg.(modalCancelledMsg)
-		assert.True(t, ok)
-	})
-}
-
-func TestSessionSelectionModalErrorState(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	modal.SetError(assert.AnError)
-
-	t.Run("no interaction when error", func(t *testing.T) {
-		keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-		updatedModal, cmd := modal.Update(keyMsg)
-
-		assert.Equal(t, 0, updatedModal.selected)
-		assert.Nil(t, cmd)
-	})
-
-	t.Run("can cancel when error", func(t *testing.T) {
-		keyMsg := tea.KeyMsg{Type: tea.KeyEsc}
-		_, cmd := modal.Update(keyMsg)
-
-		assert.NotNil(t, cmd)
-		msg := cmd()
-		_, ok := msg.(modalCancelledMsg)
-		assert.True(t, ok)
-	})
-}
-
-func TestSessionSelectionModalEmptyState(t *testing.T) {
-	modal := NewSessionSelectionModal()
-	modal.SetSessions([]Session{})
-
-	t.Run("no interaction when empty", func(t *testing.T) {
-		keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-		updatedModal, cmd := modal.Update(keyMsg)
-
-		assert.Equal(t, 0, updatedModal.selected)
-		assert.Nil(t, cmd)
-	})
-
-	t.Run("can cancel when empty", func(t *testing.T) {
-		keyMsg := tea.KeyMsg{Type: tea.KeyEsc}
-		_, cmd := modal.Update(keyMsg)
-
-		assert.NotNil(t, cmd)
-		msg := cmd()
-		_, ok := msg.(modalCancelledMsg)
-		assert.True(t, ok)
-	})
-}
-
-// Helper function to create test sessions
-func createTestSessions(count int) []Session {
-	sessions := make([]Session, count)
-	for i := 0; i < count; i++ {
-		prompt := "Test prompt " + string(rune('1'+i))
-		sessions[i] = Session{
-			ID:          "session-" + string(rune('1'+i)),
-			FirstPrompt: prompt,
-			Messages: []llms.MessageContent{
-				{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: prompt}}},
-			},
-			Model:       "test-model",
-			LastUpdated: time.Now().Add(-time.Duration(i) * time.Hour),
-			WorkingDir:  "/test/dir",
-		}
-	}
-	return sessions
-}
-
-// Test the formatRelativeTime function indirectly through rendering
-func TestFormatRelativeTimeInModal(t *testing.T) {
-	// This test assumes formatRelativeTime is accessible
-	// If it's not exported, you may need to test it indirectly through Render()
-
+func TestResumeWindowSetSessionsAndRender(t *testing.T) {
+	window := NewResumeWindow()
 	now := time.Now()
 
-	tests := []struct {
-		name     string
-		time     time.Time
-		contains string // What the output should contain
-	}{
-		{
-			name:     "just now",
-			time:     now,
-			contains: "now",
-		},
-		{
-			name:     "1 hour ago",
-			time:     now.Add(-1 * time.Hour),
-			contains: "hour",
-		},
-		{
-			name:     "1 day ago",
-			time:     now.Add(-24 * time.Hour),
-			contains: "day",
-		},
+	sessions := []Session{
+		testSession("s-1", "Refactor prompt", now, "Need to refactor"),
+		testSession("s-2", "Investigate bug", now.Add(-2*time.Hour), "Bug details"),
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test indirectly through modal rendering
-			modal := NewSessionSelectionModal()
-			sessions := []Session{
-				{
-					ID:          "test",
-					FirstPrompt: "Test",
-					Messages:    []llms.MessageContent{{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "test"}}}},
-					Model:       "test-model",
-					LastUpdated: tt.time,
-				},
-			}
-			modal.SetSessions(sessions)
-			output := modal.Render()
+	window.SetSessions(sessions)
+	assert.False(t, window.loading)
+	assert.Equal(t, 2, window.GetItemCount())
 
-			// The output should contain some time-related text
-			assert.NotEmpty(t, output)
-		})
+	render := window.RenderList(0, 0, window.GetVisibleSlots())
+	assert.Contains(t, render, sessionTitlePreview(sessions[0]))
+	assert.Contains(t, render, sessionTitlePreview(sessions[1]))
+	assert.Contains(t, render, "▶ ")
+	assert.Contains(t, render, "1 msg")
+}
+
+func TestResumeWindowLoadingAndErrorStates(t *testing.T) {
+	window := NewResumeWindow()
+
+	window.SetLoading(true)
+	assert.Contains(t, window.RenderList(0, 0, window.GetVisibleSlots()), "Loading sessions")
+
+	window.SetLoading(false)
+	window.SetError(assert.AnError)
+	render := window.RenderList(0, 0, window.GetVisibleSlots())
+	assert.Contains(t, render, "Error loading sessions")
+	assert.NotContains(t, render, "Loading sessions")
+}
+
+func TestResumeWindowEmptyState(t *testing.T) {
+	window := NewResumeWindow()
+	window.SetSessions(nil)
+
+	render := window.RenderList(0, 0, window.GetVisibleSlots())
+	assert.Contains(t, render, "No previous sessions found")
+	assert.Contains(t, render, "Start chatting to create a new session")
+}
+
+func TestResumeWindowScrollInfo(t *testing.T) {
+	window := NewResumeWindow()
+	now := time.Now()
+
+	var sessions []Session
+	for i := 0; i < 20; i++ {
+		sessions = append(sessions, testSession(
+			fmt.Sprintf("s-%d", i+1),
+			fmt.Sprintf("Prompt %d", i+1),
+			now.Add(-time.Duration(i)*time.Minute),
+			fmt.Sprintf("Message %d", i+1),
+		))
+	}
+
+	window.SetSessions(sessions)
+	render := window.RenderList(5, 5, 5)
+
+	assert.Contains(t, render, "6-10 of 20 sessions")
+	assert.Contains(t, render, "Message 6")
+	assert.NotContains(t, render, "Message 2") // scrolled past
+}
+
+func TestResumeWindowGetSelectedSession(t *testing.T) {
+	window := NewResumeWindow()
+	window.SetSessions([]Session{
+		testSession("one", "First", time.Now(), "msg"),
+	})
+
+	assert.Nil(t, window.GetSelectedSession(-1))
+	assert.Nil(t, window.GetSelectedSession(2))
+
+	session := window.GetSelectedSession(0)
+	assert.NotNil(t, session)
+	assert.Equal(t, "one", session.ID)
+}
+
+func TestSessionTitlePreviewFallbacks(t *testing.T) {
+	session := testSession("s-1", "", time.Now(), "")
+	session.Messages = nil
+	assert.Equal(t, "Recent activity", sessionTitlePreview(session))
+
+	session.FirstPrompt = " initial "
+	assert.Equal(t, "initial", sessionTitlePreview(session))
+
+	session.Messages = []llms.MessageContent{
+		textMessage(llms.ChatMessageTypeHuman, "User question"),
+	}
+	assert.Equal(t, "User question", sessionTitlePreview(session))
+}
+
+func TestFormatMessageCount(t *testing.T) {
+	assert.Equal(t, "", formatMessageCount(nil))
+
+	msgs := []llms.MessageContent{
+		textMessage(llms.ChatMessageTypeHuman, "hi"),
+		textMessage(llms.ChatMessageTypeAI, "hello"),
+	}
+	assert.Equal(t, "2 msgs", formatMessageCount(msgs))
+
+	one := []llms.MessageContent{
+		textMessage(llms.ChatMessageTypeHuman, "single"),
+	}
+	assert.Equal(t, "1 msg", formatMessageCount(one))
+}
+
+func testSession(id, prompt string, updated time.Time, messageTexts ...string) Session {
+	var messages []llms.MessageContent
+	for _, text := range messageTexts {
+		messages = append(messages, textMessage(llms.ChatMessageTypeHuman, text))
+	}
+
+	return Session{
+		ID:          id,
+		FirstPrompt: prompt,
+		LastUpdated: updated,
+		Messages:    messages,
+		Model:       "test",
 	}
 }
 
-// Integration test for the full modal lifecycle
-func TestSessionSelectionModalLifecycle(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+func textMessage(role llms.ChatMessageType, text string) llms.MessageContent {
+	return llms.MessageContent{
+		Role: role,
+		Parts: []llms.ContentPart{
+			llms.TextContent{Text: text},
+		},
 	}
-
-	t.Run("complete user flow", func(t *testing.T) {
-		// Create modal
-		modal := NewSessionSelectionModal()
-		require.NotNil(t, modal)
-		require.True(t, modal.loading)
-
-		// Load sessions
-		sessions := createTestSessions(3)
-		modal.SetSessions(sessions)
-		require.False(t, modal.loading)
-		require.Len(t, modal.sessions, 3)
-
-		// Navigate down
-		keyMsg := tea.KeyMsg{Type: tea.KeyDown}
-		modal, _ = modal.Update(keyMsg)
-		assert.Equal(t, 1, modal.selected)
-
-		// Navigate up
-		keyMsg = tea.KeyMsg{Type: tea.KeyUp}
-		modal, _ = modal.Update(keyMsg)
-		assert.Equal(t, 0, modal.selected)
-
-		// Quick select
-		keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")}
-		modal, cmd := modal.Update(keyMsg)
-		assert.Equal(t, 1, modal.selected)
-		assert.NotNil(t, cmd)
-
-		// Render at various states
-		output := modal.Render()
-		assert.Contains(t, output, "Loading selected session")
-	})
 }

@@ -376,6 +376,8 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 
 	s := specgen.NewSpecGenerator(r.imageName, false)
 	s.Name = r.containerName
+	autoRemove := true
+	s.Remove = &autoRemove
 
 	// Disable TTY to keep stdout and stderr separate
 	terminal := false

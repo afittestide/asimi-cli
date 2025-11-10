@@ -7,29 +7,20 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestViModeToggle(t *testing.T) {
+func TestViModeAlwaysEnabled(t *testing.T) {
 	// Create a new prompt component
 	prompt := NewPromptComponent(80, 5)
 
-	// Initially, vi mode should be disabled
-	assert.False(t, prompt.ViMode, "Vi mode should be disabled by default")
-
-	// Enable vi mode
-	prompt.SetViMode(true)
-	assert.True(t, prompt.ViMode, "Vi mode should be enabled")
-	assert.Equal(t, ViModeInsert, prompt.ViCurrentMode, "Should start in insert mode when vi mode is enabled")
-
-	// Disable vi mode
-	prompt.SetViMode(false)
-	assert.False(t, prompt.ViMode, "Vi mode should be disabled")
+	// Vi mode should always be enabled
+	viEnabled, viMode, _ := prompt.ViModeStatus()
+	assert.True(t, viEnabled, "Vi mode should always be enabled")
+	assert.Equal(t, ViModeInsert, viMode, "Should start in insert mode")
 }
 
 func TestViModeTransitions(t *testing.T) {
 	// Create a new prompt component
 	prompt := NewPromptComponent(80, 5)
 
-	// Enable vi mode
-	prompt.SetViMode(true)
 	assert.True(t, prompt.IsViInsertMode(), "Should start in insert mode")
 	assert.False(t, prompt.IsViNormalMode(), "Should not be in normal mode")
 
@@ -57,17 +48,6 @@ func TestViModeTransitions(t *testing.T) {
 	assert.False(t, prompt.IsViNormalMode(), "Should not be in normal mode")
 }
 
-func TestViCommandRegistered(t *testing.T) {
-	// Create a new command registry
-	registry := NewCommandRegistry()
-
-	// Check if /vi command is registered
-	cmd, exists := registry.GetCommand("/vi")
-	assert.True(t, exists, "/vi command should be registered")
-	assert.Equal(t, "/vi", cmd.Name, "Command name should be /vi")
-	assert.Contains(t, cmd.Description, "vi mode", "Command description should mention vi mode")
-}
-
 func TestViModeCommandNormalization(t *testing.T) {
 	// Test that colon commands are normalized to slash commands
 	tests := []struct {
@@ -93,12 +73,10 @@ func TestViModeCommandNormalization(t *testing.T) {
 	}
 }
 
-func TestViCommandLineModeUsesNormalKeymap(t *testing.T) {
+func TestViCommandLineModeUsesInsertKeymap(t *testing.T) {
 	// Create a new prompt component
 	prompt := NewPromptComponent(80, 5)
 
-	// Enable vi mode
-	prompt.SetViMode(true)
 	assert.True(t, prompt.IsViInsertMode(), "Should start in insert mode")
 
 	// Switch to normal mode
@@ -112,8 +90,7 @@ func TestViCommandLineModeUsesNormalKeymap(t *testing.T) {
 	prompt.EnterViCommandLineMode()
 	assert.True(t, prompt.IsViCommandLineMode(), "Should be in command-line mode")
 
-	// Verify that command-line mode uses normal (non-vi) keymap
-	assert.Equal(t, prompt.normalKeyMap, prompt.TextArea.KeyMap, "Command-line mode should use normal keymap (like when vi mode is disabled)")
+	assert.Equal(t, prompt.viInsertKeyMap, prompt.TextArea.KeyMap, "Command-line mode should use vi insert keymap")
 
 	// Switch back to insert mode
 	prompt.EnterViInsertMode()
@@ -127,8 +104,6 @@ func TestViModePlaceholderText(t *testing.T) {
 	// Create a new prompt component
 	prompt := NewPromptComponent(80, 5)
 
-	// Enable vi mode
-	prompt.SetViMode(true)
 	assert.Equal(t, PlaceholderDefault, prompt.TextArea.Placeholder, "Insert mode should have default placeholder")
 
 	// Switch to normal mode
@@ -146,18 +121,12 @@ func TestViModePlaceholderText(t *testing.T) {
 	// Switch back to insert mode
 	prompt.EnterViInsertMode()
 	assert.Equal(t, PlaceholderDefault, prompt.TextArea.Placeholder, "Insert mode should have default placeholder")
-
-	// Disable vi mode
-	prompt.SetViMode(false)
-	assert.Equal(t, PlaceholderDefault, prompt.TextArea.Placeholder, "Disabled vi mode should have default placeholder")
 }
 
 func TestViModeHistoryNavigation(t *testing.T) {
 	// This test verifies that arrow keys work for history navigation in vi normal mode
-	// Create a test model with vi mode enabled
 	config := &Config{}
-	config.LLM.ViMode = boolPtr(true)
-	model := NewTUIModel(config, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil)
 
 	// Add some history entries
 	model.promptHistory = []promptHistoryEntry{
@@ -212,8 +181,7 @@ func TestViModeHistoryNavigation(t *testing.T) {
 func TestViModeHistoryNavigationWithKJ(t *testing.T) {
 	// Test that k and j keys also work for history navigation in vi normal mode
 	config := &Config{}
-	config.LLM.ViMode = boolPtr(true)
-	model := NewTUIModel(config, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil)
 
 	// Add history
 	model.promptHistory = []promptHistoryEntry{

@@ -10,17 +10,15 @@ import (
 
 // StatusComponent represents the status bar component
 type StatusComponent struct {
-	Provider  string
-	Model     string
-	Connected bool
-	Width     int
-	Style     lipgloss.Style
-	Session   *Session  // Reference to session for token/time tracking
-	repoInfo  *RepoInfo // Git repository information
-	// Vi mode status
-	ViModeEnabled bool
-	ViCurrentMode string
-	ViPendingOp   string
+	Provider    string
+	Model       string
+	Connected   bool
+	Width       int
+	Style       lipgloss.Style
+	Session     *Session  // Reference to session for token/time tracking
+	repoInfo    *RepoInfo // Git repository information
+	mode        string
+	ViPendingOp string
 
 	// Waiting indicator
 	waitingForResponse bool
@@ -34,6 +32,7 @@ func NewStatusComponent(width int) StatusComponent {
 		Style: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#01FAFA")). // Terminal7 text color
 			Padding(0),
+		mode: "INSERT", // start in insert mode
 	}
 }
 
@@ -52,13 +51,6 @@ func (s *StatusComponent) SetSession(session *Session) {
 // SetRepoInfo sets the repository information
 func (s *StatusComponent) SetRepoInfo(repoInfo *RepoInfo) {
 	s.repoInfo = repoInfo
-}
-
-// SetViMode updates vi mode status for display
-func (s *StatusComponent) SetViMode(enabled bool, mode, pending string) {
-	s.ViModeEnabled = enabled
-	s.ViCurrentMode = mode
-	s.ViPendingOp = pending
 }
 
 // StartWaiting marks the status component as waiting for a model response
@@ -169,8 +161,17 @@ func (s StatusComponent) View() string {
 	return s.Style.Render(statusLine)
 }
 
-// renderLeftSection renders the left section with branch info
+func (s *StatusComponent) SetMode(mode string) {
+	s.mode = strings.ToUpper(mode)
+}
+
+// renderLeftSection renders the left section with vi mode and branch info
 func (s StatusComponent) renderLeftSection() string {
+	var parts []string
+
+	// Add vi mode indicator first
+	parts = append(parts, fmt.Sprintf(" %s>", s.mode))
+
 	// Get branch from RepoInfo if available, otherwise fall back to git info manager
 	var branch string
 	// TODO: why test? Even when no git, RepoInfo should have defaults to use
@@ -179,7 +180,8 @@ func (s StatusComponent) renderLeftSection() string {
 	}
 	// TODO: ditto
 	if branch == "" {
-		return "🪾no-git"
+		parts = append(parts, "🪾no-git")
+		return strings.Join(parts, " ")
 	}
 
 	// Color branch name: yellow for main, green for others
@@ -190,7 +192,6 @@ func (s StatusComponent) renderLeftSection() string {
 		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green
 	}
 
-	var parts []string
 	parts = append(parts, "🌴 "+bs.Render(branch))
 	if s.repoInfo != nil {
 		if gitStatus := s.repoInfo.GetStatus(); gitStatus != "" {
@@ -248,39 +249,6 @@ func (s StatusComponent) renderRightSection() string {
 	providerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA")) // Terminal7 text color
 
 	return providerStyle.Render(providerModel) + " " + icon
-}
-
-// RenderViModeIndicator renders the vi mode indicator string
-func (s StatusComponent) RenderViModeIndicator() string {
-	if !s.ViModeEnabled {
-		return ""
-	}
-
-	var text string
-	var style lipgloss.Style
-
-	switch s.ViCurrentMode {
-	case ViModeInsert:
-		text = "<INSERT>"
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")).Bold(true)
-	case ViModeNormal:
-		text = "<NORMAL>"
-		if s.ViPendingOp != "" {
-			text += " (" + s.ViPendingOp + ")"
-		}
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4DB53")).Bold(true)
-	case ViModeVisual:
-		text = "<VISUAL>"
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA")).Bold(true)
-	case ViModeCommandLine:
-		text = "<COMMAND>"
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F952F9")).Bold(true)
-	default:
-		text = "<VI>"
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA")).Bold(true)
-	}
-
-	return style.Render(text)
 }
 
 // truncateString truncates a string to fit within maxWidth, adding "..." if needed

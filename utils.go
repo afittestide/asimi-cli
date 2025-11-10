@@ -82,7 +82,10 @@ func GetRepoInfo() RepoInfo {
 			branch = readBranchFromWorktree()
 		}
 		// Get git status - only read once at startup
-		status = readShortStatus(repo)
+		// Skip in tests to avoid slow git operations
+		if os.Getenv("ASIMI_SKIP_GIT_STATUS") == "" {
+			status = readShortStatus(repo)
+		}
 	} else if isWorktree {
 		// go-git failed, try reading branch directly from worktree
 		branch = readBranchFromWorktree()
@@ -275,7 +278,12 @@ func (m *gitInfoManager) readRepositoryState() (string, string, *gogit.Repositor
 }
 
 func (m *gitInfoManager) ensureRepository() (*gogit.Repository, string, error) {
-	root := GetRepoInfo().ProjectRoot
+	// Get current working directory to find project root
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, "", err
+	}
+	root := findProjectRoot(cwd)
 
 	m.mu.RLock()
 	repo := m.repo
@@ -286,7 +294,7 @@ func (m *gitInfoManager) ensureRepository() (*gogit.Repository, string, error) {
 		return repo, repoPath, nil
 	}
 
-	repo, err := gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{
+	repo, err = gogit.PlainOpenWithOptions(root, &gogit.PlainOpenOptions{
 		DetectDotGit: true,
 	})
 	if err != nil {

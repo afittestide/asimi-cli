@@ -120,169 +120,156 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 	return modelsResponse.Data, nil
 }
 
-// ModelSelectionModal represents a modal for selecting AI models
-type ModelSelectionModal struct {
-	*BaseModal
-	models        []AnthropicModel
-	selected      int
-	scrollOffset  int
-	maxVisible    int
-	confirmed     bool
-	selectedModel *AnthropicModel
-	currentModel  string
-	loading       bool
-	error         string
+// ModelsWindow is a simplified component for displaying model selection
+// Navigation is handled by ContentComponent
+type ModelsWindow struct {
+	width        int
+	height       int
+	models       []AnthropicModel
+	currentModel string
+	loading      bool
+	errorMsg     string
+	maxVisible   int
 }
 
-// NewModelSelectionModal creates a new model selection modal
-func NewModelSelectionModal(currentModel string) *ModelSelectionModal {
-	baseModal := NewBaseModal("Select Model", "", 70, 15)
-
-	return &ModelSelectionModal{
-		BaseModal:     baseModal,
-		models:        []AnthropicModel{},
-		selected:      0,
-		scrollOffset:  0,
-		maxVisible:    8,
-		confirmed:     false,
-		selectedModel: nil,
-		currentModel:  currentModel,
-		loading:       true,
-		error:         "",
+// NewModelsWindow creates a new models window
+func NewModelsWindow() ModelsWindow {
+	return ModelsWindow{
+		width:        70,
+		height:       15,
+		models:       []AnthropicModel{},
+		currentModel: "",
+		loading:      false,
+		errorMsg:     "",
+		maxVisible:   8,
 	}
 }
 
-// Render renders the model selection modal
-func (m *ModelSelectionModal) Render() string {
-	var content string
+// SetSize updates the dimensions
+func (m *ModelsWindow) SetSize(width, height int) {
+	m.width = width
+	m.height = height
+	// Adjust maxVisible based on height
+	m.maxVisible = height - 4 // Account for title, footer, instructions
+	if m.maxVisible < 1 {
+		m.maxVisible = 1
+	}
+}
+
+// SetModels updates the models list
+func (m *ModelsWindow) SetModels(models []AnthropicModel, currentModel string) {
+	m.models = models
+	m.currentModel = currentModel
+	m.loading = false
+	m.errorMsg = ""
+}
+
+// SetLoading sets loading state
+func (m *ModelsWindow) SetLoading(loading bool) {
+	m.loading = loading
+	if loading {
+		m.errorMsg = ""
+	}
+}
+
+// SetError sets error state
+func (m *ModelsWindow) SetError(err string) {
+	m.errorMsg = err
+	m.loading = false
+}
+
+// GetItemCount returns the number of models
+func (m *ModelsWindow) GetItemCount() int {
+	return len(m.models)
+}
+
+// GetVisibleSlots returns how many items can be shown at once
+func (m *ModelsWindow) GetVisibleSlots() int {
+	return m.maxVisible
+}
+
+// GetInitialSelection returns the index of the current model (or 0)
+func (m *ModelsWindow) GetInitialSelection() int {
+	for i, model := range m.models {
+		if model.ID == m.currentModel {
+			return i
+		}
+	}
+	return 0
+}
+
+// GetSelectedModel returns the model at the given index
+func (m *ModelsWindow) GetSelectedModel(index int) *AnthropicModel {
+	if index < 0 || index >= len(m.models) {
+		return nil
+	}
+	return &m.models[index]
+}
+
+// RenderList renders the models list with the given selection
+func (m *ModelsWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int) string {
+	var content strings.Builder
 
 	if m.loading {
-		content += "Loading models...\n\n"
-		// Show spinner or loading indicator
-		content += "⏳ Fetching available models from Anthropic API..."
-	} else if m.error != "" {
-		content += "Error loading models:\n\n"
-		content += m.error + "\n\n"
-		content += "Press Esc to cancel"
-	} else {
-		content += "Use ↑/↓ arrows to navigate, Enter to select, Esc to cancel\n\n"
-
-		if len(m.models) == 0 {
-			content += "No models available"
-		} else {
-			start := m.scrollOffset
-			end := m.scrollOffset + m.maxVisible
-			if end > len(m.models) {
-				end = len(m.models)
-			}
-
-			for i := start; i < end; i++ {
-				model := m.models[i]
-				prefix := "  "
-				suffix := ""
-
-				// Mark current model
-				if model.ID == m.currentModel {
-					suffix = " (current)"
-				}
-
-				// Mark selected model
-				if i == m.selected {
-					prefix = "▶ "
-				}
-
-				style := lipgloss.NewStyle()
-				if i == m.selected {
-					style = style.Foreground(lipgloss.Color("62")).Bold(true)
-				}
-
-				displayText := model.DisplayName
-				if displayText == "" {
-					displayText = model.ID
-				}
-
-				line := fmt.Sprintf("%s%s%s", prefix, displayText, suffix)
-				content += style.Render(line) + "\n"
-			}
-
-			// Show scroll indicator if needed
-			if len(m.models) > m.maxVisible {
-				scrollInfo := fmt.Sprintf("\n%d-%d of %d models", start+1, end, len(m.models))
-				scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
-				content += scrollStyle.Render(scrollInfo)
-			}
-		}
+		content.WriteString("Loading models...\n\n")
+		content.WriteString("⏳ Fetching available models from Anthropic API...")
+		return content.String()
 	}
 
-	// Update the base modal's content
-	m.BaseModal.Content = content
-	return m.BaseModal.Render()
-}
-
-// Update handles key events for model selection
-func (m *ModelSelectionModal) Update(msg tea.Msg) (*ModelSelectionModal, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		// Don't handle keys while loading or if there's an error
-		if m.loading || m.error != "" {
-			switch msg.String() {
-			case "esc", "q":
-				return m, func() tea.Msg { return modalCancelledMsg{} }
-			}
-			return m, nil
-		}
-
-		switch msg.String() {
-		case "up", "k":
-			if m.selected > 0 {
-				m.selected--
-				if m.selected < m.scrollOffset {
-					m.scrollOffset = m.selected
-				}
-			}
-		case "down", "j":
-			if m.selected < len(m.models)-1 {
-				m.selected++
-				if m.selected >= m.scrollOffset+m.maxVisible {
-					m.scrollOffset = m.selected - m.maxVisible + 1
-				}
-			}
-		case "enter":
-			if len(m.models) > 0 {
-				m.confirmed = true
-				m.selectedModel = &m.models[m.selected]
-				return m, func() tea.Msg { return modelSelectedMsg{model: m.selectedModel} }
-			}
-		case "esc", "q":
-			return m, func() tea.Msg { return modalCancelledMsg{} }
-		}
+	if m.errorMsg != "" {
+		content.WriteString("Error loading models:\n\n")
+		content.WriteString(m.errorMsg + "\n\n")
+		return content.String()
 	}
-	return m, nil
-}
 
-// SetModels updates the models list and stops loading
-func (m *ModelSelectionModal) SetModels(models []AnthropicModel) {
-	m.models = models
-	m.loading = false
-	m.error = ""
+	if len(m.models) == 0 {
+		content.WriteString("No models available\n")
+		return content.String()
+	}
 
-	// Try to set selected to current model
-	for i, model := range models {
+	start := scrollOffset
+	end := scrollOffset + visibleSlots
+	if end > len(m.models) {
+		end = len(m.models)
+	}
+
+	for i := start; i < end; i++ {
+		model := m.models[i]
+		prefix := "  "
+		suffix := ""
+
+		// Mark current model
 		if model.ID == m.currentModel {
-			m.selected = i
-			// Adjust scroll offset to show the current model
-			if m.selected >= m.maxVisible {
-				m.scrollOffset = m.selected - m.maxVisible + 1
-			}
-			break
+			suffix = " (current)"
 		}
-	}
-}
 
-// SetError sets an error message and stops loading
-func (m *ModelSelectionModal) SetError(err string) {
-	m.error = err
-	m.loading = false
+		// Mark selected model
+		if i == selectedIndex {
+			prefix = "▶ "
+		}
+
+		style := lipgloss.NewStyle()
+		if i == selectedIndex {
+			style = style.Foreground(lipgloss.Color("62")).Bold(true)
+		}
+
+		displayText := model.DisplayName
+		if displayText == "" {
+			displayText = model.ID
+		}
+
+		line := fmt.Sprintf("%s%s%s", prefix, displayText, suffix)
+		content.WriteString(style.Render(line) + "\n")
+	}
+
+	// Show scroll indicator if needed
+	if len(m.models) > visibleSlots {
+		scrollInfo := fmt.Sprintf("\n%d-%d of %d models", start+1, end, len(m.models))
+		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
+		content.WriteString(scrollStyle.Render(scrollInfo))
+	}
+
+	return content.String()
 }
 
 // Message types for model selection
@@ -306,7 +293,7 @@ func handleModelsCommand(model *TUIModel, args []string) tea.Cmd {
 	// Only allow model selection for Anthropic provider
 	name := model.config.LLM.Provider
 	if name != "anthropic" {
-		model.toastManager.AddToast("Model selection is not available for "+name, "error", 3000)
+		model.commandLine.AddToast("Model selection is not available for "+name, "error", 3000)
 		return nil
 	}
 

@@ -119,7 +119,6 @@ func (c CompletionDialog) getEffectiveHeight() int {
 
 // View renders the completion dialog
 func (c CompletionDialog) View() string {
-	slog.Debug("view")
 	if !c.Visible || len(c.Options) == 0 {
 		return ""
 	}
@@ -133,7 +132,6 @@ func (c CompletionDialog) View() string {
 		end = len(c.Options)
 	}
 
-	slog.Debug(">>>", "start", start, "end", end)
 	lines := make([]string, 0, effectiveHeight)
 
 	// Only add actual options, no "..." padding
@@ -146,7 +144,6 @@ func (c CompletionDialog) View() string {
 		}
 	}
 
-	slog.Debug("lines", "len", len(lines))
 	// Join the lines and render with style
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return c.Style.Render(content)

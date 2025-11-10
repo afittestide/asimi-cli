@@ -8,9 +8,7 @@ import (
 
 // TestArrowKeysInViNormalMode tests that arrow keys work in vi normal mode
 func TestArrowKeysInViNormalMode(t *testing.T) {
-	// Create a prompt component with vi mode enabled
 	prompt := NewPromptComponent(80, 5)
-	prompt.SetViMode(true)
 
 	// Set some initial text
 	prompt.SetValue("Hello World")
@@ -63,9 +61,7 @@ func TestArrowKeysInViNormalMode(t *testing.T) {
 
 // TestViMovementKeys tests that vi movement keys (h, j, k, l) work in normal mode
 func TestViMovementKeys(t *testing.T) {
-	// Create a prompt component with vi mode enabled
 	prompt := NewPromptComponent(80, 5)
-	prompt.SetViMode(true)
 
 	// Set some initial text with multiple lines
 	prompt.SetValue("Line 1\nLine 2\nLine 3")
@@ -104,9 +100,7 @@ func TestViMovementKeys(t *testing.T) {
 
 // TestTextInputBlockedInNormalMode tests that regular text input is blocked in normal mode
 func TestTextInputBlockedInNormalMode(t *testing.T) {
-	// Create a prompt component with vi mode enabled
 	prompt := NewPromptComponent(80, 5)
-	prompt.SetViMode(true)
 
 	// Set some initial text
 	initialText := "Hello"
@@ -143,9 +137,7 @@ func TestTextInputBlockedInNormalMode(t *testing.T) {
 
 // TestArrowKeysInInsertMode tests that arrow keys work in insert mode
 func TestArrowKeysInInsertMode(t *testing.T) {
-	// Create a prompt component with vi mode enabled
 	prompt := NewPromptComponent(80, 5)
-	prompt.SetViMode(true)
 
 	// Set some initial text
 	prompt.SetValue("Hello World")

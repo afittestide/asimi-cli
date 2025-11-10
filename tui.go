@@ -26,18 +26,17 @@ type TUIModel struct {
 	theme         *Theme // Add theme here
 
 	// UI Components
-	status              StatusComponent
-	prompt              PromptComponent
-	chat                ChatComponent
-	completions         CompletionDialog
-	toastManager        *ToastManager
-	modal               *BaseModal
-	providerModal       *ProviderSelectionModal
-	codeInputModal      *CodeInputModal
-	modelSelectionModal *ModelSelectionModal
-	sessionModal        *SessionSelectionModal
+	status         StatusComponent
+	prompt         PromptComponent
+	content        ContentComponent
+	completions    CompletionDialog
+	commandLine    *CommandLineComponent
+	modal          *BaseModal
+	providerModal  *ProviderSelectionModal
+	codeInputModal *CodeInputModal
 
 	// UI Flags & State
+	Mode                 string // Current UI mode for status display
 	showCompletionDialog bool
 	completionMode       string // "file" or "command"
 	sessionActive        bool
@@ -73,7 +72,8 @@ type TUIModel struct {
 	historyPresentChatSnapshot    int
 
 	// Persistent history store
-	historyStore *HistoryStore
+	historyStore        *HistoryStore
+	commandHistoryStore *HistoryStore
 
 	// Waiting indicator state
 	waitingForResponse bool
@@ -91,16 +91,12 @@ type waitingTickMsg struct{}
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
-func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore, sessionStore *SessionStore) *TUIModel {
+func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore, commandHistory *HistoryStore, sessionStore *SessionStore) *TUIModel {
 
 	registry := NewCommandRegistry()
 	theme := NewTheme()
 
-	// Create prompt component with vi mode based on config
 	prompt := NewPromptComponent(80, 5)
-	if config.IsViModeEnabled() {
-		prompt.SetViMode(true)
-	}
 
 	// Create status component and set repo info
 	status := NewStatusComponent(80)
@@ -115,14 +111,15 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore,
 		// Initialize components
 		status:         status,
 		prompt:         prompt,
-		chat:           NewChatComponent(80, 18),
+		content:        NewContentComponent(80, 18),
 		completions:    NewCompletionDialog(),
-		toastManager:   NewToastManager(),
+		commandLine:    NewCommandLineComponent(),
 		modal:          nil,
 		providerModal:  nil,
 		codeInputModal: nil,
 
 		// UI Flags
+		Mode:                 ViModeInsert, // Start in insert mode
 		showCompletionDialog: false,
 		completionMode:       "",
 		sessionActive:        false,
@@ -137,7 +134,8 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, historyStore *HistoryStore,
 		rawSessionHistory:    make([]string, 0),
 		toolCallMessageIndex: make(map[string]int),
 		waitingForResponse:   false,
-		historyStore:         historyStore,
+		historyStore:         promptHistory,
+		commandHistoryStore:  commandHistory,
 	}
 
 	// Set initial status info - show disconnected state initially
@@ -156,26 +154,36 @@ func (m *TUIModel) initHistory() {
 	m.historyPresentSessionSnapshot = 0
 	m.historyPresentChatSnapshot = 0
 
-	// Load persistent history from disk
+	// Load persistent prompt history from disk
 	if m.historyStore != nil {
 		entries, err := m.historyStore.Load()
 		if err != nil {
-			slog.Warn("failed to load history", "error", err)
-			return
+			slog.Warn("failed to load prompt history", "error", err)
+		} else {
+			// Convert persistent entries to in-memory format
+			// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
+			// as they're only meaningful for the current session
+			for _, entry := range entries {
+				m.promptHistory = append(m.promptHistory, promptHistoryEntry{
+					Prompt:          entry.Prompt,
+					SessionSnapshot: 0,
+					ChatSnapshot:    0,
+				})
+			}
+			m.historyCursor = len(m.promptHistory)
+			slog.Debug("loaded prompt history", "count", len(entries))
 		}
+	}
 
-		// Convert persistent entries to in-memory format
-		// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
-		// as they're only meaningful for the current session
-		for _, entry := range entries {
-			m.promptHistory = append(m.promptHistory, promptHistoryEntry{
-				Prompt:          entry.Prompt,
-				SessionSnapshot: 0,
-				ChatSnapshot:    0,
-			})
+	// Load persistent command history from disk
+	if m.commandHistoryStore != nil {
+		entries, err := m.commandHistoryStore.Load()
+		if err != nil {
+			slog.Warn("failed to load command history", "error", err)
+		} else {
+			m.commandLine.LoadHistory(entries)
+			slog.Debug("loaded command history", "count", len(entries))
 		}
-		m.historyCursor = len(m.promptHistory)
-		slog.Debug("loaded history", "count", len(entries))
 	}
 }
 
@@ -263,22 +271,22 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}()
 
-	// Update toast manager to remove expired toasts
-	m.toastManager.Update()
+	// Update command line to remove expired toasts
+	m.commandLine.Update()
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
-		// Handle chat scrolling first (including touch gestures)
-		var chatCmd tea.Cmd
+		// Handle content scrolling first (including touch gestures)
+		var contentCmd tea.Cmd
 		if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown ||
 			msg.Type == tea.MouseLeft || msg.Type == tea.MouseMotion {
-			m.chat, chatCmd = m.chat.Update(msg)
+			m.content, contentCmd = m.content.Update(msg)
 		}
 		model, cmd := m.handleMouseMsg(msg)
-		return model, tea.Batch(chatCmd, cmd)
+		return model, tea.Batch(contentCmd, cmd)
 
 	case tea.WindowSizeMsg:
 		return m.handleWindowSizeMsg(msg)
@@ -342,9 +350,9 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.ctrlCPressedTime = now
 
-		m.chat.AddMessage("\nCTRL-C\n")
+		m.content.GetChat().AddMessage("\nCTRL-C\n")
 		m.handleEscape()
-		m.toastManager.AddToast("Press CTRL-C in less than 2s to exit", "info", 3*time.Second)
+		m.commandLine.AddToast("Press CTRL-C in less than 2s to exit", "info", 3*time.Second)
 		return m, nil
 	}
 
@@ -358,13 +366,29 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCtrlZ()
 	}
 
-	// Handle modals first (they need to handle their own escape keys)
-	if m.sessionModal != nil {
-		m.sessionModal, cmd = m.sessionModal.Update(msg)
-		return m, cmd
+	// Handle command line input when in command mode - MUST be before other handlers
+	if m.commandLine.IsInCommandMode() {
+		cmd, handled := m.commandLine.HandleKey(msg)
+		if handled && cmd != nil {
+			// Component handled the key and returned a message
+			return m, cmd
+		}
+		// Component didn't handle it or returned nil
+		return m, nil
 	}
-	if m.modelSelectionModal != nil {
-		m.modelSelectionModal, cmd = m.modelSelectionModal.Update(msg)
+
+	// Handle non-chat views (help, models, resume)
+	if m.content.GetActiveView() != ViewChat {
+		// Allow `:` to enter command line mode even in non-chat views
+		if keyStr == ":" {
+			m.prompt.Blur()
+			return m, m.commandLine.EnterCommandMode("")
+		}
+		m.content, cmd = m.content.Update(msg)
+		// If view switched back to chat, restore focus to prompt
+		if m.content.GetActiveView() == ViewChat {
+			m.prompt.Focus()
+		}
 		return m, cmd
 	}
 	if m.codeInputModal != nil {
@@ -392,12 +416,26 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// ESC in Insert mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViInsertMode() {
 		m.prompt.EnterViNormalMode()
-		return m, nil
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Visual mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViVisualMode() {
 		m.prompt.EnterViNormalMode()
-		return m, nil
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Command-line mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViCommandLineMode() {
@@ -406,13 +444,20 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showCompletionDialog = false
 		m.completions.Hide()
 		m.completionMode = ""
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Learning mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViLearningMode() {
 		m.prompt.EnterViNormalMode()
 		m.prompt.SetValue("")
-		return m, nil
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 
 	// Handle escape key after modals have had a chance to process it
@@ -435,19 +480,18 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleViCommandLineMode(msg)
 	}
 
-	// Handle regular key input
+	// Handle regular key input (when in insert mode)
 	switch keyStr {
 	case "ctrl+o":
 		return m.handleToggleRawMode()
 	case "enter":
 		return m.handleEnterKey()
-	case "/":
-		return m.handleSlashKey(msg)
 	case ":":
-		// In vi mode, colon acts like slash for commands
-		if m.prompt.ViMode {
+		// Only enter command mode if at the beginning of input
+		if m.prompt.Value() == "" {
 			return m.handleColonKey(msg)
 		}
+		// Otherwise, just insert the colon character
 		m.prompt, _ = m.prompt.Update(msg)
 		return m, nil
 	case "@":
@@ -516,58 +560,48 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		// Enter insert mode at cursor
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "I":
 		// Enter insert mode at beginning of line
 		m.prompt.TextArea.CursorStart()
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "a":
 		// Enter insert mode after cursor (move cursor forward first)
 		// Note: In vi, 'a' appends after the current character
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "A":
 		// Enter insert mode at end of line
 		m.prompt.TextArea.CursorEnd()
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "o":
 		// Open new line below and enter insert mode
 		m.prompt.TextArea.CursorEnd()
 		m.prompt.TextArea.InsertString("\n")
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "O":
 		// Open new line above and enter insert mode
 		m.prompt.TextArea.CursorStart()
 		m.prompt.TextArea.InsertString("\n")
 		m.prompt.TextArea.CursorUp()
 		m.prompt.EnterViInsertMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 	case "v":
 		// Enter visual mode (character-wise)
 		m.prompt.EnterViVisualMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "visual"} }
 	case "V":
 		// Enter visual line mode (for now, same as visual mode)
 		m.prompt.EnterViVisualMode()
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "visual"} }
 	case ":":
-		// Enter command-line mode
-		m.prompt.EnterViCommandLineMode()
-		m.prompt.SetValue(":")
-		// Show completion dialog with commands (replace / with : in command names)
-		var viCommands []string
-		for _, cmd := range m.commandRegistry.order {
-			// Replace leading / with :
-			viCommands = append(viCommands, ":"+strings.TrimPrefix(cmd, "/"))
-		}
-		m.showCompletionDialog = true
-		m.completionMode = "command"
-		m.completions.SetOptions(viCommands)
-		m.completions.Show()
-		return m, nil
+		// Enter command mode in the command line (bottom of screen)
+		enterCmd := m.commandLine.EnterCommandMode("")
+		m.prompt.Blur()
+		return m, enterCmd
 	case "?":
 		// Show help modal
 		helpText := "\n\n"
@@ -589,7 +623,7 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Enter learning mode
 		m.prompt.EnterViLearningMode()
 		m.prompt.SetValue("#")
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "learning"} }
 	default:
 		// Pass other keys to the textarea for navigation
 		m.prompt, _ = m.prompt.Update(msg)
@@ -606,9 +640,8 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Execute the command and return to insert mode
 		content := m.prompt.Value()
 		if strings.HasPrefix(content, ":") {
-			// Remove the : prefix and execute as a command
-			normalizedContent := "/" + strings.TrimPrefix(content, ":")
-			parts := strings.Fields(normalizedContent)
+			// Parse the command (keep the : prefix for display)
+			parts := strings.Fields(content)
 			if len(parts) > 0 {
 				cmdName := parts[0]
 				m.addToRawHistory("COMMAND", content)
@@ -623,7 +656,7 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.completionMode = ""
 					return m, command
 				} else {
-					m.toastManager.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
+					m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
 					m.prompt.SetValue("")
 					m.prompt.EnterViInsertMode()
 					// Hide completion dialog
@@ -656,7 +689,7 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleCtrlZ handles Ctrl+Z to send the application to background
 func (m TUIModel) handleCtrlZ() (tea.Model, tea.Cmd) {
 	// Display message to user
-	m.chat.AddMessage("\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
+	m.content.GetChat().AddMessage("\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
 
 	// Send SIGTSTP signal to self to suspend the process
 	return m, tea.Suspend
@@ -716,10 +749,10 @@ func (m TUIModel) handleCompletionSelection() (tea.Model, tea.Cmd) {
 			filePath := selected
 			content, err := os.ReadFile(filePath)
 			if err != nil {
-				m.toastManager.AddToast(fmt.Sprintf("Error reading file: %v", err), "error", time.Second*3)
+				m.commandLine.AddToast(fmt.Sprintf("Error reading file: %v", err), "error", time.Second*3)
 			} else if m.session != nil {
 				m.session.AddContextFile(filePath, string(content))
-				m.chat.AddMessage(fmt.Sprintf("Loaded file: %s", filePath))
+				m.content.GetChat().AddMessage(fmt.Sprintf("Loaded file: %s", filePath))
 			}
 			currentValue := m.prompt.Value()
 			lastAt := strings.LastIndex(currentValue, "@")
@@ -745,11 +778,8 @@ func (m TUIModel) handleCompletionSelection() (tea.Model, tea.Cmd) {
 				m.prompt.SetValue("@" + selected + " ")
 			}
 		} else if m.completionMode == "command" {
-			// Normalize command name (convert : to / if needed)
+			// Get command name (already has : prefix)
 			cmdName := selected
-			if strings.HasPrefix(cmdName, ":") {
-				cmdName = "/" + strings.TrimPrefix(cmdName, ":")
-			}
 
 			// It's a command completion
 			cmd, exists := m.commandRegistry.GetCommand(cmdName)
@@ -803,7 +833,7 @@ func (m *TUIModel) saveHistoryPresentState() {
 	} else {
 		m.historyPresentSessionSnapshot = 0
 	}
-	m.historyPresentChatSnapshot = len(m.chat.Messages)
+	m.historyPresentChatSnapshot = len(m.content.GetChat().Messages)
 	m.historySaved = true
 }
 
@@ -885,34 +915,28 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			agentsPath := "AGENTS.md"
 			f, err := os.OpenFile(agentsPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 			if err != nil {
-				m.toastManager.AddToast(fmt.Sprintf("Failed to open AGENTS.md: %v", err), "error", time.Second*3)
+				m.commandLine.AddToast(fmt.Sprintf("Failed to open AGENTS.md: %v", err), "error", time.Second*3)
 			} else {
 				defer f.Close()
 				_, err = f.WriteString("\n" + learningNote + "\n")
 				if err != nil {
-					m.toastManager.AddToast(fmt.Sprintf("Failed to write to AGENTS.md: %v", err), "error", time.Second*3)
+					m.commandLine.AddToast(fmt.Sprintf("Failed to write to AGENTS.md: %v", err), "error", time.Second*3)
 				} else {
-					m.toastManager.AddToast("Added to AGENTS.md", "success", time.Second*2)
+					m.commandLine.AddToast("Added to AGENTS.md", "success", time.Second*2)
 				}
 			}
 		}
 		// Return to normal mode
 		m.prompt.EnterViNormalMode()
 		m.prompt.SetValue("")
-		return m, nil
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 
-	// Check for command prefix (/ or : in vi mode)
-	isCommand := strings.HasPrefix(content, "/") || (m.prompt.ViMode && strings.HasPrefix(content, ":"))
+	isCommand := strings.HasPrefix(content, ":")
 
 	if isCommand {
-		// Normalize command to use / prefix
-		normalizedContent := content
-		if strings.HasPrefix(content, ":") {
-			normalizedContent = "/" + strings.TrimPrefix(content, ":")
-		}
-
-		parts := strings.Fields(normalizedContent)
+		// Parse the command (keep the : prefix for display)
+		parts := strings.Fields(content)
 		if len(parts) > 0 {
 			cmdName := parts[0]
 			m.addToRawHistory("COMMAND", content) // Log the full command
@@ -921,17 +945,17 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 				command := cmd.Handler(&m, parts[1:])
 				cmds = append(cmds, command)
 				m.prompt.SetValue("")
-				// In vi mode, return to insert mode after command execution
-				if m.prompt.ViMode {
-					m.prompt.EnterViInsertMode()
-				}
+				m.prompt.EnterViInsertMode()
+				cmds = append(cmds, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} })
+				// Ensure prompt has focus after command
+				m.prompt.Focus()
 			} else {
-				m.toastManager.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
+				m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
 			}
 		}
 	} else {
 		// Clear any lingering toast notifications before handling a new prompt
-		m.toastManager.Clear()
+		m.commandLine.ClearToasts()
 		refreshGitInfo()
 
 		// Check if we're submitting a historical prompt (user navigated history)
@@ -943,7 +967,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			if m.session != nil {
 				m.session.RollbackTo(entry.SessionSnapshot)
 			}
-			m.chat.TruncateTo(entry.ChatSnapshot)
+			m.content.GetChat().TruncateTo(entry.ChatSnapshot)
 			m.toolCallMessageIndex = make(map[string]int)
 
 			// Now continue with the normal flow from this rolled-back state
@@ -952,7 +976,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 
 		// Add user input to raw history
 		m.addToRawHistory("USER", content)
-		chatSnapshot := len(m.chat.Messages)
+		chatSnapshot := len(m.content.GetChat().Messages)
 		var sessionSnapshot int
 		if m.session != nil {
 			sessionSnapshot = m.session.GetMessageSnapshot()
@@ -960,7 +984,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		if m.historyCursor < len(m.promptHistory) {
 			m.promptHistory = m.promptHistory[:m.historyCursor]
 		}
-		m.chat.AddMessage(fmt.Sprintf("You: %s", content))
+		m.content.GetChat().AddMessage(fmt.Sprintf("You: %s", content))
 		if m.session != nil {
 			m.sessionActive = true
 			m.prompt.SetValue("")
@@ -972,7 +996,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			m.streamingCancel = cancel
 			m.session.AskStream(ctx, content)
 		} else {
-			m.toastManager.AddToast("No LLM configured. Please use /login to configure an API key.", "error", time.Second*5)
+			m.commandLine.AddToast("No LLM configured. Please use /login to configure an API key.", "error", time.Second*5)
 			m.prompt.SetValue("")
 		}
 		m.promptHistory = append(m.promptHistory, promptHistoryEntry{
@@ -1010,25 +1034,16 @@ func (m TUIModel) handleSlashKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleColonKey handles the colon key for command completion in vi mode
+// handleColonKey handles the colon key - enters command mode in command line
 func (m TUIModel) handleColonKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Only show command completion if we're at the beginning of the input
-	if m.prompt.Value() == "" {
-		m.prompt, _ = m.prompt.Update(msg)
-		// Show completion dialog with commands (replace : with / in command names)
-		var viCommands []string
-		for _, cmd := range m.commandRegistry.order {
-			// Replace leading / with :
-			viCommands = append(viCommands, ":"+strings.TrimPrefix(cmd, "/"))
-		}
-		m.showCompletionDialog = true
-		m.completionMode = "command"
-		m.completions.SetOptions(viCommands)
-		m.completions.Show()
-	} else {
-		m.prompt, _ = m.prompt.Update(msg)
-	}
-	return m, nil
+	// Enter command mode in the command line
+	enterCmd := m.commandLine.EnterCommandMode("")
+	m.prompt.Blur()
+
+	// Show command completions immediately
+	m.updateCommandLineCompletions()
+
+	return m, enterCmd
 }
 
 // handleAtKey handles the @ key for file completion
@@ -1039,7 +1054,7 @@ func (m TUIModel) handleAtKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.completionMode = "file"
 	files, err := getFileTree(".")
 	if err != nil {
-		m.chat.AddMessage(fmt.Sprintf("Error scanning files: %v", err))
+		m.content.GetChat().AddMessage(fmt.Sprintf("Error scanning files: %v", err))
 	} else {
 		m.updateFileCompletions(files)
 	}
@@ -1051,9 +1066,9 @@ func (m TUIModel) handleAtKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m TUIModel) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.MouseWheelUp:
-		m.chat.Viewport.LineUp(1)
+		m.content.GetChat().Viewport.LineUp(1)
 	case tea.MouseWheelDown:
-		m.chat.Viewport.LineDown(1)
+		m.content.GetChat().Viewport.LineDown(1)
 	}
 	return m, nil
 }
@@ -1073,7 +1088,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case responseMsg:
 		m.addToRawHistory("AI_RESPONSE", string(msg))
 		m.stopStreaming()
-		m.chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
+		m.content.GetChat().AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
 		refreshGitInfo()
 
 	case ToolCallScheduledMsg:
@@ -1081,33 +1096,33 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Add a new message and store its index
 		message := formatToolCall(msg.Call.Tool.Name(), "📋", msg.Call.Input, "", nil)
-		m.chat.AddMessage(message)
-		m.toolCallMessageIndex[msg.Call.ID] = len(m.chat.Messages) - 1
+		m.content.GetChat().AddMessage(message)
+		m.toolCallMessageIndex[msg.Call.ID] = len(m.content.GetChat().Messages) - 1
 
 	case ToolCallExecutingMsg:
 		m.addToRawHistory("TOOL_EXECUTING", fmt.Sprintf("%s with input: %s", msg.Call.Tool.Name(), msg.Call.Input))
 		formatted := formatToolCall(msg.Call.Tool.Name(), "⚙️", msg.Call.Input, "", nil)
 		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.chat.Messages) {
-			m.chat.Messages[idx] = formatted
-			m.chat.UpdateContent()
+		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
+			m.content.GetChat().Messages[idx] = formatted
+			m.content.GetChat().UpdateContent()
 		} else {
 			// Fallback: add a new message if we don't have the index
-			m.chat.AddMessage(formatted)
+			m.content.GetChat().AddMessage(formatted)
 		}
 
 	case ToolCallSuccessMsg:
 		m.addToRawHistory("TOOL_SUCCESS", fmt.Sprintf("%s\nInput: %s\nOutput: %s", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Result))
 		formatted := formatToolCall(msg.Call.Tool.Name(), "✅", msg.Call.Input, msg.Call.Result, nil)
 		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.chat.Messages) {
-			m.chat.Messages[idx] = formatted
-			m.chat.UpdateContent()
+		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
+			m.content.GetChat().Messages[idx] = formatted
+			m.content.GetChat().UpdateContent()
 			// Clean up the index mapping
 			delete(m.toolCallMessageIndex, msg.Call.ID)
 		} else {
 			// Fallback: add a new message if we don't have the index
-			m.chat.AddMessage(formatted)
+			m.content.GetChat().AddMessage(formatted)
 		}
 		refreshGitInfo()
 
@@ -1115,19 +1130,19 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.addToRawHistory("TOOL_ERROR", fmt.Sprintf("%s\nInput: %s\nError: %v", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Error))
 		formatted := formatToolCall(msg.Call.Tool.Name(), "⁉️", msg.Call.Input, "", msg.Call.Error)
 		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.chat.Messages) {
-			m.chat.Messages[idx] = formatted
-			m.chat.UpdateContent()
+		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
+			m.content.GetChat().Messages[idx] = formatted
+			m.content.GetChat().UpdateContent()
 			// Clean up the index mapping
 			delete(m.toolCallMessageIndex, msg.Call.ID)
 		} else {
 			// Fallback: add a new message if we don't have the index
-			m.chat.AddMessage(formatted)
+			m.content.GetChat().AddMessage(formatted)
 		}
 
 	case errMsg:
 		m.addToRawHistory("ERROR", fmt.Sprintf("%v", msg.err))
-		m.chat.AddMessage(fmt.Sprintf("Error: %v", msg.err))
+		m.content.GetChat().AddMessage(fmt.Sprintf("Error: %v", msg.err))
 
 	case streamStartMsg:
 		// Streaming has started
@@ -1148,18 +1163,18 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if len(m.chat.Messages) == 0 || !strings.HasPrefix(m.chat.Messages[len(m.chat.Messages)-1], "Asimi:") {
-			m.chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
-			slog.Debug("added_new_message", "total_messages", len(m.chat.Messages))
+		if len(m.content.GetChat().Messages) == 0 || !strings.HasPrefix(m.content.GetChat().Messages[len(m.content.GetChat().Messages)-1], "Asimi:") {
+			m.content.GetChat().AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
+			slog.Debug("added_new_message", "total_messages", len(m.content.GetChat().Messages))
 		} else {
-			m.chat.AppendToLastMessage(string(msg))
-			slog.Debug("appended_to_last_message", "total_messages", len(m.chat.Messages))
+			m.content.GetChat().AppendToLastMessage(string(msg))
+			slog.Debug("appended_to_last_message", "total_messages", len(m.content.GetChat().Messages))
 		}
 		m.saveSession()
 
 	case streamCompleteMsg:
 		m.addToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
-		slog.Debug("streamCompleteMsg", "messages_count", len(m.chat.Messages))
+		slog.Debug("streamCompleteMsg", "messages_count", len(m.content.GetChat().Messages))
 		m.stopStreaming()
 		if m.projectInitializing && m.session != nil {
 			m.session.ClearHistory()
@@ -1172,7 +1187,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Streaming was interrupted by user
 		m.addToRawHistory("STREAM_INTERRUPTED", fmt.Sprintf("AI streaming interrupted, partial content: %s", msg.partialContent))
 		slog.Debug("streamInterruptedMsg", "partial_content_length", len(msg.partialContent))
-		m.chat.AddMessage("\nESC")
+		m.content.GetChat().AddMessage("\nESC")
 		m.stopStreaming()
 		if m.projectInitializing {
 			m.projectInitializing = false
@@ -1182,7 +1197,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamErrorMsg:
 		m.addToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
 		slog.Error("streamErrorMsg", "error", msg.err)
-		m.chat.AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
+		m.content.GetChat().AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1196,7 +1211,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Max turns exceeded, mark session as inactive and show warning
 		m.addToRawHistory("STREAM_MAX_TURNS_EXCEEDED", fmt.Sprintf("AI streaming ended after reaching max turns limit: %d", msg.maxTurns))
 		slog.Warn("streamMaxTurnsExceededMsg", "max_turns", msg.maxTurns)
-		m.chat.AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
+		m.content.GetChat().AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1210,7 +1225,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Max tokens reached, mark session as inactive and show warning
 		m.addToRawHistory("STREAM_MAX_TOKENS_REACHED", fmt.Sprintf("AI response truncated due to length limit: %s", msg.content))
 		slog.Warn("streamMaxTokensReachedMsg", "content_length", len(msg.content))
-		m.chat.AddMessage("\n\n⚠️  Response truncated due to length limit")
+		m.content.GetChat().AddMessage("\n\n⚠️  Response truncated due to length limit")
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1221,26 +1236,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshGitInfo()
 
 	case showHelpMsg:
-		leader := msg.leader
-		if leader == "" {
-			leader = "/"
-		}
-
-		helpText := fmt.Sprintf("Active command leader: %s\n", leader)
-		helpText += "Available commands:\n"
-		for _, cmd := range m.commandRegistry.GetAllCommands() {
-			displayName := cmd.Name
-			if leader == ":" && strings.HasPrefix(displayName, "/") {
-				displayName = ":" + strings.TrimPrefix(displayName, "/")
-			}
-			helpText += fmt.Sprintf("  %s - %s\n", displayName, cmd.Description)
-		}
-		m.chat.AddMessage(helpText)
-		m.sessionActive = true
+		// Show the help viewer with the requested topic
+		return m, m.content.ShowHelp(msg.topic)
 
 	case showContextMsg:
 		m.addToRawHistory("CONTEXT", msg.content)
-		m.chat.AddMessage(msg.content)
+		m.content.GetChat().AddMessage(msg.content)
 		m.sessionActive = true
 
 	case waitingTickMsg:
@@ -1258,20 +1259,21 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			auth := &AuthAnthropic{}
 			authURL, verifier, err := auth.authorize()
 			if err != nil {
-				m.toastManager.AddToast(fmt.Sprintf("Auth failed: %v", err), "error", 4000)
+				slog.Warn("Anthropic Auth failed", "error", err)
+				m.commandLine.AddToast("Authorization failed", "error", 4000)
 				return m, nil
 			}
 
 			// Open browser
 			if err := openBrowser(authURL); err != nil {
-				m.toastManager.AddToast("Failed to open browser", "warning", 3000)
+				m.commandLine.AddToast("Failed to open browser", "warning", 3000)
 			}
 
 			// Show code input modal
 			m.codeInputModal = NewCodeInputModal(authURL, verifier)
 			m.config.LLM.Provider = provider
 			m.config.LLM.Model = "claude-3-5-sonnet-latest"
-			m.toastManager.AddToast("Logged in", "success", 3000)
+			m.commandLine.AddToast("Logged in", "success", 3000)
 		} else {
 			// Other providers use the standard OAuth flow
 			return m, m.performOAuthLogin(provider)
@@ -1280,40 +1282,41 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case showOauthFailed:
 		m.addToRawHistory("OAUTH_ERROR", msg.err)
 		errToast := fmt.Sprintf("OAuth failed: %s", msg.err)
-		m.toastManager.AddToast(errToast, "error", 4000)
-		m.chat.AddMessage(errToast)
+		m.commandLine.AddToast(errToast, "error", 4000)
+		m.content.GetChat().AddMessage(errToast)
 		m.sessionActive = false
 
 	case modalCancelledMsg:
 		m.providerModal = nil
 		m.codeInputModal = nil
-		m.modelSelectionModal = nil
-		m.sessionModal = nil
-		m.toastManager.AddToast("Cancelled", "info", 2000)
+		// Return to chat view
+		m.commandLine.AddToast("Cancelled", "info", 2000)
+		return m, m.content.ShowChat()
 
 	case authCodeEnteredMsg:
 		m.codeInputModal = nil
 		return m, m.completeAnthropicOAuth(msg.code, msg.verifier)
 
 	case showModelSelectionMsg:
-		m.modelSelectionModal = NewModelSelectionModal(m.config.LLM.Model)
+		m.content.SetModelsLoading()
 		// Fetch models in background
 		return m, m.fetchModelsCommand()
 
 	case modelSelectedMsg:
-		m.modelSelectionModal = nil
 		oldModel := m.config.LLM.Model
 		m.config.LLM.Model = msg.model.ID
 
 		// Save config and reinitialize session
 		if err := SaveConfig(m.config); err != nil {
-			m.toastManager.AddToast(fmt.Sprintf("Failed to save config: %v", err), "error", 4000)
+			slog.Error("Failed to save config", "error", err)
+			m.commandLine.AddToast("Failed to save config: %v", "error", 4000)
 			// Revert model change
 			m.config.LLM.Model = oldModel
 		} else {
 			// Reinitialize session with new model
 			if err := m.reinitializeSession(); err != nil {
-				m.toastManager.AddToast(fmt.Sprintf("Failed to update model: %v", err), "error", 4000)
+				slog.Error("Failed to reinitialize session", "error", err)
+				m.commandLine.AddToast("Failed to re-init model. Please try again", "error", 4000)
 				// Revert model change
 				m.config.LLM.Model = oldModel
 				SaveConfig(m.config) // Try to save the reverted config
@@ -1322,26 +1325,118 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if modelName == "" {
 					modelName = msg.model.ID
 				}
-				m.toastManager.AddToast(fmt.Sprintf("Model changed to %s", modelName), "success", 3000)
+				m.commandLine.AddToast(fmt.Sprintf("Model changed to %s", modelName), "success", 3000)
+			}
+		}
+		return m, nil
+
+	case modelsLoadedMsg:
+		return m, m.content.ShowModels(msg.models, m.config.LLM.Model)
+
+	case modelsLoadErrorMsg:
+		m.content.SetModelsError(msg.error)
+
+	case sessionsLoadedMsg:
+		return m, m.content.ShowResume(msg.sessions)
+
+	case ChangeModeMsg:
+		// Centralized mode management - update Mode and status
+		m.Mode = msg.NewMode
+		m.status.SetMode(m.Mode)
+		if m.Mode == "resume" || m.Mode == "models" {
+			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
+		}
+
+		return m, nil
+
+	case commandReadyMsg:
+		// Command ready from command line component
+		// Hide completion dialog
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+
+		// Save to persistent command history
+		if m.commandHistoryStore != nil {
+			if err := m.commandHistoryStore.Append(msg.command); err != nil {
+				slog.Warn("failed to save command to history", "error", err)
 			}
 		}
 
-	case modelsLoadedMsg:
-		if m.modelSelectionModal != nil {
-			m.modelSelectionModal.SetModels(msg.models)
-		}
+		// Parse and execute the command
+		parts := strings.Fields(":" + msg.command)
+		if len(parts) > 0 {
+			cmdName := parts[0]
+			m.addToRawHistory("COMMAND", ":"+msg.command)
 
-	case modelsLoadErrorMsg:
-		if m.modelSelectionModal != nil {
-			m.modelSelectionModal.SetError(msg.error)
+			// Use FindCommand for vim-style partial matching
+			cmd, matches, found := m.commandRegistry.FindCommand(cmdName)
+			if found {
+				return m, cmd.Handler(&m, parts[1:])
+			} else if len(matches) > 1 {
+				// Ambiguous command
+				displayMatches := make([]string, len(matches))
+				for i, match := range matches {
+					displayMatches[i] = ":" + strings.TrimPrefix(match, "/")
+				}
+				errorMsg := fmt.Sprintf("Ambiguous command '%s'. Matches: %s",
+					strings.TrimPrefix(cmdName, ":"),
+					strings.Join(displayMatches, ", "))
+				m.commandLine.AddToast(errorMsg, "error", time.Second*3)
+			} else {
+				// Unknown command
+				m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", strings.TrimPrefix(cmdName, ":")), "error", time.Second*3)
+			}
 		}
+		m.prompt.Focus()
+		return m, nil
 
-	case sessionsLoadedMsg:
-		m.sessionModal = NewSessionSelectionModal()
-		m.sessionModal.SetSessions(msg.sessions)
+	case commandCancelledMsg:
+		// Command cancelled - hide completions and restore focus
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+		m.prompt.Focus()
+		return m, nil
+
+	case commandTextChangedMsg:
+		// Command text changed - update completions
+		m.updateCommandLineCompletions()
+		return m, nil
+
+	case navigateCompletionMsg:
+		// Navigate completion dialog
+		if msg.direction < 0 {
+			m.completions.SelectPrev()
+		} else {
+			m.completions.SelectNext()
+		}
+		return m, nil
+
+	case navigateHistoryMsg:
+		// Navigate completion if visible, otherwise do nothing
+		if m.showCompletionDialog {
+			if msg.direction < 0 {
+				m.completions.SelectPrev()
+			} else {
+				m.completions.SelectNext()
+			}
+		}
+		return m, nil
+
+	case acceptCompletionMsg:
+		// Accept completion if visible
+		if m.showCompletionDialog {
+			selected := m.completions.GetSelected()
+			if selected != "" {
+				// Set the command text to the selected completion (without the : prefix)
+				cmdText := strings.TrimPrefix(selected, ":")
+				m.commandLine.SetCommand(cmdText)
+			}
+		}
+		return m, nil
 
 	case sessionSelectedMsg:
-		m.sessionModal = nil
 		if msg.session != nil {
 			if m.session != nil {
 				// Copy all persisted fields from loaded session to existing session
@@ -1365,7 +1460,8 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			// Rebuild chat UI from messages
-			m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
+			chat := m.content.GetChat()
+			*chat = NewChatComponent(chat.Width, chat.Height)
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {
@@ -1379,19 +1475,20 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if msgContent.Role == llms.ChatMessageTypeAI {
 								prefix = "Asimi: "
 							}
-							m.chat.AddMessage(prefix + textPart.Text)
+							m.content.GetChat().AddMessage(prefix + textPart.Text)
 						}
 					}
 				}
 			}
 			m.sessionActive = true
 			timeStr := formatRelativeTime(msg.session.LastUpdated)
-			m.toastManager.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
+			m.commandLine.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
 		}
+		return m, nil
 
 	case sessionResumeErrorMsg:
-		m.sessionModal = nil
-		m.toastManager.AddToast(fmt.Sprintf("Failed to resume session: %v", msg.err), "error", 4000)
+		m.commandLine.AddToast(fmt.Sprintf("Failed to resume session: %v", msg.err), "error", 4000)
+		return m, m.content.ShowChat()
 
 	case llmInitSuccessMsg:
 		// LLM initialization completed successfully
@@ -1401,23 +1498,23 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmInitErrorMsg:
 		// LLM initialization failed
 		slog.Warn("LLM initialization failed", "error", msg.err)
-		m.toastManager.AddToast(fmt.Sprintf("Warning: Running without AI capabilities: %v", msg.err), "warning", 5000)
+		m.commandLine.AddToast("Warning: Running without an LLM", "warning", 5000)
 
 	case initializeProjectMsg:
 		// Handle project initialization
 		slog.Debug("got initializeProjectMsg")
 		if m.session == nil {
-			m.toastManager.AddToast("No LLM session available for initialization", "error", 4000)
+			m.commandLine.AddToast("No LLM session available for initialization", "error", 4000)
 			return m, nil
 		}
 		// Clear any existing conversation to start fresh
-		// m.chat = NewChatComponent(m.chat.Width, m.chat.Height)
+		// m.chat = NewChatComponent(m.content.GetChat().Width, m.content.GetChat().Height)
 		// m.session.ClearHistory()
 		m.projectInitializing = true
 		m.toolCallMessageIndex = make(map[string]int)
 
 		// Add a message to show we're starting initialization
-		m.chat.AddMessage("🚀 Starting project initialization...")
+		m.content.GetChat().AddMessage("🚀 Starting project initialization...")
 
 		// Send the initialization prompt to the AI
 		ctx, cancel := context.WithCancel(context.Background())
@@ -1438,9 +1535,17 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	}
 
-	var chatCmd tea.Cmd
-	m.chat, chatCmd = m.chat.Update(msg)
-	return m, chatCmd
+	// Restore focus to prompt if no modals are active and view is chat
+	if m.providerModal == nil && m.codeInputModal == nil &&
+		!m.commandLine.IsInCommandMode() &&
+		m.content.GetActiveView() == ViewChat {
+		m.prompt.Focus()
+	}
+
+	// Update content (which handles chat updates)
+	var contentCmd tea.Cmd
+	m.content, contentCmd = m.content.Update(msg)
+	return m, contentCmd
 }
 
 func (m *TUIModel) updateFileCompletions(files []string) {
@@ -1533,24 +1638,73 @@ func (m *TUIModel) updateCommandCompletions() {
 	m.completions.SetOptions(filteredCommands)
 }
 
+// updateCommandLineCompletions filters commands based on command line input
+func (m *TUIModel) updateCommandLineCompletions() {
+	commandText := m.commandLine.GetCommand()
+	searchQuery := strings.ToLower(commandText)
+
+	// Get all command names and filter them
+	var filteredCommands []string
+	for _, name := range m.commandRegistry.order {
+		// name is stored with "/" prefix, so we need to check against the command part
+		cmdName := strings.TrimPrefix(name, "/")
+
+		// Check if the command starts with the search query
+		if strings.HasPrefix(strings.ToLower(cmdName), searchQuery) {
+			// Format with : prefix for command line mode
+			filteredCommands = append(filteredCommands, ":"+cmdName)
+		}
+	}
+
+	m.completions.SetOptions(filteredCommands)
+
+	// Show completion dialog if we have matches
+	if len(filteredCommands) > 0 {
+		m.showCompletionDialog = true
+		m.completionMode = "command"
+		m.completions.Show()
+	} else {
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+	}
+}
+
 // updateComponentDimensions updates the dimensions of all components based on the window size
 func (m *TUIModel) updateComponentDimensions() {
-	// Calculate dimensions for a typical layout:
-	// - Status bar: 1 line at bottom
-	// - prompt: 5 lines at bottom
-	// - chat/File viewer: remaining space
+	// Calculate dimensions for vi-like layout (bottom to top):
+	// - Command line: 1 line at bottom
+	// - Status line: 1 line above command line
+	// - Prompt: auto-growing (max 50% screen height)
+	// - Empty line: 1 line above prompt
+	// - Chat/File viewer: remaining space
 
+	commandLineHeight := 1
 	statusHeight := 1
-	promptHeight := 2
+	emptyLineHeight := 1
 	width := m.width - 2
-	chatHeight := m.height - statusHeight - promptHeight - 4
 
-	// Update components
+	// Set screen height for prompt to calculate max height (50%)
+	m.prompt.SetScreenHeight(m.height)
+
+	// Calculate desired prompt height based on content
+	promptHeight := m.prompt.CalculateDesiredHeight()
+
+	// Account for borders (2 lines for top and bottom border)
+	promptWithBorder := promptHeight + 2
+
+	// Calculate chat height
+	chatHeight := m.height - commandLineHeight - statusHeight - promptWithBorder - emptyLineHeight
+	if chatHeight < 0 {
+		chatHeight = 0
+	}
+
+	// Update component widths
 	m.status.SetWidth(width + 2)
+	m.commandLine.SetWidth(width + 2)
 
-	// Full width layout
-	m.chat.SetWidth(width)
-	m.chat.SetHeight(chatHeight)
+	// Full width layout - content handles chat and other views
+	m.content.SetSize(width, chatHeight)
 
 	m.prompt.SetWidth(width)
 	m.prompt.SetHeight(promptHeight)
@@ -1583,9 +1737,9 @@ func (m TUIModel) View() string {
 	}
 
 	t1 := time.Now()
-	viEnabled, viMode, viPending := m.prompt.ViModeStatus()
-	m.status.SetViMode(viEnabled, viMode, viPending)
-	slog.Debug("[bubbletea] View: ViModeStatus", "duration", time.Since(t1))
+	// Mode is already set by ChangeModeMsg handler, which also updates status
+	// Just log for debugging
+	slog.Debug("[bubbletea] View: using Mode", "mode", m.Mode, "duration", time.Since(t1))
 
 	// Calculate modal height if present
 	t2 := time.Now()
@@ -1604,17 +1758,15 @@ func (m TUIModel) View() string {
 	slog.Debug("[bubbletea] View: prompt.View", "duration", time.Since(t4))
 
 	t5 := time.Now()
-	viModeToastLine := m.renderViModeAndToast()
-	slog.Debug("[bubbletea] View: renderViModeAndToast", "duration", time.Since(t5))
+	commandLineView := m.commandLine.View()
+	slog.Debug("[bubbletea] View: commandLine.View", "duration", time.Since(t5))
 
 	t6 := time.Now()
-	view := m.composeBaseView(mainContent, promptView, viModeToastLine)
+	view := m.composeBaseView(mainContent, promptView, commandLineView)
 	slog.Debug("[bubbletea] View: composeBaseView", "duration", time.Since(t6))
 
 	if m.showCompletionDialog {
-		t7 := time.Now()
-		view = m.overlayCompletionDialog(view, promptView, viModeToastLine)
-		slog.Debug("[bubbletea] View: overlayCompletionDialog", "duration", time.Since(t7))
+		view = m.overlayCompletionDialog(view, promptView, commandLineView)
 	}
 
 	t8 := time.Now()
@@ -1627,25 +1779,28 @@ func (m TUIModel) View() string {
 func (m TUIModel) renderMainContent(modalHeight int) string {
 	// Account for prompt, status, vi mode/toast line, and modal if present
 	contentHeight := m.height - 6 - modalHeight
+	if contentHeight < 0 {
+		contentHeight = 0
+	}
 
+	// First check if we're viewing help/models/resume - these take precedence
+	if m.content.GetActiveView() != ViewChat {
+		return m.content.View()
+	}
+
+	// Then check for special modes
 	switch {
 	case m.rawMode:
 		return m.renderRawSessionView(m.width, contentHeight)
 	case !m.sessionActive:
 		return m.renderHomeView(m.width, contentHeight)
 	default:
-		// Dynamically adjust chat height if modal is present
-		if modalHeight > 0 {
-			// Temporarily adjust chat viewport height
-			adjustedChat := m.chat
-			adjustedChat.SetHeight(contentHeight)
-			return adjustedChat.View()
-		}
-		return m.chat.View()
+		// Use content component which handles chat view
+		return m.content.View()
 	}
 }
 
-func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine string) string {
+func (m TUIModel) composeBaseView(mainContent, promptView, commandLineView string) string {
 	// If help modal is active, insert it above the prompt
 	if m.modal != nil {
 		t1 := time.Now()
@@ -1657,13 +1812,16 @@ func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine strin
 		slog.Debug("[bubbletea] composeBaseView: status.View (with modal)", "duration", time.Since(t2))
 
 		t3 := time.Now()
+		// Vi-like layout: Chat -> Modal -> Empty line -> Prompt -> Status -> Command line
+		emptyLine := ""
 		result := lipgloss.JoinVertical(
 			lipgloss.Left,
 			mainContent,
 			modalRender,
+			emptyLine,
 			promptView,
-			viModeToastLine,
 			statusView,
+			commandLineView,
 		)
 		slog.Debug("[bubbletea] composeBaseView: JoinVertical (with modal)", "duration", time.Since(t3))
 		return result
@@ -1674,34 +1832,36 @@ func (m TUIModel) composeBaseView(mainContent, promptView, viModeToastLine strin
 	slog.Debug("[bubbletea] composeBaseView: status.View", "duration", time.Since(t1))
 
 	t2 := time.Now()
+	// Vi-like layout: Chat -> Empty line -> Prompt -> Status -> Command line
+	emptyLine := ""
 	result := lipgloss.JoinVertical(
 		lipgloss.Left,
 		mainContent,
+		emptyLine,
 		promptView,
-		viModeToastLine,
 		statusView,
+		commandLineView,
 	)
 	slog.Debug("[bubbletea] composeBaseView: JoinVertical", "duration", time.Since(t2))
 	return result
 }
 
-func (m TUIModel) overlayCompletionDialog(baseView, promptView, viModeToastLine string) string {
+func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView string) string {
 	dialog := m.completions.View()
 	if dialog == "" {
 		return baseView
 	}
 
-	promptHeight := lipgloss.Height(promptView)
-	viModeToastHeight := 0
-	if viModeToastLine != "" {
-		viModeToastHeight = 1
+	commandLineHeight := 0
+	if commandLineView != "" {
+		commandLineHeight = 1
 	}
-	statusHeight := 1
-	bottomOffset := promptHeight + viModeToastHeight + statusHeight
+	bottomOffset := commandLineHeight
 
 	dialogHeight := lipgloss.Height(dialog)
 	yPos := m.height - bottomOffset - dialogHeight
 
+	// TODO: fix the overlaying so it looks good
 	dialogOverlay := lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, baseView)
 	dialogPositioned := lipgloss.Place(m.width, dialogHeight, lipgloss.Left, lipgloss.Top, dialog)
 
@@ -1722,8 +1882,8 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, viModeToastLine 
 func (m TUIModel) applyModalOverlays(view string) string {
 	result := view
 
-	// Note: m.modal (help modal) is now rendered in composeBaseView above the prompt
-	// Only apply centered overlays for other modals here
+	// Note: m.modal (BaseModal) is now rendered in composeBaseView above the prompt
+	// Only apply centered overlays for OAuth modals here
 
 	if m.providerModal != nil {
 		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.providerModal.Render())
@@ -1733,51 +1893,7 @@ func (m TUIModel) applyModalOverlays(view string) string {
 		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.codeInputModal.Render())
 	}
 
-	if m.modelSelectionModal != nil {
-		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.modelSelectionModal.Render())
-	}
-
-	if m.sessionModal != nil {
-		result = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, m.sessionModal.Render())
-	}
-
 	return result
-}
-
-// renderViModeAndToast renders the vi mode indicator and toast on the same line
-func (m TUIModel) renderViModeAndToast() string {
-	viIndicator := m.status.RenderViModeIndicator()
-	toastView := m.toastManager.View()
-
-	// If neither is present, return empty string
-	if viIndicator == "" && toastView == "" {
-		return ""
-	}
-
-	// If only toast is present, align it to the right
-	if viIndicator == "" {
-		toastStyle := lipgloss.NewStyle().Width(m.width).Align(lipgloss.Right)
-		return toastStyle.Render(toastView)
-	}
-
-	// If only vi indicator is present, align it to the left
-	if toastView == "" {
-		return viIndicator
-	}
-
-	// Both are present - vi indicator on left, toast on right
-	// Calculate the spacing needed between them
-	viWidth := lipgloss.Width(viIndicator)
-	toastWidth := lipgloss.Width(toastView)
-	spacingWidth := m.width - viWidth - toastWidth
-
-	// Ensure we don't have negative spacing
-	if spacingWidth < 0 {
-		spacingWidth = 1
-	}
-
-	spacing := strings.Repeat(" ", spacingWidth)
-	return viIndicator + spacing + toastView
 }
 
 // renderHomeView renders the home view when no session is active
@@ -1799,28 +1915,15 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 	subtitle := subtitleStyle.Render("Your AI-powered coding assistant")
 
-	// Create a list of helpful commands based on vi mode
-	var commands []string
-	if m.prompt.ViMode {
-		// Vi mode instructions
-		commands = []string{
-			"▶ Vi mode is enabled - You start in INSERT mode",
-			"▶ Press Esc to enter NORMAL mode (for navigation)",
-			"▶ In NORMAL mode, press : to enter COMMAND-LINE mode",
-			"▶ In COMMAND-LINE mode, type commands (e.g., :help, :new) and press Enter",
-			"▶ After executing a command, you return to INSERT mode",
-			"▶ Use @ to reference files (e.g., @main.go)",
-			"▶ Press Ctrl+C to quit",
-		}
-	} else {
-		// Regular input mode instructions
-		commands = []string{
-			"▶ Type a message and press Enter to chat",
-			"▶ Use / to access commands (e.g., /help, /new)",
-			"▶ Use /vi to enable vi mode",
-			"▶ Use @ to reference files (e.g., @main.go)",
-			"▶ Press Ctrl+C to quit",
-		}
+	// Create a list of helpful commands
+	commands := []string{
+		"▶ Vi mode is always enabled - You start in INSERT mode",
+		"▶ Press Esc to enter NORMAL mode (for navigation)",
+		"▶ In NORMAL mode, press : to enter COMMAND-LINE mode",
+		"▶ In COMMAND-LINE mode, type commands (e.g., :help, :new) and press Enter",
+		"▶ After executing a command, you return to INSERT mode",
+		"▶ Use @ to reference files (e.g., @main.go)",
+		"▶ Press Ctrl+C to quit",
 	}
 
 	// Style for commands

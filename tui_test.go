@@ -54,7 +54,7 @@ func containsMessage(messages []string, substring string) bool {
 
 // TestTUIModelInit tests the initialization of the TUI model
 func TestTUIModelInit(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 	cmd := model.Init()
 
 	// Init should return nil as there's no initial command
@@ -63,7 +63,7 @@ func TestTUIModelInit(t *testing.T) {
 
 // TestTUIModelWindowSizeMsg tests handling of window size messages
 func TestTUIModelWindowSizeMsg(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 
 	// Send a window size message
 	newModel, cmd := model.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -78,7 +78,7 @@ func TestTUIModelWindowSizeMsg(t *testing.T) {
 // newTestModel creates a new TUIModel for testing purposes.
 func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 	llm := fake.NewFakeLLM([]string{})
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 	// Disable persistent history to keep tests hermetic.
 	model.historyStore = nil
 	model.initHistory()
@@ -91,12 +91,12 @@ func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 }
 
 func TestCommandCompletionOrderDefaultsToHelp(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
-	model.prompt.SetValue("/")
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model.prompt.SetValue(":")
 	model.completionMode = "command"
 	model.updateCommandCompletions()
 	require.NotEmpty(t, model.completions.Options)
-	require.Equal(t, "/help", model.completions.Options[0])
+	require.Equal(t, ":help", model.completions.Options[0])
 }
 
 // TestTUIModelKeyMsg tests quitting the application with 'q' and Ctrl+C
@@ -123,7 +123,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model := NewTUIModel(mockConfig(), nil, nil, nil)
+			model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 
 			// Send a quit key message
 			newModel, cmd := model.Update(tc.key)
@@ -149,7 +149,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 }
 
 func TestDoubleCtrlCToQuit(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 
 	// First CTRL-C should not quit
 	newModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -209,8 +209,9 @@ func TestTUIModelSubmit(t *testing.T) {
 				require.Nil(t, cmd)
 			}
 
-			require.Equal(t, tc.expectedMessageCount, len(model.chat.Messages))
-			require.Contains(t, model.chat.Messages[len(model.chat.Messages)-1], tc.expectedLastMessage, "prompt", tc.name)
+			chat := model.content.GetChat()
+			require.Equal(t, tc.expectedMessageCount, len(chat.Messages))
+			require.Contains(t, chat.Messages[len(chat.Messages)-1], tc.expectedLastMessage, "prompt", tc.name)
 		})
 	}
 }
@@ -226,8 +227,6 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 			name: "Escape key",
 			key:  tea.KeyMsg{Type: tea.KeyEsc},
 			setup: func(model *TUIModel) {
-				// Disable vi mode so escape clears the modal
-				model.prompt.SetViMode(false)
 				model.modal = NewBaseModal("Test", "Test content", 30, 10)
 				model.showCompletionDialog = true
 			},
@@ -270,17 +269,13 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 			setup: func(model *TUIModel) {
 				model.showCompletionDialog = true
 				model.completionMode = "command"
-				model.completions.SetOptions([]string{"/help", "option2", "option3"})
+				model.completions.SetOptions([]string{":help", "option2", "option3"})
 				model.completions.Show()
 			},
 			verify: func(t *testing.T, model *TUIModel, cmd tea.Cmd) {
-				require.NotNil(t, cmd)
-				msg := cmd()
-				newModel, cmd := model.Update(msg)
 				require.Nil(t, cmd)
-				updatedModel, ok := newModel.(TUIModel)
-				require.True(t, ok)
-				require.Contains(t, updatedModel.chat.Messages[len(updatedModel.chat.Messages)-1], "Available commands:")
+				require.Equal(t, ViewHelp, model.content.GetActiveView())
+				require.Equal(t, "index", model.content.help.GetTopic())
 			},
 		},
 	}
@@ -296,6 +291,13 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 			updatedModel, ok := newModel.(TUIModel)
 			require.True(t, ok)
 
+			for cmd != nil {
+				msg := cmd()
+				newModel, cmd = updatedModel.Update(msg)
+				updatedModel, ok = newModel.(TUIModel)
+				require.True(t, ok)
+			}
+
 			tc.verify(t, &updatedModel, cmd)
 		})
 	}
@@ -303,7 +305,7 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 
 // TestTUIModelView tests the view rendering
 func TestTUIModelView(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 
 	// Test view rendering with zero dimensions (should show initializing)
 	view := model.View()
@@ -589,44 +591,57 @@ func TestBaseModal(t *testing.T) {
 	require.Contains(t, view, content)
 }
 
-// TestToastManager tests the toast manager
-func TestToastManager(t *testing.T) {
-	toastManager := NewToastManager()
+// TestCommandLine tests the command line component (including toast functionality)
+func TestCommandLine(t *testing.T) {
+	commandLine := NewCommandLineComponent()
 
 	// Initially should have no toasts
-	require.Empty(t, toastManager.Toasts)
+	require.Empty(t, commandLine.toasts)
 
 	// Test adding a toast
 	message := "Test toast message"
-	tostType := "info"
+	toastType := "info"
 	timeout := 5 * time.Second
 
-	toastManager.AddToast(message, tostType, timeout)
-	require.Equal(t, 1, len(toastManager.Toasts))
+	commandLine.AddToast(message, toastType, timeout)
+	require.Equal(t, 1, len(commandLine.toasts))
 
-	// Test view rendering
-	view := toastManager.View()
+	// Test view rendering with toast
+	view := commandLine.View()
 	require.NotEmpty(t, view)
 	require.Contains(t, view, message)
 
 	// Test clearing toasts
-	toastManager.Clear()
-	require.Empty(t, toastManager.Toasts)
+	commandLine.ClearToasts()
+	require.Empty(t, commandLine.toasts)
 
 	// Re-add toast to verify removal still works
-	toastManager.AddToast(message, tostType, timeout)
-	require.Equal(t, 1, len(toastManager.Toasts))
+	commandLine.AddToast(message, toastType, timeout)
+	require.Equal(t, 1, len(commandLine.toasts))
 
 	// Test removing a toast
-	toastID := toastManager.Toasts[0].ID
-	toastManager.RemoveToast(toastID)
-	require.Empty(t, toastManager.Toasts)
+	toastID := commandLine.toasts[0].ID
+	commandLine.RemoveToast(toastID)
+	require.Empty(t, commandLine.toasts)
 
 	// Test updating (removing expired toasts)
-	toastManager.AddToast(message, tostType, 1*time.Millisecond)
+	commandLine.AddToast(message, toastType, 1*time.Millisecond)
 	time.Sleep(2 * time.Millisecond) // Wait for toast to expire
-	toastManager.Update()
-	require.Empty(t, toastManager.Toasts)
+	commandLine.Update()
+	require.Empty(t, commandLine.toasts)
+}
+
+func TestCommandLineBackspaceAtLineStartExitsCommandMode(t *testing.T) {
+	commandLine := NewCommandLineComponent()
+	commandLine.EnterCommandMode("")
+	require.True(t, commandLine.IsInCommandMode())
+
+	cmd, handled := commandLine.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	require.True(t, handled)
+	require.NotNil(t, cmd)
+	require.False(t, commandLine.IsInCommandMode())
+	require.Equal(t, "", commandLine.GetCommand())
+	require.Equal(t, 0, commandLine.cursorPos)
 }
 
 // TestTUIModelUpdateFileCompletions tests the file completion functionality with multiple files
@@ -667,36 +682,22 @@ func TestTUIModelUpdateFileCompletions(t *testing.T) {
 
 // TestRenderHomeView tests the home view rendering
 func TestRenderHomeView(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
 	model.width = 80
 	model.height = 24
 
-	// Test regular input mode (vi mode disabled)
-	model.prompt.SetViMode(false)
 	view := model.renderHomeView(80, 24)
 	require.NotEmpty(t, view)
 	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
 	require.Contains(t, view, "Your AI-powered coding assistant")
-	require.Contains(t, view, "Use / to access commands")
-	require.Contains(t, view, "Use /vi to enable vi mode")
-	require.NotContains(t, view, "Vi mode is enabled")
-
-	// Test vi mode enabled
-	model.prompt.SetViMode(true)
-	view = model.renderHomeView(80, 24)
-	require.NotEmpty(t, view)
-	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
-	require.Contains(t, view, "Your AI-powered coding assistant")
-	require.Contains(t, view, "Vi mode is enabled")
+	require.Contains(t, view, "Vi mode is always enabled")
 	require.Contains(t, view, "Press Esc to enter NORMAL mode")
 	require.Contains(t, view, "In NORMAL mode, press : to enter COMMAND-LINE mode")
-	require.NotContains(t, view, "Use / to access commands")
 }
 
 // TestColonCommandCompletion tests command completion with colon prefix in vi mode
 func TestColonCommandCompletion(t *testing.T) {
 	model, _ := newTestModel(t)
-	model.prompt.SetViMode(true)
 
 	// Test initial colon shows all commands with colon prefix
 	model.prompt.SetValue(":")
@@ -719,26 +720,11 @@ func TestColonCommandCompletion(t *testing.T) {
 	model.updateCommandCompletions()
 	require.NotEmpty(t, model.completions.Options)
 	require.Contains(t, model.completions.Options, ":new")
-
-	// Test that slash commands still work
-	model.prompt.SetValue("/he")
-	model.updateCommandCompletions()
-	require.NotEmpty(t, model.completions.Options)
-	require.Contains(t, model.completions.Options, "/help")
-
-	// Test that slash commands show with slash prefix
-	model.prompt.SetValue("/")
-	model.updateCommandCompletions()
-	require.NotEmpty(t, model.completions.Options)
-	for _, opt := range model.completions.Options {
-		require.True(t, strings.HasPrefix(opt, "/"), "Command should start with / but got: %s", opt)
-	}
 }
 
 // TestColonInNormalModeShowsCompletion tests that pressing : in normal mode shows completion dialog
-func TestColonInNormalModeShowsCompletion(t *testing.T) {
+func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
 	model, _ := newTestModel(t)
-	model.prompt.SetViMode(true)
 
 	// Start in insert mode
 	require.True(t, model.prompt.IsViInsertMode())
@@ -752,45 +738,21 @@ func TestColonInNormalModeShowsCompletion(t *testing.T) {
 	newModel, _ = updatedModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
 	updatedModel = newModel.(TUIModel)
 
-	// Should be in command-line mode
-	require.True(t, updatedModel.prompt.IsViCommandLineMode())
-
-	// Completion dialog should be shown
-	require.True(t, updatedModel.showCompletionDialog)
-	require.Equal(t, "command", updatedModel.completionMode)
-	require.True(t, updatedModel.completions.Visible)
-
-	// Completions should have : prefix
-	require.NotEmpty(t, updatedModel.completions.Options)
-	for _, opt := range updatedModel.completions.Options {
-		require.True(t, strings.HasPrefix(opt, ":"), "Command should start with : but got: %s", opt)
-	}
-
-	// Prompt value should be ":"
-	require.Equal(t, ":", updatedModel.prompt.Value())
+	require.True(t, updatedModel.commandLine.IsInCommandMode(), "command line should enter command mode")
+	require.False(t, updatedModel.showCompletionDialog, "completion dialog should not be shown automatically")
+	require.Equal(t, "", updatedModel.commandLine.GetCommand(), "command buffer should be empty")
+	require.False(t, updatedModel.prompt.TextArea.Focused(), "prompt should lose focus while command line active")
 }
 
-func TestShowHelpMsgUsesActiveLeader(t *testing.T) {
-	model := TUIModel{
-		commandRegistry: NewCommandRegistry(),
-		chat:            NewChatComponent(80, 20),
-	}
+func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	require.Equal(t, ViewChat, model.content.GetActiveView())
 
-	withColon, _ := model.handleCustomMessages(showHelpMsg{leader: ":"})
-	colonModel, ok := withColon.(TUIModel)
+	newModel, _ := model.handleCustomMessages(showHelpMsg{topic: "modes"})
+	updatedModel, ok := newModel.(TUIModel)
 	require.True(t, ok)
-	require.NotEmpty(t, colonModel.chat.Messages)
-	colonHelp := colonModel.chat.Messages[len(colonModel.chat.Messages)-1]
-	require.Contains(t, colonHelp, "Active command leader: :")
-	require.Contains(t, colonHelp, ":help - Show help information")
-
-	withSlash, _ := colonModel.handleCustomMessages(showHelpMsg{leader: "/"})
-	slashModel, ok := withSlash.(TUIModel)
-	require.True(t, ok)
-	require.NotEmpty(t, slashModel.chat.Messages)
-	slashHelp := slashModel.chat.Messages[len(slashModel.chat.Messages)-1]
-	require.Contains(t, slashHelp, "Active command leader: /")
-	require.Contains(t, slashHelp, "/help - Show help information")
+	require.Equal(t, ViewHelp, updatedModel.content.GetActiveView())
+	require.Equal(t, "modes", updatedModel.content.help.GetTopic())
 }
 
 // Tests from tui_history_test.go
@@ -1022,22 +984,23 @@ func TestWaitingTickMsg_NotWaiting(t *testing.T) {
 // TestHistoryRollback_OnSubmit tests that submitting a historical prompt rolls back state
 func TestHistoryRollback_OnSubmit(t *testing.T) {
 	model, _ := newTestModel(t)
+	chat := model.content.GetChat()
 
 	// Clear the welcome message for cleaner testing
-	model.chat.Messages = []string{}
-	model.chat.UpdateContent()
+	chat.Messages = []string{}
+	chat.UpdateContent()
 
 	// Simulate a conversation
-	model.chat.AddMessage("You: first")
-	model.chat.AddMessage("Asimi: response1")
+	chat.AddMessage("You: first")
+	chat.AddMessage("Asimi: response1")
 	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
 		Prompt:          "first",
 		SessionSnapshot: 1,
 		ChatSnapshot:    0, // Before adding messages
 	})
 
-	model.chat.AddMessage("You: second")
-	model.chat.AddMessage("Asimi: response2")
+	chat.AddMessage("You: second")
+	chat.AddMessage("Asimi: response2")
 	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
 		Prompt:          "second",
 		SessionSnapshot: 1, // Session hasn't changed (no actual LLM calls)
@@ -1055,7 +1018,7 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	require.True(t, model.historySaved)
 
 	// Simulate submitting the historical prompt
-	chatLenBefore := len(model.chat.Messages)
+	chatLenBefore := len(chat.Messages)
 	sessionLenBefore := len(model.session.Messages)
 
 	// The handleEnterKey function should detect historySaved and roll back
@@ -1063,13 +1026,13 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	if model.historySaved && model.historyCursor < len(model.promptHistory) {
 		entry := model.promptHistory[model.historyCursor]
 		model.session.RollbackTo(entry.SessionSnapshot)
-		model.chat.TruncateTo(entry.ChatSnapshot)
+		chat.TruncateTo(entry.ChatSnapshot)
 	}
 
 	// Verify rollback occurred
 	require.Equal(t, 1, len(model.session.Messages), "Session should be rolled back to system message")
-	require.Equal(t, 0, len(model.chat.Messages), "Chat should be rolled back to empty")
-	require.Less(t, len(model.chat.Messages), chatLenBefore)
+	require.Equal(t, 0, len(chat.Messages), "Chat should be rolled back to empty")
+	require.Less(t, len(chat.Messages), chatLenBefore)
 	require.Equal(t, len(model.session.Messages), sessionLenBefore) // Session didn't change in this test
 }
 
@@ -1170,8 +1133,9 @@ func TestCancelActiveStreaming_NotActive(t *testing.T) {
 func TestSaveHistoryPresentState(t *testing.T) {
 	model, _ := newTestModel(t)
 	model.prompt.SetValue("current prompt")
-	model.chat.AddMessage("message 1")
-	model.chat.AddMessage("message 2")
+	chat := model.content.GetChat()
+	chat.AddMessage("message 1")
+	chat.AddMessage("message 2")
 
 	// Save present state
 	model.saveHistoryPresentState()
@@ -1380,54 +1344,12 @@ func TestHistoryNavigation_RapidNavigation(t *testing.T) {
 	require.False(t, model.historySaved)
 }
 
-// Tests from tui_vi_config_test.go
-
-func TestTUIRespectsViModeConfig(t *testing.T) {
-	tests := []struct {
-		name           string
-		viMode         *bool
-		expectedViMode bool
-	}{
-		{
-			name:           "default config enables vi mode",
-			viMode:         nil,
-			expectedViMode: true,
-		},
-		{
-			name:           "explicitly enabled",
-			viMode:         boolPtr(true),
-			expectedViMode: true,
-		},
-		{
-			name:           "explicitly disabled",
-			viMode:         boolPtr(false),
-			expectedViMode: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := &Config{
-				LLM: LLMConfig{
-					ViMode: tt.viMode,
-				},
-			}
-
-			model := NewTUIModel(config, nil, nil, nil)
-
-			if model.prompt.ViMode != tt.expectedViMode {
-				t.Errorf("TUI prompt.ViMode = %v, want %v", model.prompt.ViMode, tt.expectedViMode)
-			}
-		})
-	}
-}
-
 // Tests from tui_e2e_test.go
 
 func TestFileCompletion(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
@@ -1483,16 +1405,17 @@ func TestFileCompletion(t *testing.T) {
 	require.Contains(t, contextFiles["main.go"], "package main")
 
 	// Assert that the prompt was not sent and the editor is still focused
-	require.NotEmpty(t, tuiModel.chat.Messages)
-	require.True(t, containsMessage(tuiModel.chat.Messages, "Loaded file: main.go"),
-		"messages", tuiModel.chat.Messages)
+	chat := tuiModel.content.GetChat()
+	require.NotEmpty(t, chat.Messages)
+	require.True(t, containsMessage(chat.Messages, "Loaded file: main.go"),
+		"messages", chat.Messages)
 	require.True(t, tuiModel.prompt.TextArea.Focused(), "The editor should remain focused")
 }
 
-func TestSlashCommandCompletion(t *testing.T) {
+func TestColonCommandCompletionE2E(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
@@ -1504,15 +1427,18 @@ func TestSlashCommandCompletion(t *testing.T) {
 	// Create a new test model
 	tm := teatest.NewTestModel(t, model, teatest.WithInitialTermSize(200, 200))
 
-	// Simulate typing "/"
-	tm.Type("/")
+	// Simulate typing ":" to enter command mode
+	tm.Type(":")
 
-	// Wait for the completion dialog to appear
+	// Wait for the command line to show ":"
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return strings.Contains(string(bts), "/help")
+		return strings.Contains(string(bts), ":")
 	}, teatest.WithCheckInterval(time.Millisecond*100), teatest.WithDuration(time.Second*3))
 
-	// Simulate pressing enter to select the first command
+	// Type "help" command
+	tm.Type("help")
+
+	// Press enter to execute the command
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})
 
 	// Wait for a bit to let the command be executed
@@ -1528,9 +1454,8 @@ func TestSlashCommandCompletion(t *testing.T) {
 	tuiModel, ok := finalModel.(TUIModel)
 	require.True(t, ok)
 
-	// Assert that the messages contain the help text
-	require.True(t, containsMessage(tuiModel.chat.Messages, "Available commands:"),
-		"messages", tuiModel.chat.Messages)
+	require.Equal(t, ViewHelp, tuiModel.content.GetActiveView())
+	require.Equal(t, "index", tuiModel.content.help.GetTopic())
 }
 
 func TestLiveAgentE2E(t *testing.T) {

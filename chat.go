@@ -96,6 +96,9 @@ func (c *ChatComponent) SetWidth(width int) {
 
 // SetHeight updates the height of the chat component
 func (c *ChatComponent) SetHeight(height int) {
+	if height < 0 {
+		height = 0
+	}
 	c.Height = height
 	c.Style = c.Style.Height(height)
 	c.Viewport.Height = height
@@ -107,6 +110,16 @@ func (c *ChatComponent) AddMessage(message string) {
 	c.Messages = append(c.Messages, message)
 	c.UpdateContent()
 	// Reset auto-scroll when new message is added
+	c.AutoScroll = true
+	c.UserScrolled = false
+}
+
+// AddMessages adds multiple messages to the chat component in batch
+// This is much faster than calling AddMessage repeatedly since it only calls UpdateContent once
+func (c *ChatComponent) AddMessages(messages []string) {
+	c.Messages = append(c.Messages, messages...)
+	c.UpdateContent()
+	// Reset auto-scroll when new messages are added
 	c.AutoScroll = true
 	c.UserScrolled = false
 }
