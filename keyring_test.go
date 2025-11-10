@@ -187,7 +187,7 @@ func TestKeyringIntegration(t *testing.T) {
 
 // TestKeyringConstants verifies the keyring constants are set correctly
 func TestKeyringConstants(t *testing.T) {
-	assert.Equal(t, "asimi-cli", keyringService)
+	assert.Equal(t, "dev.asimi.asimi-cli", keyringService)
 	assert.Equal(t, "oauth_", keyringPrefix)
 }
 

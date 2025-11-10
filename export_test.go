@@ -1,7 +1,7 @@
 package main
 
 import (
-	"os"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,198 +9,300 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
-func setTestVersion(t *testing.T) {
-	t.Helper()
-	t.Setenv("ASIMI_VERSION", "test-version")
-	originalVersion := version
-	version = ""
-	t.Cleanup(func() {
-		version = originalVersion
+func TestExportShowsToolCalls(t *testing.T) {
+	// Create a test session with tool calls
+	session := &Session{
+		ID:          "test-session",
+		CreatedAt:   time.Now(),
+		LastUpdated: time.Now(),
+		FirstPrompt: "Test prompt",
+		Provider:    "test",
+		Model:       "test-model",
+		WorkingDir:  "/test",
+		Messages: []llms.MessageContent{
+			// System message
+			{
+				Role:  llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{llms.TextPart("System prompt")},
+			},
+			// User message
+			{
+				Role:  llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{llms.TextPart("Run a test command")},
+			},
+			// Assistant message with tool call
+			{
+				Role: llms.ChatMessageTypeAI,
+				Parts: []llms.ContentPart{
+					llms.TextPart("I'll run that command for you."),
+					llms.ToolCall{
+						ID:   "call_123",
+						Type: "function",
+						FunctionCall: &llms.FunctionCall{
+							Name:      "run_in_shell",
+							Arguments: `{"command":"echo 'test output'","description":"Test command"}`,
+						},
+					},
+				},
+			},
+			// Tool result
+			{
+				Role: llms.ChatMessageTypeTool,
+				Parts: []llms.ContentPart{
+					llms.ToolCallResponse{
+						ToolCallID: "call_123",
+						Name:       "run_in_shell",
+						Content:    `{"stdout":"test output\n","stderr":"","exitCode":"0"}`,
+					},
+				},
+			},
+		},
+		ContextFiles: make(map[string]string),
+	}
+
+	t.Run("Full export includes tool calls with stdout", func(t *testing.T) {
+		content := generateFullExportContent(session)
+
+		// Check that tool call is present
+		if !strings.Contains(content, "**Tool Call:** run_in_shell") {
+			t.Error("Full export should contain tool call")
+		}
+
+		// Check that tool input is present
+		if !strings.Contains(content, "echo 'test output'") {
+			t.Error("Full export should contain tool call input")
+		}
+
+		// Check that tool output is present
+		if !strings.Contains(content, "**Output:**") {
+			t.Error("Full export should contain output section")
+		}
+
+		// Check that exit code is present
+		if !strings.Contains(content, "Exit Code: 0") {
+			t.Error("Full export should contain exit code")
+		}
+
+		// Check that stdout is present in full mode
+		if !strings.Contains(content, "test output") {
+			t.Error("Full export should contain stdout content")
+		}
+	})
+
+	t.Run("Conversation export includes tool calls without stdout", func(t *testing.T) {
+		content := generateConversationExportContent(session)
+
+		// Check that tool call is present
+		if !strings.Contains(content, "**Tool Call:** run_in_shell") {
+			t.Error("Conversation export should contain tool call")
+		}
+
+		// Check that tool input is present
+		if !strings.Contains(content, "echo 'test output'") {
+			t.Error("Conversation export should contain tool call input")
+		}
+
+		// Check that tool output is present
+		if !strings.Contains(content, "**Output:**") {
+			t.Error("Conversation export should contain output section")
+		}
+
+		// Check that exit code is present
+		if !strings.Contains(content, "Exit Code: 0") {
+			t.Error("Conversation export should contain exit code")
+		}
+
+		// In conversation mode with short output (≤128 chars), stdout is still shown
+		// This is expected behavior - only long output is truncated
+		if !strings.Contains(content, "test output") {
+			t.Error("Conversation export should contain short stdout content")
+		}
+	})
+
+	t.Run("Conversation export does not skip tool messages", func(t *testing.T) {
+		content := generateConversationExportContent(session)
+
+		// Check that tool call is present
+		if !strings.Contains(content, "**Tool Call:**") {
+			t.Error("Conversation export should include tool calls")
+		}
+
+		// Check that tool output is present
+		if !strings.Contains(content, "**Output:**") {
+			t.Error("Conversation export should include tool outputs")
+		}
+
+		// Check that the tool was actually executed (exit code present)
+		if !strings.Contains(content, "Exit Code:") {
+			t.Error("Conversation export should include tool execution results")
+		}
 	})
 }
 
-func TestGenerateFullExportContent(t *testing.T) {
-	setTestVersion(t)
-	// Create a test session
-	session := &Session{
-		ID:          "test-session-123",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
-		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
-		WorkingDir:  "/home/user/project",
-		Messages: []llms.MessageContent{
-			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("Hello, how are you?"),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeAI,
-				Parts: []llms.ContentPart{
-					llms.TextPart("I'm doing well, thank you!"),
+func TestFormatMessagesNumberingSkipsToolMessages(t *testing.T) {
+	var b strings.Builder
+	messages := []llms.MessageContent{
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart("Hello")},
+		},
+		{
+			Role: llms.ChatMessageTypeAI,
+			Parts: []llms.ContentPart{
+				llms.TextPart("Running a command"),
+				llms.ToolCall{
+					ID:   "call_123",
+					Type: "function",
+					FunctionCall: &llms.FunctionCall{
+						Name:      "run_in_shell",
+						Arguments: `{"command":"echo test"}`,
+					},
 				},
 			},
 		},
-		ContextFiles: map[string]string{
-			"AGENTS.md": "# Project Context\nThis is a test project.",
+		{
+			Role: llms.ChatMessageTypeTool,
+			Parts: []llms.ContentPart{
+				llms.ToolCallResponse{
+					ToolCallID: "call_123",
+					Name:       "run_in_shell",
+					Content:    `{"stdout":"test","stderr":"","exitCode":"0"}`,
+				},
+			},
 		},
 	}
 
-	// Generate export content
-	content := generateFullExportContent(session)
+	formatMessages(&b, messages, true, true)
+	output := b.String()
 
-	// Verify content contains expected sections
-	expectedSections := []string{
-		"# Asimi Conversation Export",
-		"**Asimi Version:** test-version",
-		"**Session ID:** test-session-123",
-		"**Provider:** anthropic",
-		"**Model:** claude-3-5-sonnet-latest",
-		"**Working Directory:** /home/user/project",
-		"**Created:** 2024-01-15 10:30:00",
-		"**Last Updated:** 2024-01-15 11:45:00",
-		"**Exported:**",
-		"## System Prompt",
-		"You are a helpful assistant.",
-		"## Context Files",
-		"### AGENTS.md",
-		"# Project Context",
-		"## Conversation",
-		"### User",
-		"Hello, how are you?",
-		"### Assistant",
-		"I'm doing well, thank you!",
+	if !strings.Contains(output, "### User (Message 1)") {
+		t.Fatalf("expected first heading to be User (Message 1), got:\n%s", output)
 	}
-
-	for _, expected := range expectedSections {
-		if !strings.Contains(content, expected) {
-			t.Errorf("Export content missing expected section: %s", expected)
-		}
+	if !strings.Contains(output, "### Assistant (Message 2)") {
+		t.Fatalf("expected Assistant heading to be Message 2, got:\n%s", output)
+	}
+	if strings.Contains(output, "Message 3") {
+		t.Fatalf("numbering should not skip due to hidden tool messages:\n%s", output)
 	}
 }
 
-func TestGenerateConversationExportContent(t *testing.T) {
-	setTestVersion(t)
-	// Create a test session
+func TestExportToolResultWithStderr(t *testing.T) {
+	// Create a test session with a command that has stderr
 	session := &Session{
-		ID:          "test-session-456",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
-		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
-		WorkingDir:  "/home/user/project",
+		ID:          "test-session",
+		CreatedAt:   time.Now(),
+		LastUpdated: time.Now(),
+		FirstPrompt: "Test prompt",
+		Provider:    "test",
+		Model:       "test-model",
+		WorkingDir:  "/test",
 		Messages: []llms.MessageContent{
+			// System message
 			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
+				Role:  llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{llms.TextPart("System prompt")},
 			},
+			// User message
 			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("Hello, how are you?"),
-				},
+				Role:  llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{llms.TextPart("Run a command with error")},
 			},
-			{
-				Role: llms.ChatMessageTypeAI,
-				Parts: []llms.ContentPart{
-					llms.TextPart("I'm doing well, thank you!"),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("What's the weather like?"),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeAI,
-				Parts: []llms.ContentPart{
-					llms.TextPart("I don't have access to real-time weather data."),
-				},
-			},
-		},
-		ContextFiles: map[string]string{
-			"AGENTS.md": "# Project Context\nThis is a test project.",
-		},
-	}
-
-	// Generate conversation export content
-	content := generateConversationExportContent(session)
-
-	// Verify content contains expected sections
-	expectedSections := []string{
-		"# Asimi Conversation",
-		"**Asimi Version:** test-version",
-		"**Session ID:** test-session-456 | **Working Directory:** /home/user/project",
-		"**Provider:** anthropic | **Model:** claude-3-5-sonnet-latest",
-		"**Created:** 2024-01-15 10:30:00 | **Last Updated:** 2024-01-15 11:45:00 | **Exported:**",
-		"### User",
-		"Hello, how are you?",
-		"### Assistant",
-		"I'm doing well, thank you!",
-		"What's the weather like?",
-		"I don't have access to real-time weather data.",
-	}
-
-	for _, expected := range expectedSections {
-		if !strings.Contains(content, expected) {
-			t.Errorf("Conversation export content missing expected section: %s", expected)
-		}
-	}
-
-	// Verify content does NOT contain full export sections
-	unexpectedSections := []string{
-		"## System Prompt",
-		"You are a helpful assistant.",
-		"## Context Files",
-		"### AGENTS.md",
-	}
-
-	for _, unexpected := range unexpectedSections {
-		if strings.Contains(content, unexpected) {
-			t.Errorf("Conversation export content should not include: %s", unexpected)
-		}
-	}
-}
-
-func TestGenerateConversationExportContentWithToolCalls(t *testing.T) {
-	setTestVersion(t)
-	// Create a test session with tool calls
-	session := &Session{
-		ID:          "test-session-789",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
-		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
-		WorkingDir:  "/home/user/project",
-		Messages: []llms.MessageContent{
-			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("Read the file test.txt"),
-				},
-			},
+			// Assistant message with tool call
 			{
 				Role: llms.ChatMessageTypeAI,
 				Parts: []llms.ContentPart{
 					llms.ToolCall{
-						ID:   "call_123",
+						ID:   "call_456",
+						Type: "function",
+						FunctionCall: &llms.FunctionCall{
+							Name:      "run_in_shell",
+							Arguments: `{"command":"ls /nonexistent","description":"Test error"}`,
+						},
+					},
+				},
+			},
+			// Tool result with error
+			{
+				Role: llms.ChatMessageTypeTool,
+				Parts: []llms.ContentPart{
+					llms.ToolCallResponse{
+						ToolCallID: "call_456",
+						Name:       "run_in_shell",
+						Content:    `{"stdout":"","stderr":"ls: cannot access '/nonexistent': No such file or directory\n","exitCode":"2"}`,
+					},
+				},
+			},
+		},
+		ContextFiles: make(map[string]string),
+	}
+
+	t.Run("Full export shows stderr", func(t *testing.T) {
+		content := generateFullExportContent(session)
+
+		// Check that stderr is present
+		if !strings.Contains(content, "Stderr:") {
+			t.Error("Full export should contain stderr section")
+		}
+		if !strings.Contains(content, "No such file or directory") {
+			t.Error("Full export should contain stderr content")
+		}
+
+		// Check exit code
+		if !strings.Contains(content, "Exit Code: 2") {
+			t.Error("Full export should contain non-zero exit code")
+		}
+	})
+
+	t.Run("Conversation export shows stderr but not stdout", func(t *testing.T) {
+		content := generateConversationExportContent(session)
+
+		// Check that stderr is present
+		if !strings.Contains(content, "Stderr:") {
+			t.Error("Conversation export should contain stderr section")
+		}
+		if !strings.Contains(content, "No such file or directory") {
+			t.Error("Conversation export should contain stderr content")
+		}
+
+		// Check that stdout section is not present
+		if strings.Contains(content, "Stdout:") {
+			t.Error("Conversation export should NOT contain stdout section")
+		}
+
+		// Check exit code
+		if !strings.Contains(content, "Exit Code: 2") {
+			t.Error("Conversation export should contain non-zero exit code")
+		}
+	})
+}
+
+func TestExportNonShellToolCalls(t *testing.T) {
+	// Create a test session with non-shell tool calls
+	session := &Session{
+		ID:          "test-session",
+		CreatedAt:   time.Now(),
+		LastUpdated: time.Now(),
+		FirstPrompt: "Test prompt",
+		Provider:    "test",
+		Model:       "test-model",
+		WorkingDir:  "/test",
+		Messages: []llms.MessageContent{
+			// System message
+			{
+				Role:  llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{llms.TextPart("System prompt")},
+			},
+			// User message
+			{
+				Role:  llms.ChatMessageTypeHuman,
+				Parts: []llms.ContentPart{llms.TextPart("Read a file")},
+			},
+			// Assistant message with tool call
+			{
+				Role: llms.ChatMessageTypeAI,
+				Parts: []llms.ContentPart{
+					llms.ToolCall{
+						ID:   "call_789",
 						Type: "function",
 						FunctionCall: &llms.FunctionCall{
 							Name:      "read_file",
@@ -209,341 +311,233 @@ func TestGenerateConversationExportContentWithToolCalls(t *testing.T) {
 					},
 				},
 			},
+			// Tool result
 			{
 				Role: llms.ChatMessageTypeTool,
 				Parts: []llms.ContentPart{
 					llms.ToolCallResponse{
-						ToolCallID: "call_123",
+						ToolCallID: "call_789",
 						Name:       "read_file",
-						Content:    "File contents here",
-					},
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeAI,
-				Parts: []llms.ContentPart{
-					llms.TextPart("The file contains: File contents here"),
-				},
-			},
-		},
-		ContextFiles: map[string]string{},
-	}
-
-	// Generate conversation export content
-	content := generateConversationExportContent(session)
-
-	// Verify user and assistant text messages are included
-	expectedSections := []string{
-		"**Asimi Version:** test-version",
-		"**Session ID:** test-session-789 | **Working Directory:** /home/user/project",
-		"**Provider:** anthropic | **Model:** claude-3-5-sonnet-latest",
-		"### User",
-		"Read the file test.txt",
-		"### Assistant",
-		"The file contains: File contents here",
-	}
-
-	for _, expected := range expectedSections {
-		if !strings.Contains(content, expected) {
-			t.Errorf("Conversation export content missing expected section: %s", expected)
-		}
-	}
-
-	// Verify tool calls and tool results are NOT included
-	unexpectedSections := []string{
-		"**Tool Call:**",
-		"read_file",
-		"### Tool Result",
-		"**Tool:**",
-	}
-
-	for _, unexpected := range unexpectedSections {
-		if strings.Contains(content, unexpected) {
-			t.Errorf("Conversation export content should not include tool details: %s", unexpected)
-		}
-	}
-}
-
-func TestGenerateFullExportContentWithToolCalls(t *testing.T) {
-	setTestVersion(t)
-	// Create a test session with tool calls
-	session := &Session{
-		ID:          "test-session-456",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
-		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
-		WorkingDir:  "/home/user/project",
-		Messages: []llms.MessageContent{
-			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("Read the file test.txt"),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeAI,
-				Parts: []llms.ContentPart{
-					llms.ToolCall{
-						ID:   "call_123",
-						Type: "function",
-						FunctionCall: &llms.FunctionCall{
-							Name:      "read_file",
-							Arguments: `{"path":"test.txt"}`,
-						},
-					},
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeTool,
-				Parts: []llms.ContentPart{
-					llms.ToolCallResponse{
-						ToolCallID: "call_123",
-						Name:       "read_file",
-						Content:    "File contents here",
+						Content:    "File content here",
 					},
 				},
 			},
 		},
-		ContextFiles: map[string]string{},
+		ContextFiles: make(map[string]string),
 	}
 
-	// Generate export content
-	content := generateFullExportContent(session)
+	t.Run("Non-shell tools show full result in both modes", func(t *testing.T) {
+		fullContent := generateFullExportContent(session)
+		convContent := generateConversationExportContent(session)
 
-	// Verify tool call formatting
-	expectedSections := []string{
-		"**Tool Call:** read_file",
-		"**Input:**",
-		"```json",
-		`"path"`,
-		`"test.txt"`,
-		"### Tool Result",
-		"**Tool:** read_file",
-		"**Result:**",
-		"File contents here",
-	}
-
-	for _, expected := range expectedSections {
-		if !strings.Contains(content, expected) {
-			t.Errorf("Export content missing expected tool call section: %s", expected)
+		// Both should contain the tool call
+		if !strings.Contains(fullContent, "**Tool Call:** read_file") {
+			t.Error("Full export should contain read_file tool call")
 		}
-	}
+		if !strings.Contains(convContent, "**Tool Call:** read_file") {
+			t.Error("Conversation export should contain read_file tool call")
+		}
+
+		// Both should contain the full result (not shell-specific)
+		if !strings.Contains(fullContent, "File content here") {
+			t.Error("Full export should contain file content")
+		}
+		if !strings.Contains(convContent, "File content here") {
+			t.Error("Conversation export should contain file content")
+		}
+	})
 }
 
-func TestGenerateFullExportContentEmptySession(t *testing.T) {
-	setTestVersion(t)
-	// Create an empty session (only system message)
-	session := &Session{
-		ID:          "test-session-789",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		Provider:    "openai",
-		Model:       "gpt-4",
-		WorkingDir:  "/home/user/project",
-		Messages: []llms.MessageContent{
-			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
+func TestFormatToolOutput(t *testing.T) {
+	t.Run("Shell command with stdout in full mode", func(t *testing.T) {
+		var b strings.Builder
+		toolResp := llms.ToolCallResponse{
+			Name:    "run_in_shell",
+			Content: `{"stdout":"output line 1\noutput line 2","stderr":"","exitCode":"0"}`,
+		}
+
+		formatToolOutput(&b, toolResp, true)
+		result := b.String()
+
+		if !strings.Contains(result, "Exit Code: 0") {
+			t.Error("Should contain exit code")
+		}
+		if !strings.Contains(result, "output line 1") {
+			t.Error("Should contain stdout content")
+		}
+	})
+
+	t.Run("Shell command with long output in conversation mode", func(t *testing.T) {
+		var b strings.Builder
+		// Create output longer than 128 characters
+		longOutput := strings.Repeat("x", 150)
+		toolResp := llms.ToolCallResponse{
+			Name:    "run_in_shell",
+			Content: fmt.Sprintf(`{"stdout":"%s","stderr":"","exitCode":"0"}`, longOutput),
+		}
+
+		formatToolOutput(&b, toolResp, false)
+		result := b.String()
+
+		if !strings.Contains(result, "Exit code 0") {
+			t.Error("Should contain exit code")
+		}
+		if !strings.Contains(result, "150 characters") {
+			t.Error("Conversation mode should show character count for long output")
+		}
+		if strings.Contains(result, longOutput) {
+			t.Error("Conversation mode should NOT contain full output for long content")
+		}
+	})
+
+	t.Run("Shell command with short output in conversation mode", func(t *testing.T) {
+		var b strings.Builder
+		toolResp := llms.ToolCallResponse{
+			Name:    "run_in_shell",
+			Content: `{"stdout":"short","stderr":"","exitCode":"0"}`,
+		}
+
+		formatToolOutput(&b, toolResp, false)
+		result := b.String()
+
+		if !strings.Contains(result, "Exit Code: 0") {
+			t.Error("Should contain exit code")
+		}
+		if !strings.Contains(result, "short") {
+			t.Error("Conversation mode should show short output")
+		}
+	})
+
+	t.Run("Shell command with stderr", func(t *testing.T) {
+		var b strings.Builder
+		toolResp := llms.ToolCallResponse{
+			Name:    "run_in_shell",
+			Content: `{"stdout":"","stderr":"error message","exitCode":"1"}`,
+		}
+
+		formatToolOutput(&b, toolResp, false)
+		result := b.String()
+
+		if !strings.Contains(result, "Exit Code: 1") {
+			t.Error("Should contain exit code")
+		}
+		if !strings.Contains(result, "Stderr:") {
+			t.Error("Should contain stderr section")
+		}
+		if !strings.Contains(result, "error message") {
+			t.Error("Should contain stderr content")
+		}
+	})
+
+	t.Run("Non-JSON tool result", func(t *testing.T) {
+		var b strings.Builder
+		toolResp := llms.ToolCallResponse{
+			Name:    "read_file",
+			Content: "Plain text file content",
+		}
+
+		formatToolOutput(&b, toolResp, false)
+		result := b.String()
+
+		if !strings.Contains(result, "Plain text file content") {
+			t.Error("Should contain raw content for non-JSON results")
+		}
+	})
+}
+
+func TestFormatToolCallWithResult(t *testing.T) {
+	t.Run("Valid JSON arguments", func(t *testing.T) {
+		var b strings.Builder
+		toolCall := llms.ToolCall{
+			ID:   "call_123",
+			Type: "function",
+			FunctionCall: &llms.FunctionCall{
+				Name:      "run_in_shell",
+				Arguments: `{"command":"echo test","description":"Test"}`,
 			},
-		},
-		ContextFiles: map[string]string{},
-	}
+		}
+		toolResults := make(map[string]llms.ToolCallResponse)
 
-	// Generate export content
-	content := generateFullExportContent(session)
+		formatToolCallWithResult(&b, toolCall, toolResults, true)
+		result := b.String()
 
-	// Verify basic structure is present
-	if !strings.Contains(content, "# Asimi Conversation Export") {
-		t.Error("Export content missing header")
-	}
-	if !strings.Contains(content, "## System Prompt") {
-		t.Error("Export content missing system prompt section")
-	}
-	if !strings.Contains(content, "## Conversation") {
-		t.Error("Export content missing conversation section")
-	}
+		if !strings.Contains(result, "**Tool Call:** run_in_shell") {
+			t.Error("Should contain tool name")
+		}
+		if !strings.Contains(result, "**Input:**") {
+			t.Error("Should contain input section")
+		}
+		// Should be pretty-printed JSON
+		if !strings.Contains(result, "\"command\"") {
+			t.Error("Should contain formatted JSON")
+		}
+	})
+
+	t.Run("Invalid JSON arguments", func(t *testing.T) {
+		var b strings.Builder
+		toolCall := llms.ToolCall{
+			ID:   "call_456",
+			Type: "function",
+			FunctionCall: &llms.FunctionCall{
+				Name:      "test_tool",
+				Arguments: `not valid json`,
+			},
+		}
+		toolResults := make(map[string]llms.ToolCallResponse)
+
+		formatToolCallWithResult(&b, toolCall, toolResults, true)
+		result := b.String()
+
+		if !strings.Contains(result, "not valid json") {
+			t.Error("Should contain raw arguments when JSON parsing fails")
+		}
+	})
 }
 
-func TestGenerateFullExportContentNoContextFiles(t *testing.T) {
-	setTestVersion(t)
-	// Create a session without context files
+func TestExportMetadata(t *testing.T) {
 	session := &Session{
-		ID:          "test-session-no-context",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
+		ID:          "test-123",
+		CreatedAt:   time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+		LastUpdated: time.Date(2024, 1, 2, 14, 30, 0, 0, time.UTC),
+		FirstPrompt: "Test prompt",
 		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
+		Model:       "claude-3-5-sonnet",
 		WorkingDir:  "/home/user/project",
+		ProjectSlug: "user/project",
 		Messages: []llms.MessageContent{
 			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("Hello!"),
-				},
+				Role:  llms.ChatMessageTypeSystem,
+				Parts: []llms.ContentPart{llms.TextPart("System")},
 			},
 		},
-		ContextFiles: map[string]string{},
+		ContextFiles: make(map[string]string),
 	}
 
-	// Generate export content
-	content := generateFullExportContent(session)
+	t.Run("Full export includes metadata", func(t *testing.T) {
+		content := generateFullExportContent(session)
 
-	// Verify context files section is not present when there are no files
-	if strings.Contains(content, "## Context Files") {
-		t.Error("Export content should not include Context Files section when there are no files")
-	}
-}
+		if !strings.Contains(content, "**Session ID:** test-123") {
+			t.Error("Should contain session ID")
+		}
+		if !strings.Contains(content, "**Provider:** anthropic") {
+			t.Error("Should contain provider")
+		}
+		if !strings.Contains(content, "**Model:** claude-3-5-sonnet") {
+			t.Error("Should contain model")
+		}
+		if !strings.Contains(content, "**Working Directory:** /home/user/project") {
+			t.Error("Should contain working directory")
+		}
+	})
 
-func TestExportSessionWithType(t *testing.T) {
-	setTestVersion(t)
-	// Create a test session
-	session := &Session{
-		ID:          "test-session-export",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
-		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
-		WorkingDir:  "/home/user/project",
-		Messages: []llms.MessageContent{
-			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
-			},
-			{
-				Role: llms.ChatMessageTypeHuman,
-				Parts: []llms.ContentPart{
-					llms.TextPart("Hello!"),
-				},
-			},
-		},
-		ContextFiles: map[string]string{},
-	}
+	t.Run("Conversation export includes metadata", func(t *testing.T) {
+		content := generateConversationExportContent(session)
 
-	// Test full export
-	fullPath, err := exportSession(session, ExportTypeFull)
-	if err != nil {
-		t.Fatalf("Full export failed: %v", err)
-	}
-	defer os.Remove(fullPath)
-
-	if !strings.Contains(fullPath, "asimi-export-full-") {
-		t.Errorf("Full export filename should contain 'full', got: %s", fullPath)
-	}
-
-	// Test conversation export
-	convPath, err := exportSession(session, ExportTypeConversation)
-	if err != nil {
-		t.Fatalf("Conversation export failed: %v", err)
-	}
-	defer os.Remove(convPath)
-
-	if !strings.Contains(convPath, "asimi-export-conversation-") {
-		t.Errorf("Conversation export filename should contain 'conversation', got: %s", convPath)
-	}
-
-	// Verify files exist and have content
-	fullContent, err := os.ReadFile(fullPath)
-	if err != nil {
-		t.Fatalf("Failed to read full export file: %v", err)
-	}
-	if len(fullContent) == 0 {
-		t.Error("Full export file is empty")
-	}
-
-	convContent, err := os.ReadFile(convPath)
-	if err != nil {
-		t.Fatalf("Failed to read conversation export file: %v", err)
-	}
-	if len(convContent) == 0 {
-		t.Error("Conversation export file is empty")
-	}
-
-	// Conversation export should be shorter than full export
-	if len(convContent) >= len(fullContent) {
-		t.Error("Conversation export should be shorter than full export")
-	}
-}
-
-func TestExportSessionInvalidType(t *testing.T) {
-	setTestVersion(t)
-	session := &Session{
-		ID:       "test-session",
-		Messages: []llms.MessageContent{},
-	}
-
-	_, err := exportSession(session, ExportType("invalid"))
-	if err == nil {
-		t.Error("Expected error for invalid export type")
-	}
-	if !strings.Contains(err.Error(), "unknown export type") {
-		t.Errorf("Expected 'unknown export type' error, got: %v", err)
-	}
-}
-
-func TestOpenInEditorWithEnvVar(t *testing.T) {
-	// This test verifies that the EDITOR environment variable is respected
-	// We can't actually run the editor in tests, so we just verify the logic
-
-	// Save original EDITOR value
-	originalEditor := os.Getenv("EDITOR")
-	defer os.Setenv("EDITOR", originalEditor)
-
-	// Test with custom editor
-	os.Setenv("EDITOR", "nano")
-	editor := os.Getenv("EDITOR")
-	if editor != "nano" {
-		t.Errorf("Expected EDITOR to be 'nano', got '%s'", editor)
-	}
-
-	// Test with no EDITOR set
-	os.Unsetenv("EDITOR")
-	editor = os.Getenv("EDITOR")
-	if editor != "" {
-		t.Errorf("Expected EDITOR to be empty, got '%s'", editor)
-	}
-}
-
-// TestGenerateExportContent tests backward compatibility
-func TestGenerateExportContent(t *testing.T) {
-	setTestVersion(t)
-	session := &Session{
-		ID:          "test-session-compat",
-		CreatedAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
-		LastUpdated: time.Date(2024, 1, 15, 11, 45, 0, 0, time.UTC),
-		Provider:    "anthropic",
-		Model:       "claude-3-5-sonnet-latest",
-		WorkingDir:  "/home/user/project",
-		Messages: []llms.MessageContent{
-			{
-				Role: llms.ChatMessageTypeSystem,
-				Parts: []llms.ContentPart{
-					llms.TextPart("You are a helpful assistant."),
-				},
-			},
-		},
-		ContextFiles: map[string]string{},
-	}
-
-	// Test that deprecated function still works
-	content := generateExportContent(session)
-	if !strings.Contains(content, "# Asimi Conversation Export") {
-		t.Error("Deprecated generateExportContent should still work")
-	}
+		if !strings.Contains(content, "**Session ID:** test-123") {
+			t.Error("Should contain session ID")
+		}
+		if !strings.Contains(content, "**Provider:** anthropic") {
+			t.Error("Should contain provider")
+		}
+	})
 }

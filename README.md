@@ -59,23 +59,21 @@ go install github.com/asimi/asimi-cli
 2. **Initialize your repo:**
     `:init` - Creates a AGENTS.md and Justfile if missing and `.agents/Sandbox` for the container 
 
+3. **Check your container:***
+    `:!uname -a` - runs shell commands is a persistent, containrized bash
+    `:!pwd` - should be the same path as on your host
 
 ## ⌨️ vi FTW
 
-Asimi comes with proper vi editing.
+
+Asimi mimics the vi/vim/neovim interface:
 
 ### Modes
 
 - **Insert Mode** Type normally
 - **Normal Mode** Navigation and editing only
 - **Command Mode** Entering agents commands
-2. **Get help:**
-   `:help` - Comprehensive help system with vim-like navigation
-   `:help quickref` - Quick reference guide
-   `?` (in NORMAL mode) - Quick help overlay
-
-3. **Try some commands:**
-   - `:help` - Show help system
+   - `:help` - Show help 
    - `:context` - View token usage and context
    - `:new` - Start a new conversation
    - `:resume` - resume an old session

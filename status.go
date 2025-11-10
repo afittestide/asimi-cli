@@ -170,7 +170,7 @@ func (s StatusComponent) renderLeftSection() string {
 	var parts []string
 
 	// Add vi mode indicator first
-	parts = append(parts, fmt.Sprintf(" %s>", s.mode))
+	parts = append(parts, fmt.Sprintf(" %s", s.mode))
 
 	// Get branch from RepoInfo if available, otherwise fall back to git info manager
 	var branch string

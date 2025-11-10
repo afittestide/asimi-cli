@@ -43,7 +43,7 @@ var cli struct {
 }
 
 // Update the version as part of the version release process
-var version = "0.2.0-rc.4"
+var version = "0.2.0-beta.2"
 
 func getLogFilePath() (string, error) {
 	var logDir string
