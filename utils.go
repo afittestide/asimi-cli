@@ -146,20 +146,6 @@ func getFileTree(root string) ([]string, error) {
 
 // findProjectRoot returns the nearest ancestor directory (including start)
 // that contains a project marker like .git or go.mod. Falls back to start.
-func findProjectRoot(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == "/" {
-			return start
-		}
-		dir = parent
-	}
-}
-
 // findMainRepoRoot finds the main repository root when in a worktree
 // by reading the .git file and extracting the main repo path from the gitdir
 func findMainRepoRoot(worktreeDir string) (string, error) {

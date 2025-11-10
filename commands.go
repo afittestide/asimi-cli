@@ -230,8 +230,8 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 
 		currentBranch := branchSlugOrDefault(repoInfo.Branch)
 		if model.sessionStore == nil ||
-			model.sessionStore.projectRoot != repoInfo.ProjectRoot ||
-			model.sessionStore.branchSlug != currentBranch {
+			model.sessionStore.ProjectRoot != repoInfo.ProjectRoot ||
+			model.sessionStore.Branch != currentBranch {
 
 			maxSessions := 50
 			if model.config.Session.MaxSessions > 0 {
@@ -243,7 +243,7 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 				maxAgeDays = model.config.Session.MaxAgeDays
 			}
 
-			store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
+			store, err := NewSessionStore(model.db, repoInfo, maxSessions, maxAgeDays)
 			if err != nil {
 				return sessionResumeErrorMsg{err: fmt.Errorf("failed to initialize session store: %w", err)}
 			}

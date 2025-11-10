@@ -120,6 +120,7 @@ func runInteractiveMode() error {
 		fx.Provide(
 			ProvideLogger,
 			ProvideConfig,
+			ProvideStorage,
 			ProvideRepoInfo,
 			ProvideShellRunner,
 			ProvidePromptHistory,

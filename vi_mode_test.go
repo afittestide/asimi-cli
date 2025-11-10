@@ -126,7 +126,7 @@ func TestViModePlaceholderText(t *testing.T) {
 func TestViModeHistoryNavigation(t *testing.T) {
 	// This test verifies that arrow keys work for history navigation in vi normal mode
 	config := &Config{}
-	model := NewTUIModel(config, nil, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Add some history entries
 	model.promptHistory = []promptHistoryEntry{
@@ -181,7 +181,7 @@ func TestViModeHistoryNavigation(t *testing.T) {
 func TestViModeHistoryNavigationWithKJ(t *testing.T) {
 	// Test that k and j keys also work for history navigation in vi normal mode
 	config := &Config{}
-	model := NewTUIModel(config, nil, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Add history
 	model.promptHistory = []promptHistoryEntry{

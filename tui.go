@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tuzig/asimi/storage"
 )
 
 const (
@@ -56,6 +57,7 @@ type TUIModel struct {
 	// Application services (passed in, not owned)
 	session      *Session
 	sessionStore *SessionStore
+	db           *storage.DB
 
 	// Raw session history for debugging/inspection
 	rawSessionHistory []string
@@ -91,7 +93,7 @@ type waitingTickMsg struct{}
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
-func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore, commandHistory *HistoryStore, sessionStore *SessionStore) *TUIModel {
+func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore, commandHistory *HistoryStore, sessionStore *SessionStore, db *storage.DB) *TUIModel {
 
 	registry := NewCommandRegistry()
 	theme := NewTheme()
@@ -131,6 +133,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore
 		// Application services (injected)
 		session:              nil,
 		sessionStore:         sessionStore,
+		db:                   db,
 		rawSessionHistory:    make([]string, 0),
 		toolCallMessageIndex: make(map[string]int),
 		waitingForResponse:   false,

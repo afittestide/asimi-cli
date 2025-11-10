@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/tuzig/asimi/storage"
 	"go.uber.org/fx"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
@@ -124,6 +126,46 @@ func ProvideConfig(logger *slog.Logger) (*Config, error) {
 	return config, nil
 }
 
+// StorageParams holds parameters for storage initialization
+type StorageParams struct {
+	fx.In
+	Lifecycle fx.Lifecycle
+	Config    *Config
+	Logger    *slog.Logger
+}
+
+// StorageResult holds the storage initialization result
+type StorageResult struct {
+	fx.Out
+	DB *storage.DB
+}
+
+// ProvideStorage initializes the SQLite storage database
+func ProvideStorage(params StorageParams) (StorageResult, error) {
+	params.Logger.Info("initializing storage", "database_path", params.Config.Storage.DatabasePath)
+	db, err := storage.InitDB(params.Config.Storage.DatabasePath)
+	if err != nil {
+		params.Logger.Error("failed to initialize storage", "error", err)
+		return StorageResult{}, fmt.Errorf("failed to initialize storage: %w", err)
+	}
+	params.Logger.Info("storage initialized successfully")
+
+	// Register cleanup on shutdown
+	params.Lifecycle.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			params.Logger.Info("closing storage")
+			if err := db.Close(); err != nil {
+				params.Logger.Error("failed to close storage", "error", err)
+				return err
+			}
+			params.Logger.Info("storage closed successfully")
+			return nil
+		},
+	})
+
+	return StorageResult{DB: db}, nil
+}
+
 // ProvideRepoInfo returns information about the git repository
 func ProvideRepoInfo(config *Config, logger *slog.Logger) RepoInfo {
 	logger.Info("detecting git repository")
@@ -211,9 +253,9 @@ type CommandHistoryResult struct {
 }
 
 // ProvidePromptHistory creates and returns the prompt history store
-func ProvidePromptHistory(repoInfo RepoInfo, logger *slog.Logger) (PromptHistoryResult, error) {
+func ProvidePromptHistory(db *storage.DB, repoInfo RepoInfo, logger *slog.Logger) (PromptHistoryResult, error) {
 	logger.Info("loading prompt history")
-	historyStore, err := NewPromptHistoryStore(repoInfo)
+	historyStore, err := NewPromptHistoryStore(db, repoInfo)
 	if err != nil {
 		logger.Warn("failed to initialize prompt history store", "error", err)
 		return PromptHistoryResult{PromptHistory: nil}, nil // Don't fail, just return nil
@@ -222,9 +264,9 @@ func ProvidePromptHistory(repoInfo RepoInfo, logger *slog.Logger) (PromptHistory
 }
 
 // ProvideCommandHistory creates and returns the command history store
-func ProvideCommandHistory(repoInfo RepoInfo, logger *slog.Logger) (CommandHistoryResult, error) {
+func ProvideCommandHistory(db *storage.DB, repoInfo RepoInfo, logger *slog.Logger) (CommandHistoryResult, error) {
 	logger.Info("loading command history")
-	historyStore, err := NewCommandHistoryStore(repoInfo)
+	historyStore, err := NewCommandHistoryStore(db, repoInfo)
 	if err != nil {
 		logger.Warn("failed to initialize command history store", "error", err)
 		return CommandHistoryResult{CommandHistory: nil}, nil // Don't fail, just return nil
@@ -233,7 +275,7 @@ func ProvideCommandHistory(repoInfo RepoInfo, logger *slog.Logger) (CommandHisto
 }
 
 // ProvideSessionHistory creates and returns the session history store
-func ProvideSessionHistory(config *Config, repoInfo RepoInfo, logger *slog.Logger) (*SessionStore, error) {
+func ProvideSessionHistory(db *storage.DB, config *Config, repoInfo RepoInfo, logger *slog.Logger) (*SessionStore, error) {
 	if !config.Session.Enabled {
 		return nil, nil // Session storage is disabled
 	}
@@ -248,7 +290,7 @@ func ProvideSessionHistory(config *Config, repoInfo RepoInfo, logger *slog.Logge
 		maxAgeDays = config.Session.MaxAgeDays
 	}
 
-	store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
+	store, err := NewSessionStore(db, repoInfo, maxSessions, maxAgeDays)
 	if err != nil {
 		logger.Error("failed to create session store", "error", err)
 		return nil, nil // Don't fail startup
@@ -264,12 +306,13 @@ type TUIModelParams struct {
 	PromptHistory  *HistoryStore `name:"prompt"`
 	CommandHistory *HistoryStore `name:"command"`
 	SessionStore   *SessionStore
+	DB             *storage.DB
 	Logger         *slog.Logger
 }
 
 // ProvideTUIModel creates and returns the TUI model
 func ProvideTUIModel(params TUIModelParams) *TUIModel {
-	return NewTUIModel(params.Config, &params.RepoInfo, params.PromptHistory, params.CommandHistory, params.SessionStore)
+	return NewTUIModel(params.Config, &params.RepoInfo, params.PromptHistory, params.CommandHistory, params.SessionStore, params.DB)
 }
 
 // TUIProgramParams holds parameters for TUI program initialization

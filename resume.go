@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tuzig/asimi/storage"
 )
 
 type sessionsLoadedMsg struct {
@@ -259,6 +261,13 @@ func (r *ResumeWindow) LoadSession(sessionID string) tea.Cmd {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load config: %w", err)}
 		}
 
+		// Initialize storage
+		db, err := storage.InitDB(config.Storage.DatabasePath)
+		if err != nil {
+			return sessionResumeErrorMsg{err: fmt.Errorf("failed to initialize storage: %w", err)}
+		}
+		defer db.Close()
+
 		maxSessions := 50
 		maxAgeDays := 30
 		if config.Session.MaxSessions > 0 {
@@ -269,7 +278,7 @@ func (r *ResumeWindow) LoadSession(sessionID string) tea.Cmd {
 		}
 
 		repoInfo := GetRepoInfo()
-		store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
+		store, err := NewSessionStore(db, repoInfo, maxSessions, maxAgeDays)
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to create session store: %w", err)}
 		}
@@ -287,4 +296,32 @@ func (r *ResumeWindow) LoadSession(sessionID string) tea.Cmd {
 
 		return sessionSelectedMsg{session: session}
 	}
+}
+
+func formatRelativeTime(t time.Time) string {
+	now := time.Now()
+
+	// Normalize to midnight for calendar day comparison
+	todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	tMidnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+
+	daysDiff := int(todayMidnight.Sub(tMidnight).Hours() / 24)
+
+	// Today
+	if daysDiff == 0 {
+		return fmt.Sprintf("Today %s", t.Format("15:04"))
+	}
+
+	// Yesterday
+	if daysDiff == 1 {
+		return fmt.Sprintf("Yesterday %s", t.Format("15:04"))
+	}
+
+	// This year - show month and day
+	if t.Year() == now.Year() {
+		return t.Format("Jan 2 15:04")
+	}
+
+	// Older - show full date
+	return t.Format("Jan 2, 2006")
 }
