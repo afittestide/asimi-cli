@@ -59,17 +59,10 @@ just measure          # Measure run_in_shell performance
 
 ## Workflow
 
-Tasks are tracked in:
-1. Git worktrees (`git worktree list`)
-2. CHANGELOG.md (Unreleased section + TODOs)
-3. GitHub issues (`gh` CLI)
+Check the `docs` when getting started and make sure to update any relevant docs.
+Once a change is finished and ALL tests pass update the CHANGELOG.md
+**DON'T MERGE** - ask user for approval
 
-**Task states**: TBP (To Be Planned) → TBI (To Be Implemented) → Done
-
-- Each task gets a git worktree on a new branch
-- Commit liberally (will be squashed)
-- Update CHANGELOG.md for user-notable changes
-- **DON'T MERGE** - ask user for approval
 
 ## Logs & Config
 

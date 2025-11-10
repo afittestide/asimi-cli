@@ -29,21 +29,19 @@ go install github.com/asimi/asimi-cli
 1. **Login to your AI provider:**
    `:login`
 
-2. **Try some commands:**
-   - `:help` - Show available commands
-   - `:context` - View token usage and context
-   - `:new` - Start a new conversation
-   - `:resume` - resume an old session
+2. **Initialize your repo:**
+    `:init` - Creates a AGENTS.md and Justfile if missing and `.agents/Sandbox` for the container 
 
 
 ## ⌨️ Vi Mode
 
-Asimi comes with default proper vi editing.
+Asimi comes with proper vi editing.
 
 ### Modes
 
-- **Insert Mode** (Green border; status bar shows `-- INSERT --`): Type normally
-- **Normal Mode** (Yellow border; status bar shows `-- NORMAL --`): Navigation and editing only
+- **Insert Mode** Type normally
+- **Normal Mode** Navigation and editing only
+- **Command Mode** Entering agents commands
 
 ### Quick Reference
 
@@ -54,6 +52,9 @@ Asimi comes with default proper vi editing.
 - `A` - Append at line end
 - `o` - Open line below
 - `O` - Open line above
+
+**Entering Command Mode:**
+- ':' - In normal mode or as first character is Visual
 
 **Navigation (Normal Mode):**
 - `h/j/k/l` - Left/Down/Up/Right
@@ -67,17 +68,11 @@ Asimi comes with default proper vi editing.
 - `D` - Delete to line end
 - `p` - Paste
 
-**Commands:**
-Use `:` instead of `/` in vi mode (e.g., `:help`, `:new`, `:quit`)
-
-**Exit Vi Mode:**
-Press `Esc` to go from insert to normal mode. Run `/vi` or `:vi` to disable vi mode entirely.
-
 ## 🛠️ Development
 
 ### Prerequisites
 
-- Go 1.21 or higher
+- Go 1.25 or higher
 - [Just](https://github.com/casey/just) command runner
 
 ### Common Tasks
@@ -102,16 +97,6 @@ just measure
 ### Project Structure
 
 Flat. Please refrain from adding directories and files.
-
-## 🎨 Theme
-
-Asimi uses a custom color scheme inspired by Terminal7:
-
-- **Prompt Border**: `#F952F9` (Magenta)
-- **Chat Border**: `#F4DB53` (Yellow)
-- **Text Color**: `#01FAFA` (Cyan)
-- **Warning**: `#F4DB53` (Yellow)
-- **Error**: `#F54545` (Red)
 
 ## 📦 Libraries
 
@@ -163,6 +148,11 @@ provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 vi_mode = true  # Enable vi-style keybindings (default: true)
 max_output_tokens = 4096
+[run_in_shell]
+# Commands regex to run on the host instead of the container
+run_on_host = [
+    '^gh ',  # GitHub CLI commands
+]
 ```
 
 ### Configuration Options
@@ -220,13 +210,13 @@ use `:login`
 
 ## 📊 Roadmap
 
-See [CHANGELOG.md](CHANGELOG.md) for planned features and recent changes.
+See issues for planned issues
 
 ### Upcoming Features
 
-- [ ] Init command
+- [ ] MCP Support
 - [ ] Task delegation with sub-agents
-- [x] Session resume with history
+- [ ] 
 
 ## 📄 License
 

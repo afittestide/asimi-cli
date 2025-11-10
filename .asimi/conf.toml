@@ -13,5 +13,5 @@ provider = 'anthropic'
 # Commands that should run on the host instead of in the container
 # These are regex patterns matched against the command string
 run_on_host = [
-    '^gh\s.*',  # GitHub CLI commands
+    '^gh ' ,  # GitHub CLI commands
 ]
