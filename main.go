@@ -180,6 +180,16 @@ type llmInitErrorMsg struct {
 	err error
 }
 
+// compactCompleteMsg is sent when conversation compaction completes successfully
+type compactCompleteMsg struct {
+	summary string
+}
+
+// compactErrorMsg is sent when conversation compaction fails
+type compactErrorMsg struct {
+	err error
+}
+
 func main() {
 	startTime := time.Now()
 	kong.Parse(&cli)
