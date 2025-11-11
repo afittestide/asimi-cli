@@ -129,12 +129,12 @@ func TestViModeHistoryNavigation(t *testing.T) {
 	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Add some history entries
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first command", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second command", SessionSnapshot: 2, ChatSnapshot: 1},
 		{Prompt: "third command", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
-	model.historyCursor = len(model.promptHistory)
+	model.historyCursor = len(model.sessionPromptHistory)
 	model.prompt.SetValue("current input")
 
 	// Switch to vi normal mode
@@ -184,11 +184,11 @@ func TestViModeHistoryNavigationWithKJ(t *testing.T) {
 	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Add history
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 2, ChatSnapshot: 1},
 	}
-	model.historyCursor = len(model.promptHistory)
+	model.historyCursor = len(model.sessionPromptHistory)
 	model.prompt.SetValue("current")
 
 	// Switch to vi normal mode

@@ -80,7 +80,7 @@ func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 	llm := fake.NewFakeLLM([]string{})
 	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	// Disable persistent history to keep tests hermetic.
-	model.historyStore = nil
+	model.persistentPromptHistory = nil
 	model.initHistory()
 	// Use native session path for tests now that legacy agent is removed.
 	repoInfo := GetRepoInfo()
@@ -777,7 +777,7 @@ func TestHistoryNavigation_SingleEntry(t *testing.T) {
 	model, _ := newTestModel(t)
 
 	// Add one history entry
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
 	}
 	model.historyCursor = 1 // At present
@@ -810,7 +810,7 @@ func TestHistoryNavigation_MultipleEntries(t *testing.T) {
 	model.prompt.SetValue("current input")
 
 	// Add multiple history entries
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second prompt", SessionSnapshot: 3, ChatSnapshot: 2},
 		{Prompt: "third prompt", SessionSnapshot: 5, ChatSnapshot: 4},
@@ -874,7 +874,7 @@ func TestHistoryNavigation_MultipleEntries(t *testing.T) {
 func TestHistoryNavigation_DownWithoutSavedState(t *testing.T) {
 	model, _ := newTestModel(t)
 
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
 	}
 	model.historyCursor = 1 // At present
@@ -891,11 +891,11 @@ func TestHistoryNavigation_CursorInitialization(t *testing.T) {
 	model, _ := newTestModel(t)
 	model.prompt.SetValue("current")
 
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
-	model.historyCursor = len(model.promptHistory) // At present
+	model.historyCursor = len(model.sessionPromptHistory) // At present
 
 	// First up navigation should go to last entry
 	handled, cmd := model.handleHistoryNavigation(-1)
@@ -993,7 +993,7 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	// Simulate a conversation
 	chat.AddMessage("You: first")
 	chat.AddMessage("Asimi: response1")
-	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
+	model.sessionPromptHistory = append(model.sessionPromptHistory, promptHistoryEntry{
 		Prompt:          "first",
 		SessionSnapshot: 1,
 		ChatSnapshot:    0, // Before adding messages
@@ -1001,13 +1001,13 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 
 	chat.AddMessage("You: second")
 	chat.AddMessage("Asimi: response2")
-	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
+	model.sessionPromptHistory = append(model.sessionPromptHistory, promptHistoryEntry{
 		Prompt:          "second",
 		SessionSnapshot: 1, // Session hasn't changed (no actual LLM calls)
 		ChatSnapshot:    2, // After first conversation
 	})
 
-	model.historyCursor = len(model.promptHistory)
+	model.historyCursor = len(model.sessionPromptHistory)
 
 	// Navigate to first prompt
 	model.handleHistoryNavigation(-1) // to "second"
@@ -1023,8 +1023,8 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 
 	// The handleEnterKey function should detect historySaved and roll back
 	// We'll test the rollback logic directly
-	if model.historySaved && model.historyCursor < len(model.promptHistory) {
-		entry := model.promptHistory[model.historyCursor]
+	if model.historySaved && model.historyCursor < len(model.sessionPromptHistory) {
+		entry := model.sessionPromptHistory[model.historyCursor]
 		model.session.RollbackTo(entry.SessionSnapshot)
 		chat.TruncateTo(entry.ChatSnapshot)
 	}
@@ -1041,7 +1041,7 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 	model, _ := newTestModel(t)
 
 	// Add some history
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
@@ -1057,7 +1057,7 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 	handleNewSessionCommand(model, []string{})
 
 	// Verify history was reset
-	require.Empty(t, model.promptHistory)
+	require.Empty(t, model.sessionPromptHistory)
 	require.Equal(t, 0, model.historyCursor)
 	require.False(t, model.historySaved)
 	require.Empty(t, model.historyPendingPrompt)
@@ -1069,7 +1069,7 @@ func TestHistoryNavigation_WithArrowKeys(t *testing.T) {
 	model, _ := newTestModel(t)
 
 	// Add history
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
@@ -1319,13 +1319,13 @@ func TestHistoryNavigation_RapidNavigation(t *testing.T) {
 
 	// Add many history entries
 	for i := 0; i < 10; i++ {
-		model.promptHistory = append(model.promptHistory, promptHistoryEntry{
+		model.sessionPromptHistory = append(model.sessionPromptHistory, promptHistoryEntry{
 			Prompt:          "prompt " + string(rune('0'+i)),
 			SessionSnapshot: i*2 + 1,
 			ChatSnapshot:    i * 2,
 		})
 	}
-	model.historyCursor = len(model.promptHistory)
+	model.historyCursor = len(model.sessionPromptHistory)
 	model.prompt.SetValue("current")
 
 	// Rapidly navigate up
