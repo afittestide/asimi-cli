@@ -103,16 +103,6 @@ Asimi mimics the vi/vim/neovim interface:
 - `D` - Delete to line end
 - `p` - Paste
 
-<<<<<<< HEAD
-=======
-**Commands:**
-Use `:` instead of `/` in vi mode (e.g., `:help`, `:new`, `:quit`)
-
-**Exit Vi Mode:**
-Press `Esc` to go from insert to normal mode. Run `/vi` or `:vi` to disable vi mode entirely.
-
-
->>>>>>> dev
 ## 🛠️ Development
 
 ### Prerequisites
@@ -139,13 +129,10 @@ just test
 just measure
 ```
 
-<<<<<<< HEAD
 ### Project Structure
 
 Flat. Please refrain from adding directories and files.
 
-=======
->>>>>>> dev
 ## 📦 Libraries
 
 - **[LangChainGo](https://github.com/tmc/langchaingo)** - LLM communications and tools

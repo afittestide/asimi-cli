@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -57,12 +58,6 @@ type TUIModel struct {
 	session      *Session
 	sessionStore *SessionStore
 
-	// Raw session history for debugging/inspection
-	rawSessionHistory []string
-
-	// Tool call tracking - maps tool call ID to chat message index
-	toolCallMessageIndex map[string]int
-
 	// Prompt history and rollback management
 	promptHistory                 []promptHistoryEntry
 	historyCursor                 int
@@ -88,6 +83,14 @@ type promptHistoryEntry struct {
 }
 
 type waitingTickMsg struct{}
+
+type shellCommandResultMsg struct {
+	command  string
+	output   string
+	stderr   string
+	exitCode string
+	err      error
+}
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
@@ -129,13 +132,11 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore
 		commandRegistry: registry,
 
 		// Application services (injected)
-		session:              nil,
-		sessionStore:         sessionStore,
-		rawSessionHistory:    make([]string, 0),
-		toolCallMessageIndex: make(map[string]int),
-		waitingForResponse:   false,
-		historyStore:         promptHistory,
-		commandHistoryStore:  commandHistory,
+		session:             nil,
+		sessionStore:        sessionStore,
+		waitingForResponse:  false,
+		historyStore:        promptHistory,
+		commandHistoryStore: commandHistory,
 	}
 
 	// Set initial status info - show disconnected state initially
@@ -185,13 +186,6 @@ func (m *TUIModel) initHistory() {
 			slog.Debug("loaded command history", "count", len(entries))
 		}
 	}
-}
-
-// addToRawHistory adds an entry to the raw session history with a timestamp
-func (m *TUIModel) addToRawHistory(prefix, content string) {
-	timestamp := time.Now().Format("15:04:05")
-	entry := fmt.Sprintf("[%s] %s: %s", timestamp, prefix, content)
-	m.rawSessionHistory = append(m.rawSessionHistory, entry)
 }
 
 // SetSession sets the session for the TUI model
@@ -357,8 +351,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if !m.ctrlCPressedTime.IsZero() {
-		// TODO: fix the next line to zero it
-		// m.ctrlCPressedTime = 0
+		m.ctrlCPressedTime = time.Time{} // Reset to zero value
 	}
 
 	// Handle Ctrl+Z for background mode
@@ -644,7 +637,7 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			parts := strings.Fields(content)
 			if len(parts) > 0 {
 				cmdName := parts[0]
-				m.addToRawHistory("COMMAND", content)
+				m.content.GetChat().AddToRawHistory("COMMAND", content)
 				cmd, exists := m.commandRegistry.GetCommand(cmdName)
 				if exists {
 					command := cmd.Handler(&m, parts[1:])
@@ -939,7 +932,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		parts := strings.Fields(content)
 		if len(parts) > 0 {
 			cmdName := parts[0]
-			m.addToRawHistory("COMMAND", content) // Log the full command
+			m.content.GetChat().AddToRawHistory("COMMAND", content)
 			cmd, exists := m.commandRegistry.GetCommand(cmdName)
 			if exists {
 				command := cmd.Handler(&m, parts[1:])
@@ -968,14 +961,14 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 				m.session.RollbackTo(entry.SessionSnapshot)
 			}
 			m.content.GetChat().TruncateTo(entry.ChatSnapshot)
-			m.toolCallMessageIndex = make(map[string]int)
+			m.content.GetChat().ClearToolCallMessageIndex()
 
 			// Now continue with the normal flow from this rolled-back state
 			m.historySaved = false
 		}
 
 		// Add user input to raw history
-		m.addToRawHistory("USER", content)
+		m.content.GetChat().AddToRawHistory("USER", content)
 		chatSnapshot := len(m.content.GetChat().Messages)
 		var sessionSnapshot int
 		if m.session != nil {
@@ -1062,6 +1055,67 @@ func (m TUIModel) handleAtKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleShellCommand executes a shell command using the run_in_shell tool
+func (m TUIModel) handleShellCommand(command string) (tea.Model, tea.Cmd) {
+	// Extract the shell command (everything after !)
+	shellCmd := strings.TrimSpace(strings.TrimPrefix(command, "!"))
+	if shellCmd == "" {
+		m.commandLine.AddToast("No command specified after !", "error", time.Second*3)
+		m.prompt.Focus()
+		return m, nil
+	}
+
+	m.content.GetChat().AddToRawHistory("SHELL_COMMAND", shellCmd)
+
+	// Make session active so chat is visible (not welcome screen)
+	m.sessionActive = true
+
+	// Display the command in chat similar to a shell prompt
+	m.content.GetChat().AddShellCommandInput(shellCmd)
+
+	// Execute the shell command using the run_in_shell tool
+	return m, func() tea.Msg {
+		ctx := context.Background()
+		tool := RunInShell{config: m.config}
+
+		// Create the input JSON
+		inputJSON := fmt.Sprintf(`{"command": %s, "description": "User shell command"}`,
+			jsonEscape(shellCmd))
+
+		result, err := tool.Call(ctx, inputJSON)
+
+		if err != nil {
+			return shellCommandResultMsg{
+				command:  shellCmd,
+				output:   "",
+				stderr:   "",
+				exitCode: "-1",
+				err:      err,
+			}
+		}
+
+		// Parse the JSON result
+		var output RunInShellOutput
+		if parseErr := json.Unmarshal([]byte(result), &output); parseErr != nil {
+			return shellCommandResultMsg{
+				command:  shellCmd,
+				output:   result,
+				stderr:   "",
+				exitCode: "0",
+				err:      nil,
+			}
+		}
+
+		return shellCommandResultMsg{
+			command:  shellCmd,
+			output:   output.Stdout,
+			stderr:   output.Stderr,
+			exitCode: output.ExitCode,
+			err:      nil,
+		}
+	}
+}
+
 // handleMouseMsg handles mouse events
 func (m TUIModel) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
@@ -1086,73 +1140,41 @@ func (m TUIModel) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd
 func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case responseMsg:
-		m.addToRawHistory("AI_RESPONSE", string(msg))
+		m.content.GetChat().AddToRawHistory("AI_RESPONSE", string(msg))
 		m.stopStreaming()
 		m.content.GetChat().AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
 		refreshGitInfo()
 
 	case ToolCallScheduledMsg:
-		m.addToRawHistory("TOOL_SCHEDULED", fmt.Sprintf("%s with input: %s", msg.Call.Tool.Name(), msg.Call.Input))
-
-		// Add a new message and store its index
-		message := formatToolCall(msg.Call.Tool.Name(), "📋", msg.Call.Input, "", nil)
-		m.content.GetChat().AddMessage(message)
-		m.toolCallMessageIndex[msg.Call.ID] = len(m.content.GetChat().Messages) - 1
+		m.content.GetChat().AddToRawHistory("TOOL_SCHEDULED", fmt.Sprintf("%s with input: %s", msg.Call.Tool.Name(), msg.Call.Input))
+		m.content.GetChat().HandleToolCallScheduled(msg)
 
 	case ToolCallExecutingMsg:
-		m.addToRawHistory("TOOL_EXECUTING", fmt.Sprintf("%s with input: %s", msg.Call.Tool.Name(), msg.Call.Input))
-		formatted := formatToolCall(msg.Call.Tool.Name(), "⚙️", msg.Call.Input, "", nil)
-		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
-			m.content.GetChat().Messages[idx] = formatted
-			m.content.GetChat().UpdateContent()
-		} else {
-			// Fallback: add a new message if we don't have the index
-			m.content.GetChat().AddMessage(formatted)
-		}
+		m.content.GetChat().AddToRawHistory("TOOL_EXECUTING", fmt.Sprintf("%s with input: %s", msg.Call.Tool.Name(), msg.Call.Input))
+		m.content.GetChat().HandleToolCallExecuting(msg)
 
 	case ToolCallSuccessMsg:
-		m.addToRawHistory("TOOL_SUCCESS", fmt.Sprintf("%s\nInput: %s\nOutput: %s", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Result))
-		formatted := formatToolCall(msg.Call.Tool.Name(), "✅", msg.Call.Input, msg.Call.Result, nil)
-		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
-			m.content.GetChat().Messages[idx] = formatted
-			m.content.GetChat().UpdateContent()
-			// Clean up the index mapping
-			delete(m.toolCallMessageIndex, msg.Call.ID)
-		} else {
-			// Fallback: add a new message if we don't have the index
-			m.content.GetChat().AddMessage(formatted)
-		}
+		m.content.GetChat().AddToRawHistory("TOOL_SUCCESS", fmt.Sprintf("%s\nInput: %s\nOutput: %s", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Result))
+		m.content.GetChat().HandleToolCallSuccess(msg)
 		refreshGitInfo()
 
 	case ToolCallErrorMsg:
-		m.addToRawHistory("TOOL_ERROR", fmt.Sprintf("%s\nInput: %s\nError: %v", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Error))
-		formatted := formatToolCall(msg.Call.Tool.Name(), "⁉️", msg.Call.Input, "", msg.Call.Error)
-		// Update the existing message if we have its index
-		if idx, exists := m.toolCallMessageIndex[msg.Call.ID]; exists && idx < len(m.content.GetChat().Messages) {
-			m.content.GetChat().Messages[idx] = formatted
-			m.content.GetChat().UpdateContent()
-			// Clean up the index mapping
-			delete(m.toolCallMessageIndex, msg.Call.ID)
-		} else {
-			// Fallback: add a new message if we don't have the index
-			m.content.GetChat().AddMessage(formatted)
-		}
+		m.content.GetChat().AddToRawHistory("TOOL_ERROR", fmt.Sprintf("%s\nInput: %s\nError: %v", msg.Call.Tool.Name(), msg.Call.Input, msg.Call.Error))
+		m.content.GetChat().HandleToolCallError(msg)
 
 	case errMsg:
-		m.addToRawHistory("ERROR", fmt.Sprintf("%v", msg.err))
+		m.content.GetChat().AddToRawHistory("ERROR", fmt.Sprintf("%v", msg.err))
 		m.content.GetChat().AddMessage(fmt.Sprintf("Error: %v", msg.err))
 
 	case streamStartMsg:
 		// Streaming has started
-		m.addToRawHistory("STREAM_START", "AI streaming response started")
+		m.content.GetChat().AddToRawHistory("STREAM_START", "AI streaming response started")
 		slog.Debug("streamStartMsg", "starting_stream", true)
 		m.streamingActive = true
 
 	case streamChunkMsg:
 		// For the first chunk, add a new AI message. For subsequent chunks, append to the last message.
-		m.addToRawHistory("STREAM_CHUNK", string(msg))
+		m.content.GetChat().AddToRawHistory("STREAM_CHUNK", string(msg))
 		// Reset the waiting timer - we received data, so restart the quiet time countdown
 		if m.streamingActive {
 			// Restart the waiting indicator to track quiet time
@@ -1173,7 +1195,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.saveSession()
 
 	case streamCompleteMsg:
-		m.addToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
+		m.content.GetChat().AddToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
 		slog.Debug("streamCompleteMsg", "messages_count", len(m.content.GetChat().Messages))
 		m.stopStreaming()
 		if m.projectInitializing && m.session != nil {
@@ -1185,7 +1207,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamInterruptedMsg:
 		// Streaming was interrupted by user
-		m.addToRawHistory("STREAM_INTERRUPTED", fmt.Sprintf("AI streaming interrupted, partial content: %s", msg.partialContent))
+		m.content.GetChat().AddToRawHistory("STREAM_INTERRUPTED", fmt.Sprintf("AI streaming interrupted, partial content: %s", msg.partialContent))
 		slog.Debug("streamInterruptedMsg", "partial_content_length", len(msg.partialContent))
 		m.content.GetChat().AddMessage("\nESC")
 		m.stopStreaming()
@@ -1195,7 +1217,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		refreshGitInfo()
 
 	case streamErrorMsg:
-		m.addToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
+		m.content.GetChat().AddToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
 		slog.Error("streamErrorMsg", "error", msg.err)
 		m.content.GetChat().AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
 		m.stopStreaming()
@@ -1209,7 +1231,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamMaxTurnsExceededMsg:
 		// Max turns exceeded, mark session as inactive and show warning
-		m.addToRawHistory("STREAM_MAX_TURNS_EXCEEDED", fmt.Sprintf("AI streaming ended after reaching max turns limit: %d", msg.maxTurns))
+		m.content.GetChat().AddToRawHistory("STREAM_MAX_TURNS_EXCEEDED", fmt.Sprintf("AI streaming ended after reaching max turns limit: %d", msg.maxTurns))
 		slog.Warn("streamMaxTurnsExceededMsg", "max_turns", msg.maxTurns)
 		m.content.GetChat().AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
 		m.stopStreaming()
@@ -1223,7 +1245,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamMaxTokensReachedMsg:
 		// Max tokens reached, mark session as inactive and show warning
-		m.addToRawHistory("STREAM_MAX_TOKENS_REACHED", fmt.Sprintf("AI response truncated due to length limit: %s", msg.content))
+		m.content.GetChat().AddToRawHistory("STREAM_MAX_TOKENS_REACHED", fmt.Sprintf("AI response truncated due to length limit: %s", msg.content))
 		slog.Warn("streamMaxTokensReachedMsg", "content_length", len(msg.content))
 		m.content.GetChat().AddMessage("\n\n⚠️  Response truncated due to length limit")
 		m.stopStreaming()
@@ -1240,7 +1262,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.content.ShowHelp(msg.topic)
 
 	case showContextMsg:
-		m.addToRawHistory("CONTEXT", msg.content)
+		m.content.GetChat().AddToRawHistory("CONTEXT", msg.content)
 		m.content.GetChat().AddMessage(msg.content)
 		m.sessionActive = true
 
@@ -1280,7 +1302,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case showOauthFailed:
-		m.addToRawHistory("OAUTH_ERROR", msg.err)
+		m.content.GetChat().AddToRawHistory("OAUTH_ERROR", msg.err)
 		errToast := fmt.Sprintf("OAuth failed: %s", msg.err)
 		m.commandLine.AddToast(errToast, "error", 4000)
 		m.content.GetChat().AddMessage(errToast)
@@ -1363,11 +1385,16 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Check if this is a shell command (starts with !)
+		if strings.HasPrefix(msg.command, "!") {
+			return m.handleShellCommand(msg.command)
+		}
+
 		// Parse and execute the command
 		parts := strings.Fields(":" + msg.command)
 		if len(parts) > 0 {
 			cmdName := parts[0]
-			m.addToRawHistory("COMMAND", ":"+msg.command)
+			m.content.GetChat().AddToRawHistory("COMMAND", ":"+msg.command)
 
 			// Use FindCommand for vim-style partial matching
 			cmd, matches, found := m.commandRegistry.FindCommand(cmdName)
@@ -1511,7 +1538,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// m.chat = NewChatComponent(m.content.GetChat().Width, m.content.GetChat().Height)
 		// m.session.ClearHistory()
 		m.projectInitializing = true
-		m.toolCallMessageIndex = make(map[string]int)
+		m.content.GetChat().ClearToolCallMessageIndex()
 
 		// Add a message to show we're starting initialization
 		m.content.GetChat().AddMessage("🚀 Starting project initialization...")
@@ -1562,16 +1589,16 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case compactCompleteMsg:
 		// Compaction completed successfully
 		slog.Debug("compaction completed")
-		
+
 		// Get context info to show the improvement
 		info := m.session.GetContextInfo()
-		
+
 		// Add success message
 		m.content.GetChat().AddMessage(fmt.Sprintf("✅ Conversation compacted successfully!\n\nContext usage: %s/%s tokens (%.1f%%)",
 			formatTokenCount(info.UsedTokens),
 			formatTokenCount(info.TotalTokens),
 			percentage(info.UsedTokens, info.TotalTokens)))
-		
+
 		m.commandLine.AddToast("Conversation history compacted", "success", 3000)
 
 	case compactErrorMsg:
@@ -1579,6 +1606,13 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("compaction failed", "error", msg.err)
 		m.content.GetChat().AddMessage(fmt.Sprintf("❌ Failed to compact conversation: %v\n\nYour conversation context was left unchanged.", msg.err))
 		m.commandLine.AddToast("Compaction failed - context unchanged", "error", 3000)
+
+	case shellCommandResultMsg:
+		// Shell command execution completed
+		m.content.GetChat().AddShellCommandResult(msg)
+		refreshGitInfo()
+		m.prompt.Focus()
+		return m, nil
 
 	}
 
@@ -2002,7 +2036,8 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 // renderRawSessionView renders the raw session view showing complete unfiltered history
 func (m TUIModel) renderRawSessionView(width, height int) string {
-	if len(m.rawSessionHistory) == 0 {
+	rawHistory := m.content.GetChat().GetRawHistory()
+	if len(rawHistory) == 0 {
 		// Show empty state
 		emptyStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#004444")). // Terminal7 text-error
@@ -2038,7 +2073,7 @@ func (m TUIModel) renderRawSessionView(width, height int) string {
 
 	// Render all history entries
 	var historyViews []string
-	for _, entry := range m.rawSessionHistory {
+	for _, entry := range rawHistory {
 		// Word wrap long entries to fit the width
 		wrappedEntry := entry
 		if len(entry) > width-4 {
@@ -2082,4 +2117,14 @@ func (m *TUIModel) stopStreaming() {
 	m.streamingActive = false
 	m.streamingCancel = nil
 	m.stopWaitingForResponse()
+}
+
+// jsonEscape escapes a string for use in JSON
+func jsonEscape(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		// Fallback to simple quote escaping if marshal fails
+		return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+	}
+	return string(b)
 }

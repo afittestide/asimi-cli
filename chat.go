@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -29,7 +30,19 @@ type ChatComponent struct {
 
 	// Markdown rendering
 	markdownRenderer *glamour.TermRenderer
+
+	// Raw session history for debugging/inspection
+	rawSessionHistory []string
+
+	// Tool call tracking - maps tool call ID to chat message index
+	toolCallMessageIndex map[string]int
 }
+
+const (
+	shellOutputFinalPrefix = " ╰  "
+	shellOutputMidPrefix   = " │  "
+	shellUserPrefix        = "You:$"
+)
 
 // NewChatComponent creates a new chat component
 func NewChatComponent(width, height int) ChatComponent {
@@ -53,16 +66,18 @@ func NewChatComponent(width, height int) ChatComponent {
 	*/
 
 	return ChatComponent{
-		Viewport:         vp,
-		Messages:         []string{"Welcome to Asimi CLI! Send a message to start chatting."},
-		Width:            width,
-		Height:           height,
-		AutoScroll:       true,  // Enable auto-scroll by default
-		UserScrolled:     false, // User hasn't scrolled yet
-		TouchStartY:      0,     // Initialize touch tracking
-		TouchDragging:    false,
-		TouchScrollSpeed: 3,        // Lines to scroll per touch movement unit
-		markdownRenderer: renderer, // Will be initialized asynchronously via message
+		Viewport:             vp,
+		Messages:             []string{"Welcome to Asimi CLI! Send a message to start chatting."},
+		Width:                width,
+		Height:               height,
+		AutoScroll:           true,  // Enable auto-scroll by default
+		UserScrolled:         false, // User hasn't scrolled yet
+		TouchStartY:          0,     // Initialize touch tracking
+		TouchDragging:        false,
+		TouchScrollSpeed:     3,        // Lines to scroll per touch movement unit
+		markdownRenderer:     renderer, // Will be initialized asynchronously via message
+		rawSessionHistory:    make([]string, 0),
+		toolCallMessageIndex: make(map[string]int),
 		Style: lipgloss.NewStyle().
 			Background(lipgloss.Color("#11051E")). // Terminal7 chat background
 			Width(width).
@@ -124,6 +139,73 @@ func (c *ChatComponent) AddMessages(messages []string) {
 	c.UserScrolled = false
 }
 
+// AddShellCommandInput adds the entered shell command at column 0
+func (c *ChatComponent) AddShellCommandInput(command string) {
+	c.AddMessage(fmt.Sprintf("%s %s", shellUserPrefix, command))
+}
+
+// AddShellCommandResult formats and displays the result of an inline shell command
+func (c *ChatComponent) AddShellCommandResult(msg shellCommandResultMsg) {
+	c.AddToRawHistory("SHELL_RESULT", fmt.Sprintf("Command: %s\nExit Code: %s\nStdout: %s\nStderr: %s",
+		msg.command, msg.exitCode, msg.output, msg.stderr))
+
+	if msg.err != nil {
+		c.AddMessage(renderShellLines([]string{fmt.Sprintf("bash: Error executing command: %v", msg.err)}))
+		return
+	}
+
+	var lines []string
+
+	if msg.output != "" {
+		lines = append(lines, splitShellLines(msg.output)...)
+	}
+
+	if msg.stderr != "" {
+		lines = append(lines, "stderr:")
+		lines = append(lines, splitShellLines(msg.stderr)...)
+	}
+
+	if len(lines) == 0 {
+		lines = append(lines, fmt.Sprintf("Command `%s` completed with no output (exit code: %s)",
+			msg.command, msg.exitCode))
+	} else if msg.exitCode != "0" {
+		lines = append(lines, fmt.Sprintf("(exit code: %s)", msg.exitCode))
+	}
+
+	c.AddMessage(renderShellLines(lines))
+}
+
+func splitShellLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func renderShellLines(lines []string) string {
+	if len(lines) == 0 {
+		return shellOutputFinalPrefix + "\n"
+	}
+
+	var builder strings.Builder
+	for i, line := range lines {
+		prefix := shellOutputMidPrefix
+		if i == len(lines)-1 {
+			prefix = shellOutputFinalPrefix
+		}
+		builder.WriteString(prefix)
+		builder.WriteString(line)
+		builder.WriteString("\n")
+	}
+	return builder.String()
+}
+
 // Replace last message
 func (c *ChatComponent) ReplaceLastMessage(message string) {
 	c.Messages[len(c.Messages)-1] = message
@@ -159,7 +241,14 @@ func (c *ChatComponent) UpdateContent() {
 		var messageStyle lipgloss.Style
 
 		// Check if this is a thinking message
-		if strings.Contains(message, "<thinking>") && strings.Contains(message, "</thinking>") {
+		if strings.HasPrefix(message, shellUserPrefix) {
+			messageStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#F952F9"))
+
+			userContent := strings.TrimSpace(strings.TrimPrefix(message, shellUserPrefix))
+			messageViews = append(messageViews,
+				messageStyle.Render(fmt.Sprintf("$ %s", userContent)))
+		} else if strings.Contains(message, "<thinking>") && strings.Contains(message, "</thinking>") {
 			// Extract thinking content and regular content
 			thinkingContent, regularContent := extractThinkingContent(message)
 
@@ -395,4 +484,98 @@ func (c ChatComponent) View() string {
 	c.Viewport.Height = c.Height
 
 	return c.Style.Render(content)
+}
+
+// ===== Raw History Management =====
+
+// AddToRawHistory adds an entry to the raw session history with a timestamp
+func (c *ChatComponent) AddToRawHistory(prefix, content string) {
+	timestamp := time.Now().Format("15:04:05")
+	entry := fmt.Sprintf("[%s] %s: %s", timestamp, prefix, content)
+	c.rawSessionHistory = append(c.rawSessionHistory, entry)
+}
+
+// GetRawHistory returns the raw session history
+func (c *ChatComponent) GetRawHistory() []string {
+	return c.rawSessionHistory
+}
+
+// ClearRawHistory clears the raw session history
+func (c *ChatComponent) ClearRawHistory() {
+	c.rawSessionHistory = make([]string, 0)
+}
+
+// ===== Tool Call Tracking =====
+
+// SetToolCallMessageIndex stores the message index for a tool call ID
+func (c *ChatComponent) SetToolCallMessageIndex(toolCallID string, messageIndex int) {
+	c.toolCallMessageIndex[toolCallID] = messageIndex
+}
+
+// GetToolCallMessageIndex retrieves the message index for a tool call ID
+func (c *ChatComponent) GetToolCallMessageIndex(toolCallID string) (int, bool) {
+	idx, exists := c.toolCallMessageIndex[toolCallID]
+	return idx, exists
+}
+
+// DeleteToolCallMessageIndex removes the message index mapping for a tool call ID
+func (c *ChatComponent) DeleteToolCallMessageIndex(toolCallID string) {
+	delete(c.toolCallMessageIndex, toolCallID)
+}
+
+// ClearToolCallMessageIndex clears all tool call message index mappings
+func (c *ChatComponent) ClearToolCallMessageIndex() {
+	c.toolCallMessageIndex = make(map[string]int)
+}
+
+// ===== Tool Call Message Handling =====
+
+// HandleToolCallScheduled handles a scheduled tool call message
+func (c *ChatComponent) HandleToolCallScheduled(msg ToolCallScheduledMsg) {
+	message := formatToolCall(msg.Call.Tool.Name(), "📋", msg.Call.Input, "", nil)
+	c.AddMessage(message)
+	c.SetToolCallMessageIndex(msg.Call.ID, len(c.Messages)-1)
+}
+
+// HandleToolCallExecuting handles an executing tool call message
+func (c *ChatComponent) HandleToolCallExecuting(msg ToolCallExecutingMsg) {
+	formatted := formatToolCall(msg.Call.Tool.Name(), "⚙️", msg.Call.Input, "", nil)
+	// Update the existing message if we have its index
+	if idx, exists := c.GetToolCallMessageIndex(msg.Call.ID); exists && idx < len(c.Messages) {
+		c.Messages[idx] = formatted
+		c.UpdateContent()
+	} else {
+		// Fallback: add a new message if we don't have the index
+		c.AddMessage(formatted)
+	}
+}
+
+// HandleToolCallSuccess handles a successful tool call message
+func (c *ChatComponent) HandleToolCallSuccess(msg ToolCallSuccessMsg) {
+	formatted := formatToolCall(msg.Call.Tool.Name(), "✅", msg.Call.Input, msg.Call.Result, nil)
+	// Update the existing message if we have its index
+	if idx, exists := c.GetToolCallMessageIndex(msg.Call.ID); exists && idx < len(c.Messages) {
+		c.Messages[idx] = formatted
+		c.UpdateContent()
+		// Clean up the index mapping
+		c.DeleteToolCallMessageIndex(msg.Call.ID)
+	} else {
+		// Fallback: add a new message if we don't have the index
+		c.AddMessage(formatted)
+	}
+}
+
+// HandleToolCallError handles a failed tool call message
+func (c *ChatComponent) HandleToolCallError(msg ToolCallErrorMsg) {
+	formatted := formatToolCall(msg.Call.Tool.Name(), "⁉️", msg.Call.Input, "", msg.Call.Error)
+	// Update the existing message if we have its index
+	if idx, exists := c.GetToolCallMessageIndex(msg.Call.ID); exists && idx < len(c.Messages) {
+		c.Messages[idx] = formatted
+		c.UpdateContent()
+		// Clean up the index mapping
+		c.DeleteToolCallMessageIndex(msg.Call.ID)
+	} else {
+		// Fallback: add a new message if we don't have the index
+		c.AddMessage(formatted)
+	}
 }

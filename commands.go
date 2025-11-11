@@ -157,10 +157,6 @@ func handleNewSessionCommand(model *TUIModel, args []string) tea.Cmd {
 	chat := model.content.GetChat()
 	*chat = NewChatComponent(chat.Width, chat.Height)
 
-	model.rawSessionHistory = make([]string, 0)
-
-	model.toolCallMessageIndex = make(map[string]int)
-
 	// Reset prompt history and waiting state
 	model.initHistory()
 	model.cancelStreaming()
@@ -333,7 +329,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 					"✓ Justfile",
 					"✓ .agents/Sandbox",
 					"",
-					"Use `:init force` to regenerate them."}, "/n")}
+					"Use `:init force` to regenerate them."}, "\n")}
 			}
 
 			if program != nil {
