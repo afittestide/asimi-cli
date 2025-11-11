@@ -249,7 +249,6 @@ func (m *TUIModel) shutdown() {
 
 // Init implements bubbletea.Model
 func (m TUIModel) Init() tea.Cmd {
-	slog.Debug("[bubbletea] Init() called")
 	// Bubbletea will automatically send a WindowSizeMsg after Init
 	// We don't need to do anything special here
 	return nil
@@ -260,7 +259,6 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	start := time.Now()
 
 	// Log all messages in debug mode
-	slog.Debug("[bubbletea] Update()", "msg_type", fmt.Sprintf("%T", msg))
 
 	defer func() {
 		duration := time.Since(start)
@@ -1806,14 +1804,10 @@ func (m *TUIModel) updateComponentDimensions() {
 func (m TUIModel) View() string {
 	start := time.Now()
 
-	slog.Debug("[bubbletea] View() called")
-
 	defer func() {
 		duration := time.Since(start)
 		if duration > 100*time.Millisecond {
 			slog.Warn("[bubbletea] View() SLOW", "duration", duration)
-		} else {
-			slog.Debug("[bubbletea] View() completed", "duration", duration)
 		}
 	}()
 
@@ -1821,43 +1815,18 @@ func (m TUIModel) View() string {
 		return "Initializing..."
 	}
 
-	t1 := time.Now()
-	// Mode is already set by ChangeModeMsg handler, which also updates status
-	// Just log for debugging
-	slog.Debug("[bubbletea] View: using Mode", "mode", m.Mode, "duration", time.Since(t1))
-
-	// Calculate modal height if present
-	t2 := time.Now()
 	modalHeight := 0
 	if m.modal != nil {
 		modalHeight = lipgloss.Height(m.modal.Render())
 	}
-	slog.Debug("[bubbletea] View: modal height", "duration", time.Since(t2))
-
-	t3 := time.Now()
 	mainContent := m.renderMainContent(modalHeight)
-	slog.Debug("[bubbletea] View: renderMainContent", "duration", time.Since(t3))
-
-	t4 := time.Now()
 	promptView := m.prompt.View()
-	slog.Debug("[bubbletea] View: prompt.View", "duration", time.Since(t4))
-
-	t5 := time.Now()
 	commandLineView := m.commandLine.View()
-	slog.Debug("[bubbletea] View: commandLine.View", "duration", time.Since(t5))
-
-	t6 := time.Now()
 	view := m.composeBaseView(mainContent, promptView, commandLineView)
-	slog.Debug("[bubbletea] View: composeBaseView", "duration", time.Since(t6))
-
 	if m.showCompletionDialog {
 		view = m.overlayCompletionDialog(view, promptView, commandLineView)
 	}
-
-	t8 := time.Now()
 	result := m.applyModalOverlays(view)
-	slog.Debug("[bubbletea] View: applyModalOverlays", "duration", time.Since(t8))
-
 	return result
 }
 
@@ -1888,15 +1857,8 @@ func (m TUIModel) renderMainContent(modalHeight int) string {
 func (m TUIModel) composeBaseView(mainContent, promptView, commandLineView string) string {
 	// If help modal is active, insert it above the prompt
 	if m.modal != nil {
-		t1 := time.Now()
 		modalRender := m.modal.Render()
-		slog.Debug("[bubbletea] composeBaseView: modal.Render", "duration", time.Since(t1))
-
-		t2 := time.Now()
 		statusView := m.status.View()
-		slog.Debug("[bubbletea] composeBaseView: status.View (with modal)", "duration", time.Since(t2))
-
-		t3 := time.Now()
 		// Vi-like layout: Chat -> Modal -> Empty line -> Prompt -> Status -> Command line
 		emptyLine := ""
 		result := lipgloss.JoinVertical(
@@ -1908,15 +1870,10 @@ func (m TUIModel) composeBaseView(mainContent, promptView, commandLineView strin
 			statusView,
 			commandLineView,
 		)
-		slog.Debug("[bubbletea] composeBaseView: JoinVertical (with modal)", "duration", time.Since(t3))
 		return result
 	}
 
-	t1 := time.Now()
 	statusView := m.status.View()
-	slog.Debug("[bubbletea] composeBaseView: status.View", "duration", time.Since(t1))
-
-	t2 := time.Now()
 	// Vi-like layout: Chat -> Empty line -> Prompt -> Status -> Command line
 	emptyLine := ""
 	result := lipgloss.JoinVertical(
@@ -1927,7 +1884,6 @@ func (m TUIModel) composeBaseView(mainContent, promptView, commandLineView strin
 		statusView,
 		commandLineView,
 	)
-	slog.Debug("[bubbletea] composeBaseView: JoinVertical", "duration", time.Since(t2))
 	return result
 }
 
