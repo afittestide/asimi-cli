@@ -26,6 +26,7 @@ type oauthProviderConfig struct {
 type Config struct {
 	Server     ServerConfig     `koanf:"server"`
 	Database   DatabaseConfig   `koanf:"database"`
+	Storage    StorageConfig    `koanf:"storage"`
 	Logging    LoggingConfig    `koanf:"logging"`
 	LLM        LLMConfig        `koanf:"llm"`
 	History    HistoryConfig    `koanf:"history"`
@@ -50,6 +51,11 @@ type DatabaseConfig struct {
 	User     string `koanf:"user"`
 	Password string `koanf:"password"`
 	Name     string `koanf:"name"`
+}
+
+// StorageConfig holds storage configuration
+type StorageConfig struct {
+	DatabasePath string `koanf:"database_path"` // Path to SQLite database
 }
 
 // LoggingConfig holds logging configuration
@@ -129,7 +135,13 @@ type HistoryConfig struct {
 
 // defaultConfig returns the configuration populated with sensible defaults.
 func defaultConfig() Config {
+	homeDir, _ := os.UserHomeDir()
+	dbPath := filepath.Join(homeDir, ".local", "share", "asimi", "asimi.sqlite")
+
 	return Config{
+		Storage: StorageConfig{
+			DatabasePath: dbPath,
+		},
 		History: HistoryConfig{
 			Enabled:      true,
 			MaxSessions:  50,

@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tuzig/asimi/storage"
 )
 
 const (
@@ -57,18 +58,20 @@ type TUIModel struct {
 	// Application services (passed in, not owned)
 	session      *Session
 	sessionStore *SessionStore
+	db           *storage.DB
 
 	// Prompt history and rollback management
-	promptHistory                 []promptHistoryEntry
+	// sessionPromptHistory stores prompts with snapshots for current session rollback
+	sessionPromptHistory          []promptHistoryEntry
 	historyCursor                 int
 	historySaved                  bool
 	historyPendingPrompt          string
 	historyPresentSessionSnapshot int
 	historyPresentChatSnapshot    int
 
-	// Persistent history store
-	historyStore        *HistoryStore
-	commandHistoryStore *HistoryStore
+	// Persistent history stores (survive app restarts)
+	persistentPromptHistory  *PromptHistory  // SQLite-backed prompt history
+	persistentCommandHistory *CommandHistory // SQLite-backed command history
 
 	// Waiting indicator state
 	waitingForResponse bool
@@ -94,7 +97,7 @@ type shellCommandResultMsg struct {
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
-func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore, commandHistory *HistoryStore, sessionStore *SessionStore) *TUIModel {
+func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistory, commandHistory *CommandHistory, sessionStore *SessionStore, db *storage.DB) *TUIModel {
 
 	registry := NewCommandRegistry()
 	theme := NewTheme()
@@ -132,11 +135,12 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore
 		commandRegistry: registry,
 
 		// Application services (injected)
-		session:             nil,
-		sessionStore:        sessionStore,
-		waitingForResponse:  false,
-		historyStore:        promptHistory,
-		commandHistoryStore: commandHistory,
+		session:                  nil,
+		sessionStore:             sessionStore,
+		db:                       db,
+		waitingForResponse:       false,
+		persistentPromptHistory:  promptHistory,
+		persistentCommandHistory: commandHistory,
 	}
 
 	// Set initial status info - show disconnected state initially
@@ -148,7 +152,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore
 
 // initHistory resets prompt history bookkeeping to its initial state and loads persistent history
 func (m *TUIModel) initHistory() {
-	m.promptHistory = make([]promptHistoryEntry, 0)
+	m.sessionPromptHistory = make([]promptHistoryEntry, 0)
 	m.historyCursor = 0
 	m.historySaved = false
 	m.historyPendingPrompt = ""
@@ -156,8 +160,8 @@ func (m *TUIModel) initHistory() {
 	m.historyPresentChatSnapshot = 0
 
 	// Load persistent prompt history from disk
-	if m.historyStore != nil {
-		entries, err := m.historyStore.Load()
+	if m.persistentPromptHistory != nil {
+		entries, err := m.persistentPromptHistory.Load()
 		if err != nil {
 			slog.Warn("failed to load prompt history", "error", err)
 		} else {
@@ -165,20 +169,20 @@ func (m *TUIModel) initHistory() {
 			// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
 			// as they're only meaningful for the current session
 			for _, entry := range entries {
-				m.promptHistory = append(m.promptHistory, promptHistoryEntry{
-					Prompt:          entry.Prompt,
+				m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
+					Prompt:          entry.Content,
 					SessionSnapshot: 0,
 					ChatSnapshot:    0,
 				})
 			}
-			m.historyCursor = len(m.promptHistory)
+			m.historyCursor = len(m.sessionPromptHistory)
 			slog.Debug("loaded prompt history", "count", len(entries))
 		}
 	}
 
 	// Load persistent command history from disk
-	if m.commandHistoryStore != nil {
-		entries, err := m.commandHistoryStore.Load()
+	if m.persistentCommandHistory != nil {
+		entries, err := m.persistentCommandHistory.Load()
 		if err != nil {
 			slog.Warn("failed to load command history", "error", err)
 		} else {
@@ -852,7 +856,7 @@ func (m *TUIModel) restoreHistoryPresent() {
 }
 
 func (m *TUIModel) handleHistoryNavigation(direction int) (bool, tea.Cmd) {
-	if len(m.promptHistory) == 0 {
+	if len(m.sessionPromptHistory) == 0 {
 		return false, nil
 	}
 
@@ -862,13 +866,13 @@ func (m *TUIModel) handleHistoryNavigation(direction int) (bool, tea.Cmd) {
 		if !m.historySaved {
 			m.saveHistoryPresentState()
 		}
-		if m.historyCursor == len(m.promptHistory) {
-			m.historyCursor = len(m.promptHistory) - 1
+		if m.historyCursor == len(m.sessionPromptHistory) {
+			m.historyCursor = len(m.sessionPromptHistory) - 1
 		} else if m.historyCursor > 0 {
 			m.historyCursor--
 		}
-		if m.historyCursor >= 0 && m.historyCursor < len(m.promptHistory) {
-			m.applyHistoryEntry(m.promptHistory[m.historyCursor])
+		if m.historyCursor >= 0 && m.historyCursor < len(m.sessionPromptHistory) {
+			m.applyHistoryEntry(m.sessionPromptHistory[m.historyCursor])
 			return true, nil
 		}
 	case direction > 0:
@@ -876,13 +880,13 @@ func (m *TUIModel) handleHistoryNavigation(direction int) (bool, tea.Cmd) {
 		if !m.historySaved {
 			return false, nil
 		}
-		if m.historyCursor < len(m.promptHistory)-1 {
+		if m.historyCursor < len(m.sessionPromptHistory)-1 {
 			m.historyCursor++
-			m.applyHistoryEntry(m.promptHistory[m.historyCursor])
+			m.applyHistoryEntry(m.sessionPromptHistory[m.historyCursor])
 			return true, nil
 		}
 		// Reached the end of history, restore the present state
-		m.historyCursor = len(m.promptHistory)
+		m.historyCursor = len(m.sessionPromptHistory)
 		m.restoreHistoryPresent()
 		return true, nil
 	}
@@ -952,9 +956,9 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		refreshGitInfo()
 
 		// Check if we're submitting a historical prompt (user navigated history)
-		if m.historySaved && m.historyCursor < len(m.promptHistory) {
+		if m.historySaved && m.historyCursor < len(m.sessionPromptHistory) {
 			// User is submitting a historical prompt - rollback to that state
-			entry := m.promptHistory[m.historyCursor]
+			entry := m.sessionPromptHistory[m.historyCursor]
 			m.cancelStreaming()
 			m.stopStreaming()
 			if m.session != nil {
@@ -974,8 +978,8 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		if m.session != nil {
 			sessionSnapshot = m.session.GetMessageSnapshot()
 		}
-		if m.historyCursor < len(m.promptHistory) {
-			m.promptHistory = m.promptHistory[:m.historyCursor]
+		if m.historyCursor < len(m.sessionPromptHistory) {
+			m.sessionPromptHistory = m.sessionPromptHistory[:m.historyCursor]
 		}
 		m.content.GetChat().AddMessage(fmt.Sprintf("You: %s", content))
 		if m.session != nil {
@@ -992,18 +996,18 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			m.commandLine.AddToast("No LLM configured. Please use /login to configure an API key.", "error", time.Second*5)
 			m.prompt.SetValue("")
 		}
-		m.promptHistory = append(m.promptHistory, promptHistoryEntry{
+		m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
 			Prompt:          content,
 			SessionSnapshot: sessionSnapshot,
 			ChatSnapshot:    chatSnapshot,
 		})
-		m.historyCursor = len(m.promptHistory)
+		m.historyCursor = len(m.sessionPromptHistory)
 		m.historySaved = false
 		m.historyPendingPrompt = ""
 
 		// Save to persistent history
-		if m.historyStore != nil {
-			if err := m.historyStore.Append(content); err != nil {
+		if m.persistentPromptHistory != nil {
+			if err := m.persistentPromptHistory.Append(content); err != nil {
 				slog.Warn("failed to save prompt to history", "error", err)
 			}
 		}
@@ -1379,8 +1383,8 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.completionMode = ""
 
 		// Save to persistent command history
-		if m.commandHistoryStore != nil {
-			if err := m.commandHistoryStore.Append(msg.command); err != nil {
+		if m.persistentCommandHistory != nil {
+			if err := m.persistentCommandHistory.Append(msg.command); err != nil {
 				slog.Warn("failed to save command to history", "error", err)
 			}
 		}

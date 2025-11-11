@@ -54,7 +54,6 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/login", "Login with OAuth provider selection", handleLoginCommand)
 	registry.RegisterCommand("/models", "Select AI model", handleModelsCommand)
 	registry.RegisterCommand("/context", "Show context usage details", handleContextCommand)
-	registry.RegisterCommand("/clear-history", "Clear all prompt history", handleClearHistoryCommand)
 	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
 	registry.RegisterCommand("/init", "Init project to work with asimi", handleInitCommand)
@@ -193,25 +192,6 @@ func handleContextCommand(model *TUIModel, args []string) tea.Cmd {
 	}
 }
 
-func handleClearHistoryCommand(model *TUIModel, args []string) tea.Cmd {
-	// Clear persistent history
-	if model.historyStore != nil {
-		if err := model.historyStore.Clear(); err != nil {
-			model.commandLine.AddToast("Failed to clear history", "error", 3000)
-			return nil
-		}
-	}
-
-	// Clear in-memory history
-	model.promptHistory = make([]promptHistoryEntry, 0)
-	model.historyCursor = 0
-	model.historySaved = false
-	model.historyPendingPrompt = ""
-
-	model.commandLine.AddToast("Prompt history cleared", "success", 3000)
-	return nil
-}
-
 func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 	return func() tea.Msg {
 		if model == nil || model.config == nil {
@@ -226,8 +206,8 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 
 		currentBranch := branchSlugOrDefault(repoInfo.Branch)
 		if model.sessionStore == nil ||
-			model.sessionStore.projectRoot != repoInfo.ProjectRoot ||
-			model.sessionStore.branchSlug != currentBranch {
+			model.sessionStore.ProjectRoot != repoInfo.ProjectRoot ||
+			model.sessionStore.Branch != currentBranch {
 
 			maxSessions := 50
 			if model.config.Session.MaxSessions > 0 {
@@ -239,7 +219,7 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 				maxAgeDays = model.config.Session.MaxAgeDays
 			}
 
-			store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
+			store, err := NewSessionStore(model.db, repoInfo, maxSessions, maxAgeDays)
 			if err != nil {
 				return sessionResumeErrorMsg{err: fmt.Errorf("failed to initialize session store: %w", err)}
 			}

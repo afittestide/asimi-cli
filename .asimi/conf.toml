@@ -4,8 +4,9 @@ destination = '/Users/daonb/src/langchaingo'
 source = '/Users/daonb/src/langchaingo'
 
 [llm]
-model = 'claude-sonnet-4-5-20250929'
-provider = 'anthropic'
+# model = 'claude-sonnet-4-5-20250929'
+# provider = 'anthropic'
+model = 'ollama'
 
 [run_in_shell]
 # Commands that should run on the host instead of in the container

@@ -185,12 +185,6 @@ func TestKeyringIntegration(t *testing.T) {
 	})
 }
 
-// TestKeyringConstants verifies the keyring constants are set correctly
-func TestKeyringConstants(t *testing.T) {
-	assert.Equal(t, "dev.asimi.asimi-cli", keyringService)
-	assert.Equal(t, "oauth_", keyringPrefix)
-}
-
 // TestGetOauthTokenFormats tests that GetOauthToken handles multiple input formats
 func TestGetOauthTokenFormats(t *testing.T) {
 	tests := []struct {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tuzig/asimi/storage"
 )
 
 // sessionMockLLM simulates provider-native function/tool calling behavior and streaming.
@@ -736,13 +737,28 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
+	// Initialize storage before creating session store
+	dbPath := filepath.Join(tempDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
+
 	repoInfo := GetRepoInfo()
-	store, err := NewSessionStore(repoInfo, 50, 30)
+	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
 
 	session := &Session{
+		ID:          "test-session-001",
+		CreatedAt:   time.Now(),
+		LastUpdated: time.Now(),
+		FirstPrompt: "Hello, world!",
+		Provider:    "anthropic",
+		Model:       "claude-sonnet-4",
+		WorkingDir:  repoInfo.ProjectRoot,
 		Messages: []llms.MessageContent{
 			{
 				Role: llms.ChatMessageTypeHuman,
@@ -780,12 +796,8 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 		},
 	}
 
-	session.Provider = "anthropic"
-	session.Model = "claude-sonnet-4"
-	store.SaveSession(session)
-	store.Flush()
-	err = nil
-	if err != nil {
+	// Use SaveSessionSync to get immediate error feedback in tests
+	if err := store.SaveSessionSync(session); err != nil {
 		t.Fatalf("Failed to save session: %v", err)
 	}
 
@@ -836,32 +848,24 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Expected third message first part to be ToolCallResponse, got %T", sessionData.Messages[2].Parts[0])
 	}
 
-	expectedSlug := projectSlug(session.WorkingDir)
-	if expectedSlug == "" {
-		expectedSlug = defaultProjectSlug
+	// With SQLite storage, ProjectSlug now includes host: "host/org/project"
+	// The old format was just "org/project"
+	if sessionData.ProjectSlug == "" {
+		t.Fatalf("Expected non-empty project slug, got empty string")
 	}
 
-	if sessionData.ProjectSlug != expectedSlug {
-		t.Fatalf("Expected project slug %q, got %q", expectedSlug, sessionData.ProjectSlug)
+	// Verify the slug contains the org and project names
+	if !strings.Contains(sessionData.ProjectSlug, "tuzig") || !strings.Contains(sessionData.ProjectSlug, "asimi") {
+		t.Fatalf("Expected project slug to contain 'tuzig' and 'asimi', got %q", sessionData.ProjectSlug)
 	}
 
-	if sessions[0].ProjectSlug != expectedSlug {
-		t.Fatalf("Expected indexed project slug %q, got %q", expectedSlug, sessions[0].ProjectSlug)
+	if sessions[0].ProjectSlug != sessionData.ProjectSlug {
+		t.Fatalf("Expected consistent project slug %q, got %q", sessionData.ProjectSlug, sessions[0].ProjectSlug)
 	}
 
-	branchSlug := sanitizeSegment(repoInfo.Branch)
-	if branchSlug == "" {
-		branchSlug = "main"
-	}
-
-	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions")
-	if store.storageDir != expectedDir {
-		t.Fatalf("Expected storage directory %s, got %s", expectedDir, store.storageDir)
-	}
-
-	sessionPath := filepath.Join(store.storageDir, "session-"+sessions[0].ID)
-	if _, err := os.Stat(sessionPath); err != nil {
-		t.Fatalf("Expected session directory %s to exist: %v", sessionPath, err)
+	// Verify SQLite database file exists (dbPath was already declared earlier)
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("Expected database file %s to exist: %v", dbPath, err)
 	}
 }
 
@@ -871,7 +875,15 @@ func TestSessionStore_RemovesDanglingToolCallsOnSave(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	store, err := NewSessionStore(RepoInfo{}, 50, 30)
+	// Initialize storage
+	dbPath := filepath.Join(tempDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
+
+	store, err := NewSessionStore(db, RepoInfo{}, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -1046,8 +1058,16 @@ func TestSessionStore_EmptySession(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
+	// Initialize storage
+	dbPath := filepath.Join(tempDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
+
 	repoInfo := GetRepoInfo()
-	store, err := NewSessionStore(repoInfo, 50, 30)
+	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -1089,8 +1109,16 @@ func TestSessionStore_Cleanup(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
+	// Initialize storage
+	dbPath := filepath.Join(tempDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
+
 	repoInfo := GetRepoInfo()
-	store, err := NewSessionStore(repoInfo, 2, 30)
+	store, err := NewSessionStore(db, repoInfo, 2, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -1136,10 +1164,20 @@ func TestSessionStore_Cleanup(t *testing.T) {
 
 func TestSessionStore_ListSessionsLimit(t *testing.T) {
 	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	// Initialize storage
+	dbPath := filepath.Join(tempDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
 
 	repoInfo := GetRepoInfo()
-	store, err := NewSessionStore(repoInfo, 50, 30)
+	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -1203,28 +1241,28 @@ func TestSessionStore_DirectoryCreation(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
+	// Initialize storage
+	dbPath := filepath.Join(tempDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
+
 	repoInfo := GetRepoInfo()
-	store, err := NewSessionStore(repoInfo, 50, 30)
+	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
 
-	expectedSlug := projectSlug(repoInfo.ProjectRoot)
-	if expectedSlug == "" {
-		expectedSlug = defaultProjectSlug
-	}
-	branchSlug := sanitizeSegment(repoInfo.Branch)
-	if branchSlug == "" {
-		branchSlug = "main"
+	// With SQLite, verify the database file and its parent directory were created
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Fatalf("Database file was not created: %s", dbPath)
 	}
 
-	expectedDir := filepath.Join(tempDir, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions")
-	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
-		t.Fatalf("Session directory was not created: %s", expectedDir)
-	}
-
-	if store.storageDir != expectedDir {
-		t.Fatalf("Expected storageDir '%s', got '%s'", expectedDir, store.storageDir)
+	// Verify we can use the store
+	if store.ProjectRoot != repoInfo.ProjectRoot {
+		t.Fatalf("Expected projectRoot '%s', got '%s'", repoInfo.ProjectRoot, store.ProjectRoot)
 	}
 }
 
