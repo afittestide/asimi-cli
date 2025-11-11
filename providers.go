@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/tuzig/asimi/storage"
 	"go.uber.org/fx"
-	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 // multiHandler wraps multiple handlers and writes to all of them
@@ -59,34 +58,9 @@ type LoggerResult struct {
 
 // ProvideLogger creates and returns a logger instance
 func ProvideLogger() (LoggerResult, error) {
-	logPath, err := getLogFilePath()
-	if err != nil {
-		return LoggerResult{}, err
-	}
-
-	// Set up lumberjack for log rotation
-	logFile := &lumberjack.Logger{
-		Filename:   logPath,
-		MaxSize:    10, // megabytes
-		MaxBackups: 3,
-		MaxAge:     28, // days
-		Compress:   true,
-	}
-
-	// Set log level based on debug flag
-	logLevel := slog.LevelInfo
-	if cli.Debug {
-		logLevel = slog.LevelDebug
-	}
-
-	// File handler (logs everything at configured level)
-	fileHandler := slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: logLevel})
-
-	logger := slog.New(fileHandler)
-	slog.SetDefault(logger)
-
+	initLogger()
 	return LoggerResult{
-		Logger: logger,
+		Logger: slog.Default(),
 	}, nil
 }
 

@@ -45,49 +45,40 @@ var cli struct {
 // Update the version as part of the version release process
 var version = "0.2.0-beta.2"
 
-func getLogFilePath() (string, error) {
+func initLogger() {
 	var logDir string
+	var logPath string
 
-	if !cli.Debug {
+	// Determine log directory and path
+	if cli.Debug {
+		// In debug mode, log to current directory
+		logDir = "."
+		logPath = filepath.Join(logDir, "asimi.log")
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			panic(fmt.Errorf("failed to open log file %s: %w", logPath, err))
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	} else {
+		// In production mode, log to user's data directory
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
+			panic(fmt.Errorf("failed to get user home directory: %w", err))
 		}
 		logDir = filepath.Join(homeDir, ".local", "share", "asimi")
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create log directory %s: %w", logDir, err)
+			panic(fmt.Errorf("failed to create log directory %s: %w", logDir, err))
 		}
-
+		logPath = filepath.Join(logDir, "asimi.log")
+		logFile := &lumberjack.Logger{
+			Filename:   logPath,
+			MaxSize:    10, // megabytes
+			MaxBackups: 3,
+			MaxAge:     28, // days
+			Compress:   true,
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
-
-	return filepath.Join(logDir, "asimi.log"), nil
-}
-
-func initLogger() {
-	logPath, err := getLogFilePath()
-	if err != nil {
-		panic(fmt.Errorf("failed to determine log file path: %w", err))
-	}
-
-	// Set up lumberjack for log rotation
-	logFile := &lumberjack.Logger{
-		Filename:   logPath,
-		MaxSize:    10, // megabytes
-		MaxBackups: 3,
-		MaxAge:     28, // days
-		Compress:   true,
-	}
-
-	// Set log level based on debug flag, default to INFO
-	logLevel := slog.LevelInfo
-	if cli.Debug {
-		logLevel = slog.LevelDebug
-	}
-
-	opts := &slog.HandlerOptions{
-		Level: logLevel,
-	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, opts)))
 }
 
 func runInteractiveMode() error {
@@ -266,9 +257,6 @@ func main() {
 	// For interactive mode, the fx-provided logger will be used
 	if hasPromptArg {
 		initLogger()
-		if cli.Debug {
-			slog.Debug("[TIMING] initLogger() completed", "duration", time.Since(startTime))
-		}
 	}
 
 	if hasPromptArg {
