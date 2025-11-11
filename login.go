@@ -560,12 +560,6 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 		// Calculate expiry time
 		expiry := time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
 
-		// Store tokens securely
-		if err := SaveTokenToKeyring("anthropic", tokens.AccessToken, tokens.RefreshToken, expiry); err != nil {
-			return showOauthFailed{fmt.Sprintf("failed to save tokens: %v", err)}
-		}
-
-		// Update config file
 		if err := UpdateUserOAuthTokens("anthropic", tokens.AccessToken, tokens.RefreshToken, expiry); err != nil {
 			m.commandLine.AddToast("Warning: Failed to update config file", "warning", 4000)
 		}
