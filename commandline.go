@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/tuzig/asimi/storage"
 )
 
 // Toast represents a single toast notification
@@ -306,10 +307,10 @@ func (cl *CommandLineComponent) View() string {
 }
 
 // LoadHistory loads command history from a history store
-func (cl *CommandLineComponent) LoadHistory(entries []HistoryEntry) {
+func (cl *CommandLineComponent) LoadHistory(entries []storage.HistoryEntry) {
 	cl.history = make([]string, 0, len(entries))
 	for _, entry := range entries {
-		cl.history = append(cl.history, entry.Prompt)
+		cl.history = append(cl.history, entry.Content)
 	}
 	cl.historyCursor = len(cl.history)
 }

@@ -243,13 +243,13 @@ func ProvideModelClient(params ModelClientParams) {
 // PromptHistoryResult holds the prompt history store
 type PromptHistoryResult struct {
 	fx.Out
-	PromptHistory *HistoryStore `name:"prompt"`
+	History *PromptHistory `name:"prompt"`
 }
 
 // CommandHistoryResult holds the command history store
 type CommandHistoryResult struct {
 	fx.Out
-	CommandHistory *HistoryStore `name:"command"`
+	History *CommandHistory `name:"command"`
 }
 
 // ProvidePromptHistory creates and returns the prompt history store
@@ -258,9 +258,9 @@ func ProvidePromptHistory(db *storage.DB, repoInfo RepoInfo, logger *slog.Logger
 	historyStore, err := NewPromptHistoryStore(db, repoInfo)
 	if err != nil {
 		logger.Warn("failed to initialize prompt history store", "error", err)
-		return PromptHistoryResult{PromptHistory: nil}, nil // Don't fail, just return nil
+		return PromptHistoryResult{History: nil}, nil // Don't fail, just return nil
 	}
-	return PromptHistoryResult{PromptHistory: historyStore}, nil
+	return PromptHistoryResult{History: historyStore}, nil
 }
 
 // ProvideCommandHistory creates and returns the command history store
@@ -269,9 +269,9 @@ func ProvideCommandHistory(db *storage.DB, repoInfo RepoInfo, logger *slog.Logge
 	historyStore, err := NewCommandHistoryStore(db, repoInfo)
 	if err != nil {
 		logger.Warn("failed to initialize command history store", "error", err)
-		return CommandHistoryResult{CommandHistory: nil}, nil // Don't fail, just return nil
+		return CommandHistoryResult{History: nil}, nil // Don't fail, just return nil
 	}
-	return CommandHistoryResult{CommandHistory: historyStore}, nil
+	return CommandHistoryResult{History: historyStore}, nil
 }
 
 // ProvideSessionHistory creates and returns the session history store
@@ -303,8 +303,8 @@ type TUIModelParams struct {
 	fx.In
 	Config         *Config
 	RepoInfo       RepoInfo
-	PromptHistory  *HistoryStore `name:"prompt"`
-	CommandHistory *HistoryStore `name:"command"`
+	PromptHistory  *PromptHistory  `name:"prompt"`
+	CommandHistory *CommandHistory `name:"command"`
 	SessionStore   *SessionStore
 	DB             *storage.DB
 	Logger         *slog.Logger

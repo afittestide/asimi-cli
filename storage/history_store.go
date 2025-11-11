@@ -139,7 +139,7 @@ func (h *HistoryStore) LoadPromptHistory(host, org, project string, limit int) (
 		}
 
 		entries = append(entries, HistoryEntry{
-			Prompt:    prompt,
+			Content:   prompt,
 			Timestamp: time.Unix(timestamp, 0),
 		})
 	}
@@ -189,7 +189,7 @@ func (h *HistoryStore) LoadCommandHistory(host, org, project string, limit int) 
 		}
 
 		entries = append(entries, HistoryEntry{
-			Prompt:    command, // Reuse Prompt field for command text
+			Content:   command,
 			Timestamp: time.Unix(timestamp, 0),
 		})
 	}
@@ -241,7 +241,7 @@ func (h *HistoryStore) ClearCommandHistory(host, org, project string) error {
 
 // HistoryEntry represents a single history item (prompt or command)
 type HistoryEntry struct {
-	Prompt    string    // Prompt or command text
+	Content   string    // Prompt or command text
 	Timestamp time.Time // When it was entered
 }
 

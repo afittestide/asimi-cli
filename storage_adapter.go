@@ -50,16 +50,22 @@ func parseProjectSlug(workingDir string) (host, org, project string) {
 	return host, sanitizeSegment(owner), sanitizeSegment(repo)
 }
 
-// HistoryStore adapter wraps the SQLite history store with the old interface
-type HistoryStore struct {
+// baseHistory contains common fields and logic for history stores
+type baseHistory struct {
 	store   *storage.HistoryStore
 	host    string
 	org     string
 	project string
 }
 
+
+// PromptHistory handles prompt history persistence
+type PromptHistory struct {
+	baseHistory
+}
+
 // NewPromptHistoryStore creates a new prompt history store using SQLite
-func NewPromptHistoryStore(db *storage.DB, repoInfo RepoInfo) (*HistoryStore, error) {
+func NewPromptHistoryStore(db *storage.DB, repoInfo RepoInfo) (*PromptHistory, error) {
 	if db == nil {
 		return nil, fmt.Errorf("storage not initialized")
 	}
@@ -73,51 +79,84 @@ func NewPromptHistoryStore(db *storage.DB, repoInfo RepoInfo) (*HistoryStore, er
 		MaxAgeDays:  90,
 	}
 
-	return &HistoryStore{
-		store:   storage.NewHistoryStore(db, histCfg),
-		host:    host,
-		org:     org,
-		project: project,
+	return &PromptHistory{
+		baseHistory: baseHistory{
+			store:   storage.NewHistoryStore(db, histCfg),
+			host:    host,
+			org:     org,
+			project: project,
+		},
 	}, nil
 }
 
-// NewCommandHistoryStore creates a new command history store using SQLite
-func NewCommandHistoryStore(db *storage.DB, repoInfo RepoInfo) (*HistoryStore, error) {
-	return NewPromptHistoryStore(db, repoInfo) // Same implementation
-}
-
-// Load reads the history from storage
-func (h *HistoryStore) Load() ([]HistoryEntry, error) {
-	entries, err := h.store.LoadPromptHistory(h.host, h.org, h.project, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert storage.HistoryEntry to main.HistoryEntry
-	result := make([]HistoryEntry, len(entries))
-	for i, e := range entries {
-		result[i] = HistoryEntry{
-			Prompt:    e.Prompt,
-			Timestamp: e.Timestamp,
-		}
-	}
-
-	return result, nil
+// Load reads the prompt history from storage
+func (h *PromptHistory) Load() ([]storage.HistoryEntry, error) {
+	return h.store.LoadPromptHistory(h.host, h.org, h.project, 0)
 }
 
 // Save is a no-op for SQLite (entries are saved immediately on Append)
-func (h *HistoryStore) Save(entries []HistoryEntry) error {
+func (h *PromptHistory) Save(entries []storage.HistoryEntry) error {
 	return nil // No-op, SQLite saves on append
 }
 
-// Append adds a new entry to the history
-func (h *HistoryStore) Append(prompt string) error {
+// Append adds a new entry to the prompt history
+func (h *PromptHistory) Append(prompt string) error {
 	return h.store.AppendPrompt(h.host, h.org, h.project, prompt)
 }
 
-// Clear removes all history
-func (h *HistoryStore) Clear() error {
+// Clear removes all prompt history
+func (h *PromptHistory) Clear() error {
 	return h.store.ClearPromptHistory(h.host, h.org, h.project)
+}
+
+// CommandHistory handles command history persistence
+type CommandHistory struct {
+	baseHistory
+}
+
+// NewCommandHistoryStore creates a new command history store using SQLite
+func NewCommandHistoryStore(db *storage.DB, repoInfo RepoInfo) (*CommandHistory, error) {
+	if db == nil {
+		return nil, fmt.Errorf("storage not initialized")
+	}
+
+	host, org, project := parseProjectSlug(repoInfo.ProjectRoot)
+
+	// Create history store with config (use defaults if not available)
+	histCfg := &storage.HistoryConfig{
+		Enabled:     true,
+		MaxSessions: 1000,
+		MaxAgeDays:  90,
+	}
+
+	return &CommandHistory{
+		baseHistory: baseHistory{
+			store:   storage.NewHistoryStore(db, histCfg),
+			host:    host,
+			org:     org,
+			project: project,
+		},
+	}, nil
+}
+
+// Load reads the command history from storage
+func (h *CommandHistory) Load() ([]storage.HistoryEntry, error) {
+	return h.store.LoadCommandHistory(h.host, h.org, h.project, 0)
+}
+
+// Save is a no-op for SQLite (entries are saved immediately on Append)
+func (h *CommandHistory) Save(entries []storage.HistoryEntry) error {
+	return nil // No-op, SQLite saves on append
+}
+
+// Append adds a new entry to the command history
+func (h *CommandHistory) Append(command string) error {
+	return h.store.AppendCommand(h.host, h.org, h.project, command)
+}
+
+// Clear removes all command history
+func (h *CommandHistory) Clear() error {
+	return h.store.ClearCommandHistory(h.host, h.org, h.project)
 }
 
 // SessionStore adapter wraps the SQLite session store with the old interface

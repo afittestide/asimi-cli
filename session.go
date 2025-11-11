@@ -1331,8 +1331,3 @@ func sanitizeSegment(value string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// HistoryEntry represents a single prompt in the history with metadata
-type HistoryEntry struct {
-	Prompt    string
-	Timestamp time.Time
-}

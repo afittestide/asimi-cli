@@ -74,8 +74,8 @@ type TUIModel struct {
 	historyPresentChatSnapshot    int
 
 	// Persistent history store
-	historyStore        *HistoryStore
-	commandHistoryStore *HistoryStore
+	historyStore        *PromptHistory
+	commandHistoryStore *CommandHistory
 
 	// Waiting indicator state
 	waitingForResponse bool
@@ -93,7 +93,7 @@ type waitingTickMsg struct{}
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
-func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *HistoryStore, commandHistory *HistoryStore, sessionStore *SessionStore, db *storage.DB) *TUIModel {
+func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistory, commandHistory *CommandHistory, sessionStore *SessionStore, db *storage.DB) *TUIModel {
 
 	registry := NewCommandRegistry()
 	theme := NewTheme()
@@ -168,7 +168,7 @@ func (m *TUIModel) initHistory() {
 			// as they're only meaningful for the current session
 			for _, entry := range entries {
 				m.promptHistory = append(m.promptHistory, promptHistoryEntry{
-					Prompt:          entry.Prompt,
+					Prompt:          entry.Content,
 					SessionSnapshot: 0,
 					ChatSnapshot:    0,
 				})
@@ -1565,16 +1565,16 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case compactCompleteMsg:
 		// Compaction completed successfully
 		slog.Debug("compaction completed")
-		
+
 		// Get context info to show the improvement
 		info := m.session.GetContextInfo()
-		
+
 		// Add success message
 		m.content.GetChat().AddMessage(fmt.Sprintf("✅ Conversation compacted successfully!\n\nContext usage: %s/%s tokens (%.1f%%)",
 			formatTokenCount(info.UsedTokens),
 			formatTokenCount(info.TotalTokens),
 			percentage(info.UsedTokens, info.TotalTokens)))
-		
+
 		m.commandLine.AddToast("Conversation history compacted", "success", 3000)
 
 	case compactErrorMsg:

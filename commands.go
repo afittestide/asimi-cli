@@ -54,7 +54,6 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/login", "Login with OAuth provider selection", handleLoginCommand)
 	registry.RegisterCommand("/models", "Select AI model", handleModelsCommand)
 	registry.RegisterCommand("/context", "Show context usage details", handleContextCommand)
-	registry.RegisterCommand("/clear-history", "Clear all prompt history", handleClearHistoryCommand)
 	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
 	registry.RegisterCommand("/init", "Init project to work with asimi", handleInitCommand)
@@ -195,25 +194,6 @@ func handleContextCommand(model *TUIModel, args []string) tea.Cmd {
 		info := model.session.GetContextInfo()
 		return showContextMsg{content: renderContextInfo(info)}
 	}
-}
-
-func handleClearHistoryCommand(model *TUIModel, args []string) tea.Cmd {
-	// Clear persistent history
-	if model.historyStore != nil {
-		if err := model.historyStore.Clear(); err != nil {
-			model.commandLine.AddToast("Failed to clear history", "error", 3000)
-			return nil
-		}
-	}
-
-	// Clear in-memory history
-	model.promptHistory = make([]promptHistoryEntry, 0)
-	model.historyCursor = 0
-	model.historySaved = false
-	model.historyPendingPrompt = ""
-
-	model.commandLine.AddToast("Prompt history cleared", "success", 3000)
-	return nil
 }
 
 func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
