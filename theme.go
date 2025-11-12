@@ -2,6 +2,9 @@ package main
 
 import "github.com/charmbracelet/lipgloss"
 
+// globalTheme is the application-wide theme instance
+var globalTheme *Theme
+
 // Theme defines the colors and styles for the UI.
 type Theme struct {
 	// Terminal7 color scheme
@@ -32,6 +35,7 @@ type Theme struct {
 }
 
 // NewTheme creates and returns a new Theme with Terminal7 colors.
+// It also sets the global theme instance.
 func NewTheme() *Theme {
 	// Terminal7 color scheme
 	promptBorder := lipgloss.Color("#F952F9")
@@ -45,7 +49,7 @@ func NewTheme() *Theme {
 	paneBackground := lipgloss.Color("#000000")
 	darkBorder := lipgloss.Color("#373702")
 
-	return &Theme{
+	theme := &Theme{
 		// Terminal7 colors
 		PromptBorder:     promptBorder,
 		ChatBorder:       chatBorder,
@@ -81,4 +85,9 @@ func NewTheme() *Theme {
 			Foreground(textColor).
 			Background(promptBackground),
 	}
+
+	// Set the global theme
+	globalTheme = theme
+
+	return theme
 }
