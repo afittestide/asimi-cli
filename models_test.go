@@ -9,11 +9,15 @@ import (
 // TestMain sets up test environment
 func TestMain(m *testing.M) {
 	// Use a test-specific keyring service to avoid polluting production credentials
-
 	original := os.Getenv("ASIMI_KEYRING_SERVICE")
 	os.Setenv("ASIMI_KEYRING_SERVICE", "dev.asimi.asimi-cli-test")
+
+	// Update the global keyringService variable
+	keyringService = getKeyringService()
+
 	defer func() {
 		os.Setenv("ASIMI_KEYRING_SERVICE", original)
+		keyringService = getKeyringService()
 	}()
 
 	// Run tests

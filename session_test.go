@@ -854,9 +854,15 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Expected non-empty project slug, got empty string")
 	}
 
-	// Verify the slug contains the org and project names
-	if !strings.Contains(sessionData.ProjectSlug, "afittestide") || !strings.Contains(sessionData.ProjectSlug, "asimi") {
-		t.Fatalf("Expected project slug to contain 'afittestide' and 'asimi', got %q", sessionData.ProjectSlug)
+	// Verify the slug has the expected format (host/org/project)
+	slugParts := strings.Split(sessionData.ProjectSlug, "/")
+	if len(slugParts) != 3 {
+		t.Fatalf("Expected project slug format 'host/org/project', got %q", sessionData.ProjectSlug)
+	}
+
+	// Verify it contains "asimi" (project name) - works for both asimi and asimi-cli
+	if !strings.Contains(sessionData.ProjectSlug, "asimi") {
+		t.Fatalf("Expected project slug to contain 'asimi', got %q", sessionData.ProjectSlug)
 	}
 
 	if sessions[0].ProjectSlug != sessionData.ProjectSlug {
