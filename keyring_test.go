@@ -294,4 +294,11 @@ func TestKeyringErrorHandling(t *testing.T) {
 		// This test documents expected behavior
 		t.Log("DeleteTokenFromKeyring should not error for non-existent tokens")
 	})
+
+	t.Run("reject empty access token", func(t *testing.T) {
+		// SaveTokenToKeyring should reject empty access tokens to prevent overwriting valid tokens
+		err := SaveTokenToKeyring("test-provider", "", "refresh-token", time.Now().Add(1*time.Hour))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot save empty access token")
+	})
 }

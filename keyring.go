@@ -26,6 +26,11 @@ type TokenData struct {
 
 // SaveTokenToKeyring securely stores OAuth tokens in the OS keyring
 func SaveTokenToKeyring(provider, accessToken, refreshToken string, expiry time.Time) error {
+	// Validate that we're not saving empty tokens
+	if accessToken == "" {
+		return fmt.Errorf("cannot save empty access token for provider %s", provider)
+	}
+
 	data := TokenData{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
