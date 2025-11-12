@@ -1,15 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -152,6 +147,19 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 	return strings.Join(selectedLines, "\n"), nil
 }
 
+func (t ReadFileTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Absolute or relative path to the file",
+			},
+		},
+		"required": []string{"path"},
+	}
+}
+
 // String formats a read_file tool call for display
 func (t ReadFileTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract path
@@ -229,6 +237,23 @@ func (t WriteFileTool) Call(ctx context.Context, input string) (string, error) {
 	return fmt.Sprintf("Successfully wrote to %s", params.Path), nil
 }
 
+func (t WriteFileTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Target file path",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "File contents to write",
+			},
+		},
+		"required": []string{"path", "content"},
+	}
+}
+
 // String formats a write_file tool call for display
 func (t WriteFileTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract path
@@ -296,6 +321,18 @@ func (t ListDirectoryTool) Call(ctx context.Context, input string) (string, erro
 		fileNames = append(fileNames, file.Name())
 	}
 	return strings.Join(fileNames, "\n"), nil
+}
+
+func (t ListDirectoryTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Directory path (defaults to '.')",
+			},
+		},
+	}
 }
 
 // String formats a list_files tool call for display
@@ -386,6 +423,27 @@ func (t ReplaceTextTool) Call(ctx context.Context, input string) (string, error)
 	}
 
 	return fmt.Sprintf("Successfully modified file: %s (%d replacements)", params.Path, occurrences), nil
+}
+
+func (t ReplaceTextTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "File path",
+			},
+			"old_text": map[string]any{
+				"type":        "string",
+				"description": "Text to replace",
+			},
+			"new_text": map[string]any{
+				"type":        "string",
+				"description": "Replacement text",
+			},
+		},
+		"required": []string{"path", "old_text", "new_text"},
+	}
 }
 
 // String formats a replace_text tool call for display
@@ -550,6 +608,23 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	return string(outputBytes), nil
 }
 
+func (t RunInShell) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"command": map[string]any{
+				"type":        "string",
+				"description": "Shell command to run",
+			},
+			"description": map[string]any{
+				"type":        "string",
+				"description": "Short description of the command",
+			},
+		},
+		"required": []string{"command"},
+	}
+}
+
 // String formats a run_in_shell tool call for display
 func (t RunInShell) Format(input, result string, err error) string {
 	// Parse input JSON to extract command
@@ -701,6 +776,23 @@ func (t ReadManyFilesTool) Call(ctx context.Context, input string) (string, erro
 	return contentBuilder.String(), nil
 }
 
+func (t ReadManyFilesTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"paths": map[string]any{
+				"type":        "array",
+				"description": "Array of file paths or glob patterns to read",
+				"items": map[string]any{
+					"type":        "string",
+					"description": "A file path or glob pattern",
+				},
+			},
+		},
+		"required": []string{"paths"},
+	}
+}
+
 // String formats a read_many_files tool call for display
 func (t ReadManyFilesTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract paths
@@ -730,440 +822,12 @@ func (t ReadManyFilesTool) Format(input, result string, err error) string {
 	return firstLine + "\n" + secondLine
 }
 
-// MergeToolInput defines the parameters expected by the merge tool.
-type MergeToolInput struct {
-	WorktreePath  string `json:"worktree_path"`
-	Branch        string `json:"branch"`
-	MainBranch    string `json:"main_branch"`
-	Push          bool   `json:"push,omitempty"`
-	AutoApprove   bool   `json:"auto_approve,omitempty"`
-	CommitMessage string `json:"commit_message,omitempty"`
-	SkipReview    bool   `json:"skip_review,omitempty"`
-}
-
-// MergeTool orchestrates squashing and merging a worktree-backed branch.
-type MergeTool struct{}
-
-func (t MergeTool) Name() string {
-	return "merge"
-}
-
-func (t MergeTool) Description() string {
-	return "Squashes the commits from a worktree-backed branch onto the main branch after a review in lazygit, then removes the worktree and deletes the branch."
-}
-
-func (t MergeTool) Call(ctx context.Context, input string) (string, error) {
-	var params MergeToolInput
-	if err := json.Unmarshal([]byte(input), &params); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-
-	worktreePath := strings.TrimSpace(params.WorktreePath)
-	if worktreePath == "" {
-		return "", errors.New("worktree_path is required")
-	}
-	absWorktree, err := filepath.Abs(worktreePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve worktree path: %w", err)
-	}
-
-	branch := strings.TrimSpace(params.Branch)
-	if branch == "" {
-		return "", errors.New("branch is required")
-	}
-
-	mainBranch := strings.TrimSpace(params.MainBranch)
-	if mainBranch == "" {
-		mainBranch = "main"
-	}
-
-	commitMsg := strings.TrimSpace(params.CommitMessage)
-
-	if _, err := os.Stat(absWorktree); err != nil {
-		return "", fmt.Errorf("invalid worktree_path: %w", err)
-	}
-
-	if !params.SkipReview {
-		lazygitCmd := strings.TrimSpace(os.Getenv("ASIMI_LAZYGIT_CMD"))
-		if lazygitCmd == "" {
-			lazygitCmd = "lazygit"
-		}
-		if _, err := exec.LookPath(lazygitCmd); err != nil {
-			return "", fmt.Errorf("unable to locate lazygit command: %w", err)
-		}
-
-		cmd := exec.CommandContext(ctx, lazygitCmd)
-		cmd.Dir = absWorktree
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("lazygit exited with an error: %w", err)
-		}
-	}
-
-	readerNeeded := (!params.AutoApprove) || commitMsg == ""
-	var reader *bufio.Reader
-	if readerNeeded {
-		reader = bufio.NewReader(os.Stdin)
-	}
-
-	approved := params.AutoApprove
-	if !approved {
-		fmt.Printf("Proceed with squash merge of %s onto %s? (y/N): ", branch, mainBranch)
-		ans, err := readYesNo(reader)
-		if err != nil {
-			return "", fmt.Errorf("failed to read approval: %w", err)
-		}
-		approved = ans
-	}
-
-	if !approved {
-		return "Merge cancelled by user", nil
-	}
-
-	if commitMsg == "" {
-		if params.AutoApprove {
-			return "", errors.New("commit_message is required when auto_approve is true")
-		}
-		fmt.Print("Enter squash commit message: ")
-		line, err := readLine(reader)
-		if err != nil {
-			return "", fmt.Errorf("failed to read commit message: %w", err)
-		}
-		if line == "" {
-			return "", errors.New("commit message cannot be empty")
-		}
-		commitMsg = line
-	}
-
-	var log bytes.Buffer
-	log.WriteString("Starting merge process...\n")
-
-	baseRef := fmt.Sprintf("origin/%s", mainBranch)
-	if err := runGitCommand(ctx, absWorktree, &log, "fetch", "origin", mainBranch); err != nil {
-		log.WriteString(fmt.Sprintf("git fetch origin %s failed: %v\n", mainBranch, err))
-		baseRef = mainBranch
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "rebase", baseRef); err != nil {
-		runGitCommand(ctx, absWorktree, &log, "rebase", "--abort")
-		return "", fmt.Errorf("git rebase failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "reset", "--soft", baseRef); err != nil {
-		return "", fmt.Errorf("git reset failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "add", "-A"); err != nil {
-		return "", fmt.Errorf("git add failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "commit", "-m", commitMsg); err != nil {
-		return "", fmt.Errorf("git commit failed: %w\n%s", err, log.String())
-	}
-
-	repoRoot, err := resolveRepoRoot(ctx, absWorktree)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve repository root: %w", err)
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "checkout", mainBranch); err != nil {
-		return "", fmt.Errorf("git checkout %s failed: %w\n%s", mainBranch, err, log.String())
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "pull", "--ff-only", "origin", mainBranch); err != nil {
-		log.WriteString(fmt.Sprintf("git pull origin %s failed: %v (continuing without remote update)\n", mainBranch, err))
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "merge", "--ff-only", branch); err != nil {
-		return "", fmt.Errorf("git merge failed: %w\n%s", err, log.String())
-	}
-
-	if params.Push {
-		if err := runGitCommand(ctx, repoRoot, &log, "push", "origin", mainBranch); err != nil {
-			return "", fmt.Errorf("git push failed: %w\n%s", err, log.String())
-		}
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "worktree", "remove", "--force", absWorktree); err != nil {
-		return "", fmt.Errorf("git worktree remove failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "branch", "-D", branch); err != nil {
-		return "", fmt.Errorf("git branch -D failed: %w\n%s", err, log.String())
-	}
-
-	log.WriteString("Merge completed successfully.\n")
-	return log.String(), nil
-}
-
-func (t MergeTool) Format(input, result string, err error) string {
-	var params MergeToolInput
-	_ = json.Unmarshal([]byte(input), &params)
-
-	branch := params.Branch
-	if branch == "" {
-		branch = "(unknown)"
-	}
-	mainBranch := params.MainBranch
-	if mainBranch == "" {
-		mainBranch = "main"
-	}
-
-	firstLine := fmt.Sprintf("Merge (%s -> %s)", branch, mainBranch)
-	var secondLine string
-	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
-	} else {
-		secondLine = "  ⎿  Merge completed"
-	}
-
-	return firstLine + "\n" + secondLine
-}
-
-func runGitCommand(ctx context.Context, dir string, log *bytes.Buffer, args ...string) error {
-	if log != nil {
-		log.WriteString(fmt.Sprintf("$ git %s\n", strings.Join(args, " ")))
-	}
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = gitCommandEnv()
-	if log != nil {
-		cmd.Stdout = log
-		cmd.Stderr = log
-	}
-
-	return cmd.Run()
-}
-
-func resolveRepoRoot(ctx context.Context, worktreePath string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", worktreePath, "rev-parse", "--git-common-dir")
-	cmd.Env = gitCommandEnv()
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git rev-parse --git-common-dir failed: %w (%s)", err, out.String())
-	}
-
-	commonDir := strings.TrimSpace(out.String())
-	if commonDir == "" {
-		return "", errors.New("git common dir not found")
-	}
-
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(worktreePath, commonDir)
-	}
-
-	return filepath.Dir(commonDir), nil
-}
-
-func readYesNo(reader *bufio.Reader) (bool, error) {
-	response, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, err
-	}
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes", nil
-}
-
-func readLine(reader *bufio.Reader) (string, error) {
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
-}
-
-func gitCommandEnv() []string {
-	env := os.Environ()
-	filtered := make([]string, 0, len(env))
-	for _, value := range env {
-		if strings.HasPrefix(value, "GIT_") {
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	return filtered
-}
-
-// WebSearchInput is the input for the WebSearchTool
-type WebSearchInput struct {
-	Query      string `json:"query"`
-	MaxResults int    `json:"max_results,omitempty"`
-}
-
-// WebSearchTool is a tool for searching the web using DuckDuckGo
-type WebSearchTool struct{}
-
-func (t WebSearchTool) Name() string {
-	return "web_search"
-}
-
-func (t WebSearchTool) Description() string {
-	return "Searches the web using DuckDuckGo and returns relevant results. The input should be a JSON object with a 'query' field containing the search query. Optionally specify 'max_results' (default 5, max 10) to limit the number of results."
-}
-
-func (t WebSearchTool) Call(ctx context.Context, input string) (string, error) {
-	var params WebSearchInput
-	err := json.Unmarshal([]byte(input), &params)
-	if err != nil {
-		// If unmarshalling fails, assume the input is a raw query
-		params.Query = strings.Trim(input, `"'`)
-		params.MaxResults = 5
-	}
-
-	if params.Query == "" {
-		return "", fmt.Errorf("search query cannot be empty")
-	}
-
-	// Set default max results if not specified
-	if params.MaxResults == 0 {
-		params.MaxResults = 5
-	} else if params.MaxResults > 10 {
-		params.MaxResults = 10
-	}
-
-	// Perform DuckDuckGo HTML search
-	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(params.Query))
-
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set user agent to avoid being blocked
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Asimi/1.0)")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform search: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("search returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse HTML results using regex (simple approach for DuckDuckGo HTML)
-	results := parseSearchResults(string(body), params.MaxResults)
-
-	if len(results) == 0 {
-		return "No results found.", nil
-	}
-
-	// Format results as JSON
-	output := struct {
-		Query   string         `json:"query"`
-		Results []SearchResult `json:"results"`
-	}{
-		Query:   params.Query,
-		Results: results,
-	}
-
-	resultJSON, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal results: %w", err)
-	}
-
-	return string(resultJSON), nil
-}
-
-func (t WebSearchTool) Format(input, result string, err error) string {
-	var params WebSearchInput
-	json.Unmarshal([]byte(input), &params)
-
-	paramStr := ""
-	if params.Query != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Query)
-	}
-
-	firstLine := fmt.Sprintf("Web Search%s", paramStr)
-
-	if err != nil {
-		return fmt.Sprintf("%s\n  Error: %v", firstLine, err)
-	}
-
-	// Parse result to count results
-	var output struct {
-		Results []SearchResult `json:"results"`
-	}
-	json.Unmarshal([]byte(result), &output)
-
-	resultCount := len(output.Results)
-	return fmt.Sprintf("%s\n  Found %d result(s)", firstLine, resultCount)
-}
-
-// SearchResult represents a single search result
-type SearchResult struct {
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Snippet string `json:"snippet"`
-}
-
-// parseSearchResults extracts search results from DuckDuckGo HTML
-func parseSearchResults(html string, maxResults int) []SearchResult {
-	var results []SearchResult
-
-	// Pattern to match result blocks in DuckDuckGo HTML
-	resultPattern := regexp.MustCompile(`<div class="result__body">.*?<a rel="nofollow" class="result__a" href="(.*?)">(.*?)</a>.*?<a class="result__snippet"[^>]*>(.*?)</a>`)
-	matches := resultPattern.FindAllStringSubmatch(html, -1)
-
-	for i, match := range matches {
-		if i >= maxResults {
-			break
-		}
-
-		if len(match) >= 4 {
-			// Clean up HTML entities and tags
-			title := cleanHTML(match[2])
-			snippet := cleanHTML(match[3])
-			resultURL := cleanHTML(match[1])
-
-			results = append(results, SearchResult{
-				Title:   title,
-				URL:     resultURL,
-				Snippet: snippet,
-			})
-		}
-	}
-
-	return results
-}
-
-// cleanHTML removes HTML tags and decodes HTML entities
-func cleanHTML(s string) string {
-	// Remove HTML tags
-	tagPattern := regexp.MustCompile(`<[^>]*>`)
-	s = tagPattern.ReplaceAllString(s, "")
-
-	// Decode common HTML entities
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&quot;", "\"")
-	s = strings.ReplaceAll(s, "&#x27;", "'")
-	s = strings.ReplaceAll(s, "&nbsp;", " ")
-
-	// Trim whitespace
-	s = strings.TrimSpace(s)
-
-	return s
-}
 
 type Tool interface {
 	tools.Tool
 	Format(input, result string, err error) string
+	// ParameterSchema returns the JSON schema for the tool's parameters
+	ParameterSchema() map[string]any
 }
 
 func getAvailableTools(config *Config) []Tool {
@@ -1174,8 +838,6 @@ func getAvailableTools(config *Config) []Tool {
 		ReplaceTextTool{},
 		RunInShell{config: config},
 		ReadManyFilesTool{},
-		MergeTool{},
-		WebSearchTool{},
 	}
 }
 

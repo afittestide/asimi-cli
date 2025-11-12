@@ -909,115 +909,22 @@ func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
 
 	// Map our concrete tools by name for execution.
 	execCatalog := map[string]lctools.Tool{}
+	defs := make([]llms.Tool, 0, len(tools))
+
 	for i := range tools {
 		tool := tools[i]
 		//nolint:typecheck // Tool interface is correctly defined in tools.go
 		execCatalog[tool.Name()] = tool
-	}
 
-	// Helper to produce a basic JSON schema for function parameters.
-	obj := func(props map[string]any, required []string) map[string]any {
-		m := map[string]any{
-			"type":       "object",
-			"properties": props,
-		}
-		if len(required) > 0 {
-			m["required"] = required
-		}
-		return m
-	}
-
-	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-	boolean := func(desc string) map[string]any { return map[string]any{"type": "boolean", "description": desc} }
-
-	defs := []llms.Tool{
-		{
+		// Automatically generate the LLM tool definition from the tool's metadata
+		defs = append(defs, llms.Tool{
 			Type: "function",
 			Function: &llms.FunctionDefinition{
-				Name:        "read_file",
-				Description: "Reads a file and returns its content.",
-				Parameters: obj(map[string]any{
-					"path": str("Absolute or relative path to the file"),
-				}, []string{"path"}),
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  tool.ParameterSchema(),
 			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "write_file",
-				Description: "Writes content to a file, creating or overwriting it.",
-				Parameters: obj(map[string]any{
-					"path":    str("Target file path"),
-					"content": str("File contents to write"),
-				}, []string{"path", "content"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "list_files",
-				Description: "Lists the contents of a directory.",
-				Parameters: obj(map[string]any{
-					"path": str("Directory path (defaults to '.')"),
-				}, nil),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "replace_text",
-				Description: "Replaces all occurrences of a string in a file with another string.",
-				Parameters: obj(map[string]any{
-					"path":     str("File path"),
-					"old_text": str("Text to replace"),
-					"new_text": str("Replacement text"),
-				}, []string{"path", "old_text", "new_text"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "run_in_shell",
-				Description: "Executes a shell command in a persistent shell session.",
-				Parameters: obj(map[string]any{
-					"command":     str("Shell command to run"),
-					"description": str("Short description of the command"),
-				}, []string{"command"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "read_many_files",
-				Description: "Reads content from multiple files specified by wildcard paths.",
-				Parameters: obj(map[string]any{
-					"paths": map[string]any{
-						"type":        "array",
-						"description": "Array of file paths or glob patterns to read",
-						"items": map[string]any{
-							"type":        "string",
-							"description": "A file path or glob pattern",
-						},
-					},
-				}, []string{"paths"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "merge",
-				Description: "Squashes a worktree-backed branch onto the main branch after user approval, then cleans up the worktree.",
-				Parameters: obj(map[string]any{
-					"worktree_path":  str("Absolute path to the worktree directory"),
-					"branch":         str("Name of the branch associated with the worktree"),
-					"main_branch":    str("Name of the trunk branch to merge into (defaults to main)"),
-					"commit_message": str("Optional squash commit message to use"),
-					"auto_approve":   boolean("Set to true to skip interactive approval (requires commit_message)"),
-					"skip_review":    boolean("Set to true to skip launching lazygit"),
-					"push":           boolean("Push the updated main branch to origin after merging"),
-				}, []string{"worktree_path", "branch"}),
-			},
-		},
+		})
 	}
 
 	return defs, execCatalog
