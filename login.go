@@ -420,6 +420,11 @@ func (a *AuthAnthropic) exchange(authorizationCode, verifier string) (*Anthropic
 		return nil, fmt.Errorf("failed to decode token response: %w", err)
 	}
 
+	// Validate that we received valid tokens
+	if tokens.AccessToken == "" {
+		return nil, fmt.Errorf("Anthropic OAuth response did not contain an access token")
+	}
+
 	return &tokens, nil
 }
 
@@ -450,6 +455,7 @@ func (a *AuthAnthropic) access() (string, error) {
 	expiry := time.Now().Add(time.Duration(refreshedTokens.ExpiresIn) * time.Second)
 
 	// Update stored credentials
+	slog.Debug("Saving token in access", "tokens", refreshedTokens)
 	if err := SaveTokenToKeyring("anthropic", refreshedTokens.AccessToken, refreshedTokens.RefreshToken, expiry); err != nil {
 		return "", fmt.Errorf("failed to save refreshed tokens: %w", err)
 	}
@@ -486,6 +492,11 @@ func (a *AuthAnthropic) refreshToken(refreshToken string) (*AnthropicOAuthTokens
 	var tokens AnthropicOAuthTokens
 	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
 		return nil, fmt.Errorf("failed to decode refresh response: %w", err)
+	}
+
+	// Validate that we received valid tokens
+	if tokens.AccessToken == "" {
+		return nil, fmt.Errorf("token refresh response did not contain an access token")
 	}
 
 	return &tokens, nil
@@ -525,6 +536,7 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 		// Save tokens
 		m.config.LLM.AuthToken = token
 		m.config.LLM.RefreshToken = refresh
+		slog.Debug("In performaOAuthLogin", "auth token", token, "refresh", refresh)
 		if err := UpdateUserOAuthTokens(provider, token, refresh, expiry); err != nil {
 			m.commandLine.AddToast("Authorized, but failed to persist token", "error", 4000)
 		}
@@ -560,8 +572,10 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 		// Calculate expiry time
 		expiry := time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
 
+		// Store tokens securely in keyring and update config file
+		slog.Debug("In compleseAnthropicOAuth", "token", tokens)
 		if err := UpdateUserOAuthTokens("anthropic", tokens.AccessToken, tokens.RefreshToken, expiry); err != nil {
-			m.commandLine.AddToast("Warning: Failed to update config file", "warning", 4000)
+			return showOauthFailed{fmt.Sprintf("failed to save tokens: %v", err)}
 		}
 
 		// Update in-memory config with the new tokens
@@ -698,6 +712,12 @@ func runOAuthLoopback(provider string) (accessToken, refreshToken string, expiry
 	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
 		return "", "", time.Time{}, err
 	}
+
+	// Validate that we received valid tokens
+	if tok.AccessToken == "" {
+		return "", "", time.Time{}, fmt.Errorf("OAuth response did not contain an access token")
+	}
+
 	exp := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	return tok.AccessToken, tok.RefreshToken, exp, nil
 }
