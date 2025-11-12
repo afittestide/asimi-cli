@@ -1194,7 +1194,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.content.GetChat().AppendToLastMessage(string(msg))
 			slog.Debug("appended_to_last_message", "total_messages", len(m.content.GetChat().Messages))
 		}
-		m.saveSession()
 
 	case streamCompleteMsg:
 		m.content.GetChat().AddToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
