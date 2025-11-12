@@ -22,7 +22,7 @@ type SessionConfig struct {
 // HistoryConfig holds persistent history configuration
 type HistoryConfig struct {
 	Enabled      bool
-	MaxSessions  int  // Used as max entries for history
+	MaxSessions  int // Used as max entries for history
 	MaxAgeDays   int
 	ListLimit    int
 	AutoSave     bool
@@ -62,7 +62,7 @@ type SessionData struct {
 type Repository struct {
 	ID      int64  `db:"id"`      // Auto-increment primary key
 	Host    string `db:"host"`    // e.g., "github.com", "gitlab.com", "bitbucket.org"
-	Org     string `db:"org"`     // e.g., "tuzig"
+	Org     string `db:"org"`     // e.g., "afittestide"
 	Project string `db:"project"` // e.g., "asimi-cli"
 }
 
@@ -85,9 +85,9 @@ type Message struct {
 
 // PromptHistory represents a user prompt for autocomplete
 type PromptHistory struct {
-	ID       int64     `db:"id"`        // Auto-increment primary key
-	BranchID int64     `db:"branch_id"` // Foreign key to branches.id
-	Prompt   string    `db:"prompt"`    // User's prompt text
+	ID        int64     `db:"id"`        // Auto-increment primary key
+	BranchID  int64     `db:"branch_id"` // Foreign key to branches.id
+	Prompt    string    `db:"prompt"`    // User's prompt text
 	Timestamp time.Time `db:"timestamp"` // Stored as Unix timestamp
 }
 

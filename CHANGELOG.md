@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `ANTHROPIC_OAUTH_TOKEN` now properly handles multiple input formats without JSON unmarshalling errors
 - Context validation error when interrupting tool execution (issue #37)
+- Test failure in CI when repository is forked or has different organization name
 
 ## [0.1.0] - 2025/11/1
 

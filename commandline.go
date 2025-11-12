@@ -3,9 +3,9 @@ package main
 import (
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tuzig/asimi/storage"
 )
 
 // Toast represents a single toast notification

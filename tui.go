@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tmc/langchaingo/llms"
-	"github.com/tuzig/asimi/storage"
 )
 
 const (

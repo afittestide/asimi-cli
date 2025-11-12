@@ -1,9 +1,27 @@
 package main
 
 import (
+	"os"
 	"testing"
 	"time"
 )
+
+// TestMain sets up test environment
+func TestMain(m *testing.M) {
+	// Use a test-specific keyring service to avoid polluting production credentials
+
+	original := os.Getenv("ASIMI_KEYRING_SERVICE")
+	os.Setenv("ASIMI_KEYRING_SERVICE", "dev.asimi.asimi-cli-test")
+	defer func() {
+		os.Setenv("ASIMI_KEYRING_SERVICE", original)
+	}()
+
+	// Run tests
+	code := m.Run()
+
+	// Exit with test result code
+	os.Exit(code)
+}
 
 // TestFetchAnthropicModels_LoadsFromKeyring verifies that fetchAnthropicModels
 // loads credentials from the keyring when they're not in the config

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
-	"github.com/tuzig/asimi/storage"
 )
 
 // sessionMockLLM simulates provider-native function/tool calling behavior and streaming.
@@ -855,8 +855,8 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 	}
 
 	// Verify the slug contains the org and project names
-	if !strings.Contains(sessionData.ProjectSlug, "tuzig") || !strings.Contains(sessionData.ProjectSlug, "asimi") {
-		t.Fatalf("Expected project slug to contain 'tuzig' and 'asimi', got %q", sessionData.ProjectSlug)
+	if !strings.Contains(sessionData.ProjectSlug, "afittestide") || !strings.Contains(sessionData.ProjectSlug, "asimi") {
+		t.Fatalf("Expected project slug to contain 'afittestide' and 'asimi', got %q", sessionData.ProjectSlug)
 	}
 
 	if sessions[0].ProjectSlug != sessionData.ProjectSlug {

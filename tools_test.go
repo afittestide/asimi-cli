@@ -61,7 +61,7 @@ func TestRunInShellFailsWhenPodmanUnavailable(t *testing.T) {
 // TestRunInShellLargeOutput tests that large outputs (>4096 bytes) are fully captured
 // This test demonstrates the issue with the podman runner's fixed 4096-byte buffer
 // The hostShellRunner passes this test, but podman runner would truncate output
-// See: https://github.com/tuzig/asimi-cli/issues/20
+// See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellLargeOutput(t *testing.T) {
 	restore := setShellRunnerForTesting(hostShellRunner{})
 	defer restore()
@@ -87,7 +87,7 @@ func TestRunInShellLargeOutput(t *testing.T) {
 // TestRunInShellExitCodeWithMarkerInOutput tests that exit code parsing works correctly
 // when the output contains the exit code marker string
 // This test demonstrates the fragile exit code parsing in podman runner
-// See: https://github.com/tuzig/asimi-cli/issues/20
+// See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellExitCodeWithMarkerInOutput(t *testing.T) {
 	restore := setShellRunnerForTesting(hostShellRunner{})
 	defer restore()

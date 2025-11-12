@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	"github.com/tmc/langchaingo/llms"
-	"github.com/tuzig/asimi/storage"
 )
 
 // parseProjectSlug parses a project slug into host, org and project
@@ -58,7 +58,6 @@ type baseHistory struct {
 	project string
 	branch  string
 }
-
 
 // PromptHistory handles prompt history persistence
 type PromptHistory struct {

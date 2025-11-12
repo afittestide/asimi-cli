@@ -1,4 +1,4 @@
-module github.com/tuzig/asimi
+module github.com/afittestide/asimi
 
 go 1.25.3
 

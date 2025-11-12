@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tuzig/asimi/storage"
 )
 
 // TestPromptHistoryStore_CreateAndLoad tests creating a prompt history store and loading entries
