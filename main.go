@@ -54,7 +54,7 @@ func initLogger() {
 		// In debug mode, log to current directory
 		logDir = "."
 		logPath = filepath.Join(logDir, "asimi.log")
-		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			panic(fmt.Errorf("failed to open log file %s: %w", logPath, err))
 		}
