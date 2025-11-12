@@ -34,7 +34,7 @@ var program *tea.Program
 
 var cli struct {
 	Version       bool   `help:"Print version information"`
-	Prompt        string `arg:"" optional:"" help:"Prompt to send to the agent (non-interactive mode)"`
+	Prompt        string `short:"p" help:"Prompt to send to the agent"`
 	Debug         bool   `help:"Enable debug logging"`
 	CPUProfile    string `help:"Write CPU profile to file"`
 	MemProfile    string `help:"Write memory profile to file"`
@@ -230,12 +230,12 @@ func main() {
 
 	// Determine if we should run in non-interactive mode
 	// Non-interactive mode is triggered by:
-	// 1. Explicit prompt argument: asimi "prompt here"
+	// 1. Explicit -p flag: asimi -p "prompt here"
 	// 2. Non-interactive stdin (pipe/redirect): echo "prompt" | asimi
 	isStdinTerminal := isatty.IsTerminal(os.Stdin.Fd())
 	hasPromptArg := cli.Prompt != ""
 
-	// If no prompt argument but stdin is not a terminal, read from stdin
+	// If no -p flag but stdin is not a terminal, read from stdin
 	if !hasPromptArg && !isStdinTerminal {
 		// Read prompt from stdin
 		var builder strings.Builder
@@ -257,6 +257,9 @@ func main() {
 	// For interactive mode, the fx-provided logger will be used
 	if hasPromptArg {
 		initLogger()
+		if cli.Debug {
+			slog.Debug("[TIMING] initLogger() completed", "duration", time.Since(startTime))
+		}
 	}
 
 	if hasPromptArg {
