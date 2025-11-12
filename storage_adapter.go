@@ -56,6 +56,7 @@ type baseHistory struct {
 	host    string
 	org     string
 	project string
+	branch  string
 }
 
 
@@ -71,6 +72,7 @@ func NewPromptHistoryStore(db *storage.DB, repoInfo RepoInfo) (*PromptHistory, e
 	}
 
 	host, org, project := parseProjectSlug(repoInfo.ProjectRoot)
+	branch := branchSlugOrDefault(repoInfo.Branch)
 
 	// Create history store with config (use defaults if not available)
 	histCfg := &storage.HistoryConfig{
@@ -85,13 +87,14 @@ func NewPromptHistoryStore(db *storage.DB, repoInfo RepoInfo) (*PromptHistory, e
 			host:    host,
 			org:     org,
 			project: project,
+			branch:  branch,
 		},
 	}, nil
 }
 
 // Load reads the prompt history from storage
 func (h *PromptHistory) Load() ([]storage.HistoryEntry, error) {
-	return h.store.LoadPromptHistory(h.host, h.org, h.project, 0)
+	return h.store.LoadPromptHistory(h.host, h.org, h.project, h.branch, 0)
 }
 
 // Save is a no-op for SQLite (entries are saved immediately on Append)
@@ -101,12 +104,12 @@ func (h *PromptHistory) Save(entries []storage.HistoryEntry) error {
 
 // Append adds a new entry to the prompt history
 func (h *PromptHistory) Append(prompt string) error {
-	return h.store.AppendPrompt(h.host, h.org, h.project, prompt)
+	return h.store.AppendPrompt(h.host, h.org, h.project, h.branch, prompt)
 }
 
 // Clear removes all prompt history
 func (h *PromptHistory) Clear() error {
-	return h.store.ClearPromptHistory(h.host, h.org, h.project)
+	return h.store.ClearPromptHistory(h.host, h.org, h.project, h.branch)
 }
 
 // CommandHistory handles command history persistence
@@ -121,6 +124,7 @@ func NewCommandHistoryStore(db *storage.DB, repoInfo RepoInfo) (*CommandHistory,
 	}
 
 	host, org, project := parseProjectSlug(repoInfo.ProjectRoot)
+	branch := branchSlugOrDefault(repoInfo.Branch)
 
 	// Create history store with config (use defaults if not available)
 	histCfg := &storage.HistoryConfig{
@@ -135,13 +139,14 @@ func NewCommandHistoryStore(db *storage.DB, repoInfo RepoInfo) (*CommandHistory,
 			host:    host,
 			org:     org,
 			project: project,
+			branch:  branch,
 		},
 	}, nil
 }
 
 // Load reads the command history from storage
 func (h *CommandHistory) Load() ([]storage.HistoryEntry, error) {
-	return h.store.LoadCommandHistory(h.host, h.org, h.project, 0)
+	return h.store.LoadCommandHistory(h.host, h.org, h.project, h.branch, 0)
 }
 
 // Save is a no-op for SQLite (entries are saved immediately on Append)
@@ -151,12 +156,12 @@ func (h *CommandHistory) Save(entries []storage.HistoryEntry) error {
 
 // Append adds a new entry to the command history
 func (h *CommandHistory) Append(command string) error {
-	return h.store.AppendCommand(h.host, h.org, h.project, command)
+	return h.store.AppendCommand(h.host, h.org, h.project, h.branch, command)
 }
 
 // Clear removes all command history
 func (h *CommandHistory) Clear() error {
-	return h.store.ClearCommandHistory(h.host, h.org, h.project)
+	return h.store.ClearCommandHistory(h.host, h.org, h.project, h.branch)
 }
 
 // SessionStore adapter wraps the SQLite session store with the old interface

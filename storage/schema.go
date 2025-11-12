@@ -85,18 +85,18 @@ type Message struct {
 
 // PromptHistory represents a user prompt for autocomplete
 type PromptHistory struct {
-	ID           int64     `db:"id"`            // Auto-increment primary key
-	RepositoryID int64     `db:"repository_id"` // Foreign key to repositories.id
-	Prompt       string    `db:"prompt"`        // User's prompt text
-	Timestamp    time.Time `db:"timestamp"`     // Stored as Unix timestamp
+	ID       int64     `db:"id"`        // Auto-increment primary key
+	BranchID int64     `db:"branch_id"` // Foreign key to branches.id
+	Prompt   string    `db:"prompt"`    // User's prompt text
+	Timestamp time.Time `db:"timestamp"` // Stored as Unix timestamp
 }
 
 // CommandHistory represents a slash command for history
 type CommandHistory struct {
-	ID           int64     `db:"id"`            // Auto-increment primary key
-	RepositoryID int64     `db:"repository_id"` // Foreign key to repositories.id
-	Command      string    `db:"command"`       // Command text
-	Timestamp    time.Time `db:"timestamp"`     // Stored as Unix timestamp
+	ID        int64     `db:"id"`        // Auto-increment primary key
+	BranchID  int64     `db:"branch_id"` // Foreign key to branches.id
+	Command   string    `db:"command"`   // Command text
+	Timestamp time.Time `db:"timestamp"` // Stored as Unix timestamp
 }
 
 // SchemaVersionRecord tracks schema migrations
@@ -163,24 +163,24 @@ CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at DESC);
 -- Prompt history table
 CREATE TABLE IF NOT EXISTS prompt_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    repository_id INTEGER NOT NULL,
+    branch_id INTEGER NOT NULL,
     prompt TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
-    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_prompt_history_repo ON prompt_history(repository_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_prompt_history_branch ON prompt_history(branch_id, timestamp DESC);
 
 -- Command history table
 CREATE TABLE IF NOT EXISTS command_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    repository_id INTEGER NOT NULL,
+    branch_id INTEGER NOT NULL,
     command TEXT NOT NULL,
     timestamp INTEGER NOT NULL,
-    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_command_history_repo ON command_history(repository_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_command_history_branch ON command_history(branch_id, timestamp DESC);
 
 -- Schema version table
 CREATE TABLE IF NOT EXISTS schema_version (

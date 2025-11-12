@@ -19,19 +19,25 @@ func NewHistoryStore(db *DB, cfg *HistoryConfig) *HistoryStore {
 	}
 }
 
-// AppendPrompt adds a prompt to the history for a given host/org/project
-func (h *HistoryStore) AppendPrompt(host, org, project, prompt string) error {
+// AppendPrompt adds a prompt to the history for a given host/org/project/branch
+func (h *HistoryStore) AppendPrompt(host, org, project, branch, prompt string) error {
 	// Get or create repository
 	repoID, err := h.db.GetOrCreateRepository(host, org, project)
 	if err != nil {
 		return err
 	}
 
+	// Get or create branch
+	branchID, err := h.db.GetOrCreateBranch(repoID, branch)
+	if err != nil {
+		return err
+	}
+
 	// Insert prompt
 	_, err = h.db.conn.Exec(`
-		INSERT INTO prompt_history (repository_id, prompt, timestamp)
+		INSERT INTO prompt_history (branch_id, prompt, timestamp)
 		VALUES (?, ?, ?)`,
-		repoID,
+		branchID,
 		prompt,
 		time.Now().Unix(),
 	)
@@ -43,14 +49,14 @@ func (h *HistoryStore) AppendPrompt(host, org, project, prompt string) error {
 	if h.cfg != nil && h.cfg.MaxSessions > 0 {
 		_, err = h.db.conn.Exec(`
 			DELETE FROM prompt_history
-			WHERE repository_id = ?
+			WHERE branch_id = ?
 			AND id NOT IN (
 				SELECT id FROM prompt_history
-				WHERE repository_id = ?
+				WHERE branch_id = ?
 				ORDER BY timestamp DESC
 				LIMIT ?
 			)`,
-			repoID, repoID, h.cfg.MaxSessions,
+			branchID, branchID, h.cfg.MaxSessions,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to apply prompt history limit: %w", err)
@@ -60,19 +66,25 @@ func (h *HistoryStore) AppendPrompt(host, org, project, prompt string) error {
 	return nil
 }
 
-// AppendCommand adds a command to the history for a given host/org/project
-func (h *HistoryStore) AppendCommand(host, org, project, command string) error {
+// AppendCommand adds a command to the history for a given host/org/project/branch
+func (h *HistoryStore) AppendCommand(host, org, project, branch, command string) error {
 	// Get or create repository
 	repoID, err := h.db.GetOrCreateRepository(host, org, project)
 	if err != nil {
 		return err
 	}
 
+	// Get or create branch
+	branchID, err := h.db.GetOrCreateBranch(repoID, branch)
+	if err != nil {
+		return err
+	}
+
 	// Insert command
 	_, err = h.db.conn.Exec(`
-		INSERT INTO command_history (repository_id, command, timestamp)
+		INSERT INTO command_history (branch_id, command, timestamp)
 		VALUES (?, ?, ?)`,
-		repoID,
+		branchID,
 		command,
 		time.Now().Unix(),
 	)
@@ -84,14 +96,14 @@ func (h *HistoryStore) AppendCommand(host, org, project, command string) error {
 	if h.cfg != nil && h.cfg.MaxSessions > 0 {
 		_, err = h.db.conn.Exec(`
 			DELETE FROM command_history
-			WHERE repository_id = ?
+			WHERE branch_id = ?
 			AND id NOT IN (
 				SELECT id FROM command_history
-				WHERE repository_id = ?
+				WHERE branch_id = ?
 				ORDER BY timestamp DESC
 				LIMIT ?
 			)`,
-			repoID, repoID, h.cfg.MaxSessions,
+			branchID, branchID, h.cfg.MaxSessions,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to apply command history limit: %w", err)
@@ -101,8 +113,8 @@ func (h *HistoryStore) AppendCommand(host, org, project, command string) error {
 	return nil
 }
 
-// LoadPromptHistory loads prompt history for a given host/org/project
-func (h *HistoryStore) LoadPromptHistory(host, org, project string, limit int) ([]HistoryEntry, error) {
+// LoadPromptHistory loads prompt history for a given host/org/project/branch
+func (h *HistoryStore) LoadPromptHistory(host, org, project, branch string, limit int) ([]HistoryEntry, error) {
 	// Get repository
 	repo, err := h.db.GetRepository(host, org, project)
 	if err != nil {
@@ -112,18 +124,27 @@ func (h *HistoryStore) LoadPromptHistory(host, org, project string, limit int) (
 		return []HistoryEntry{}, nil // No repository means no history
 	}
 
+	// Get branch
+	branchRecord, err := h.db.GetBranch(repo.ID, branch)
+	if err != nil {
+		return nil, err
+	}
+	if branchRecord == nil {
+		return []HistoryEntry{}, nil // No branch means no history
+	}
+
 	// Query prompts
 	query := `
 		SELECT prompt, timestamp
 		FROM prompt_history
-		WHERE repository_id = ?
+		WHERE branch_id = ?
 		ORDER BY timestamp DESC`
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
 
-	rows, err := h.db.conn.Query(query, repo.ID)
+	rows, err := h.db.conn.Query(query, branchRecord.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load prompt history: %w", err)
 	}
@@ -151,8 +172,8 @@ func (h *HistoryStore) LoadPromptHistory(host, org, project string, limit int) (
 	return entries, nil
 }
 
-// LoadCommandHistory loads command history for a given host/org/project
-func (h *HistoryStore) LoadCommandHistory(host, org, project string, limit int) ([]HistoryEntry, error) {
+// LoadCommandHistory loads command history for a given host/org/project/branch
+func (h *HistoryStore) LoadCommandHistory(host, org, project, branch string, limit int) ([]HistoryEntry, error) {
 	// Get repository
 	repo, err := h.db.GetRepository(host, org, project)
 	if err != nil {
@@ -162,18 +183,27 @@ func (h *HistoryStore) LoadCommandHistory(host, org, project string, limit int) 
 		return []HistoryEntry{}, nil // No repository means no history
 	}
 
+	// Get branch
+	branchRecord, err := h.db.GetBranch(repo.ID, branch)
+	if err != nil {
+		return nil, err
+	}
+	if branchRecord == nil {
+		return []HistoryEntry{}, nil // No branch means no history
+	}
+
 	// Query commands
 	query := `
 		SELECT command, timestamp
 		FROM command_history
-		WHERE repository_id = ?
+		WHERE branch_id = ?
 		ORDER BY timestamp DESC`
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
 
-	rows, err := h.db.conn.Query(query, repo.ID)
+	rows, err := h.db.conn.Query(query, branchRecord.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load command history: %w", err)
 	}
@@ -201,8 +231,8 @@ func (h *HistoryStore) LoadCommandHistory(host, org, project string, limit int) 
 	return entries, nil
 }
 
-// ClearPromptHistory clears all prompt history for a given host/org/project
-func (h *HistoryStore) ClearPromptHistory(host, org, project string) error {
+// ClearPromptHistory clears all prompt history for a given host/org/project/branch
+func (h *HistoryStore) ClearPromptHistory(host, org, project, branch string) error {
 	// Get repository
 	repo, err := h.db.GetRepository(host, org, project)
 	if err != nil {
@@ -212,7 +242,16 @@ func (h *HistoryStore) ClearPromptHistory(host, org, project string) error {
 		return nil // No repository means nothing to clear
 	}
 
-	_, err = h.db.conn.Exec("DELETE FROM prompt_history WHERE repository_id = ?", repo.ID)
+	// Get branch
+	branchRecord, err := h.db.GetBranch(repo.ID, branch)
+	if err != nil {
+		return err
+	}
+	if branchRecord == nil {
+		return nil // No branch means nothing to clear
+	}
+
+	_, err = h.db.conn.Exec("DELETE FROM prompt_history WHERE branch_id = ?", branchRecord.ID)
 	if err != nil {
 		return fmt.Errorf("failed to clear prompt history: %w", err)
 	}
@@ -220,8 +259,8 @@ func (h *HistoryStore) ClearPromptHistory(host, org, project string) error {
 	return nil
 }
 
-// ClearCommandHistory clears all command history for a given host/org/project
-func (h *HistoryStore) ClearCommandHistory(host, org, project string) error {
+// ClearCommandHistory clears all command history for a given host/org/project/branch
+func (h *HistoryStore) ClearCommandHistory(host, org, project, branch string) error {
 	// Get repository
 	repo, err := h.db.GetRepository(host, org, project)
 	if err != nil {
@@ -231,7 +270,16 @@ func (h *HistoryStore) ClearCommandHistory(host, org, project string) error {
 		return nil // No repository means nothing to clear
 	}
 
-	_, err = h.db.conn.Exec("DELETE FROM command_history WHERE repository_id = ?", repo.ID)
+	// Get branch
+	branchRecord, err := h.db.GetBranch(repo.ID, branch)
+	if err != nil {
+		return err
+	}
+	if branchRecord == nil {
+		return nil // No branch means nothing to clear
+	}
+
+	_, err = h.db.conn.Exec("DELETE FROM command_history WHERE branch_id = ?", branchRecord.ID)
 	if err != nil {
 		return fmt.Errorf("failed to clear command history: %w", err)
 	}

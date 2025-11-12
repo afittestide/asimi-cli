@@ -1191,11 +1191,9 @@ func generateSessionID() string {
 }
 
 func branchSlugOrDefault(branch string) string {
-	if branch == "" {
-		branch = "main"
-	}
-
 	slug := sanitizeSegment(branch)
+	// TODO: pick a better default branch for cases when working outside repo,
+	//       to avoid a collision make it illegal in git.
 	if slug == "" {
 		return "main"
 	}
@@ -1330,4 +1328,3 @@ func sanitizeSegment(value string) string {
 	}
 	return strings.Trim(b.String(), "-")
 }
-
