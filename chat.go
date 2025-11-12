@@ -58,10 +58,10 @@ func NewChatComponent(width, height int) ChatComponent {
 
 	slog.Debug("[TIMING] Markdown renderer initialized", "load time", time.Since(rendererStart), "err", err)
 
-	/* TODO: Change the return values to *ChatComponent, err and return an err if failed
+	/* TODO: Change the return values to *ChatComponent
 	if err != nil {
 		slog.Error("Failed to initialize markdown renderer", "error", err)
-		return nil, err
+		return nil
 	}
 	*/
 
@@ -161,8 +161,12 @@ func (c *ChatComponent) AddShellCommandResult(msg shellCommandResultMsg) {
 	}
 
 	if msg.stderr != "" {
-		lines = append(lines, "stderr:")
-		lines = append(lines, splitShellLines(msg.stderr)...)
+		// Style stderr lines in yellow using theme color
+		stderrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(globalTheme.Warning))
+		stderrLines := splitShellLines(msg.stderr)
+		for _, line := range stderrLines {
+			lines = append(lines, stderrStyle.Render(line))
+		}
 	}
 
 	if len(lines) == 0 {
