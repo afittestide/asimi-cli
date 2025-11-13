@@ -54,6 +54,9 @@ vi_mode = true
 # verbose = false
 
 [run_in_shell]
+# Timeout for shell commands in minutes (default: 10)
+# timeout_minutes = 10
+
 # Commands to run on host instead of in container (array of regex patterns)
 # Useful for commands that need host authentication or configuration
 # Examples: GitHub CLI (gh), Docker, kubectl, etc.

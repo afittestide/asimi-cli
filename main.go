@@ -36,6 +36,7 @@ var cli struct {
 	Version       bool   `help:"Print version information"`
 	Prompt        string `short:"p" help:"Prompt to send to the agent"`
 	Debug         bool   `help:"Enable debug logging"`
+	NoCleanup     bool   `help:"Don't remove container on exit (for debugging)"`
 	CPUProfile    string `help:"Write CPU profile to file"`
 	MemProfile    string `help:"Write memory profile to file"`
 	Trace         string `help:"Write execution trace to file"`

@@ -27,6 +27,7 @@ type PodmanShellRunner struct {
 	imageName        string
 	containerName    string
 	allowFallback    bool
+	noCleanup        bool // Skip container removal on exit (for debugging)
 	config           *Config
 	repoInfo         RepoInfo
 	mu               sync.Mutex
@@ -53,10 +54,15 @@ type commandOutput struct {
 
 func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
+	noCleanup := false
+	if config != nil && config.LLM.PodmanNoCleanup {
+		noCleanup = true
+	}
 	return &PodmanShellRunner{
 		imageName:     "localhost/asimi-shell:latest",
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
+		noCleanup:     noCleanup,
 		config:        config,
 		repoInfo:      repoInfo,
 		stdinPipe:     nil,
@@ -372,12 +378,16 @@ func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
 
 // createContainer creates and starts a new container
 func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
-	slog.Debug("creating new container", "image", r.imageName, "containerName", r.containerName)
+	slog.Debug("creating new container", "image", r.imageName, "containerName", r.containerName, "noCleanup", r.noCleanup)
 
 	s := specgen.NewSpecGenerator(r.imageName, false)
 	s.Name = r.containerName
-	autoRemove := true
+	// Only auto-remove if not in no-cleanup mode
+	autoRemove := !r.noCleanup
 	s.Remove = &autoRemove
+	if r.noCleanup {
+		slog.Info("Container will NOT be auto-removed on exit (--no-cleanup flag set)")
+	}
 
 	// Disable TTY to keep stdout and stderr separate
 	terminal := false
@@ -491,9 +501,12 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	}
 	slog.Debug("command written to stdin successfully")
 
-	// Get timeout from config or use default of 120 seconds
-	timeout := 120 * time.Second
-	// TODO: Use config.LLM.PodmanShellTimeoutMs when available
+	// Get timeout from config or use default of 10 minutes
+	timeoutMinutes := 10
+	if r.config != nil && r.config.RunInShell.TimeoutMinutes > 0 {
+		timeoutMinutes = r.config.RunInShell.TimeoutMinutes
+	}
+	timeout := time.Duration(timeoutMinutes) * time.Minute
 	slog.Debug("using timeout", "timeout", timeout)
 
 	// Wait for output to be ready with timeout
@@ -501,12 +514,19 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	case <-cmd.ready:
 		slog.Debug("command output ready", "id", id)
 	case <-time.After(timeout):
-		slog.Error("timeout waiting for command output", "id", id, "cmd", params.Command)
+		slog.Warn("timeout waiting for command output", "id", id, "cmd", params.Command, "timeout", timeout)
 		// Clean up map entry
 		r.outputsMu.Lock()
 		delete(r.outputs, id)
 		r.outputsMu.Unlock()
-		return RunInShellOutput{}, fmt.Errorf("timeout waiting for command output")
+
+		// Return timeout as command output, not as a harness error
+		// This allows the LLM to see the timeout and handle it appropriately
+		return RunInShellOutput{
+			Stdout:   "",
+			Stderr:   fmt.Sprintf("Command timed out after %v", timeout),
+			ExitCode: "124", // Standard timeout exit code
+		}, nil
 	}
 
 	// Retrieve output from map
@@ -524,9 +544,50 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	return output, nil
 }
 
-// Close closes the container attachment, stops and removes the container.
+// Restart resets the container attachment to recover from connection errors.
+// The container keeps running, we just close and clear the pipes so they'll be
+// re-established on the next command.
+func (r *PodmanShellRunner) Restart(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	slog.Info("restarting container attachment", "containerName", r.containerName)
+
+	// Close existing pipes if they exist
+	if r.stdinPipe != nil {
+		r.stdinPipe.Close()
+		r.stdinPipe = nil
+	}
+	if r.stdoutPipe != nil {
+		r.stdoutPipe.Close()
+		r.stdoutPipe = nil
+	}
+	if r.stderrPipe != nil {
+		r.stderrPipe.Close()
+		r.stderrPipe = nil
+	}
+
+	// Clear any pending outputs
+	r.outputsMu.Lock()
+	for id, cmd := range r.outputs {
+		select {
+		case <-cmd.ready:
+			// Already closed
+		default:
+			close(cmd.ready)
+		}
+		delete(r.outputs, id)
+		slog.Debug("cleared pending command during restart", "id", id)
+	}
+	r.outputsMu.Unlock()
+
+	slog.Info("container attachment restarted - will reconnect on next command")
+	return nil
+}
+
+// Close closes the container attachment, stops and optionally removes the container.
 func (r *PodmanShellRunner) Close(ctx context.Context) error {
-	slog.Debug("closing podman shell runner")
+	slog.Debug("closing podman shell runner", "noCleanup", r.noCleanup)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -549,7 +610,7 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 	r.stdoutPipe = nil
 	r.stderrPipe = nil
 
-	// Stop and remove the container if we have a connection
+	// Stop and optionally remove the container if we have a connection
 	if r.conn != nil {
 		slog.Debug("stopping container", "containerName", r.containerName)
 		timeout := uint(5)
@@ -557,10 +618,16 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 			slog.Warn("failed to stop container", "error", err)
 		}
 
-		slog.Debug("removing container", "containerName", r.containerName)
-		force := true
-		if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{Force: &force}); err != nil {
-			slog.Warn("failed to remove container", "error", err)
+		// Only remove the container if not in no-cleanup mode
+		if !r.noCleanup {
+			slog.Debug("removing container", "containerName", r.containerName)
+			force := true
+			if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{Force: &force}); err != nil {
+				slog.Warn("failed to remove container", "error", err)
+			}
+		} else {
+			slog.Info("Container NOT removed (--no-cleanup flag set)", "containerName", r.containerName)
+			slog.Info("To manually remove the container later, run:", "command", fmt.Sprintf("podman rm -f %s", r.containerName))
 		}
 	}
 

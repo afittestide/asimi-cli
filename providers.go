@@ -96,6 +96,10 @@ func ProvideConfig(logger *slog.Logger) (*Config, error) {
 			},
 		}
 	}
+	// Override from CLI flag
+	if cli.NoCleanup {
+		config.LLM.PodmanNoCleanup = true
+	}
 	logger.Info("configuration loaded")
 	return config, nil
 }

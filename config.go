@@ -95,6 +95,7 @@ type LLMConfig struct {
 	BashMaxOutputLength           int               `koanf:"bash_max_output_length"`
 	BashMaintainProjectWorkingDir bool              `koanf:"bash_maintain_project_working_dir"`
 	PodmanAllowHostFallback       bool              `koanf:"sheel_command_fallback_to_host"`
+	PodmanNoCleanup               bool              `koanf:"podman_no_cleanup"`
 	ApiKeyHelperTtlMs             int               `koanf:"api_key_helper_ttl_ms"`
 	SkipAutoInstall               bool              `koanf:"skip_auto_install"`
 	MaxOutputTokens               int               `koanf:"max_output_tokens"`
@@ -213,6 +214,8 @@ type RunInShellConfig struct {
 	// RunOnHost is a list of regex patterns for commands that should run on the host
 	// instead of in the container
 	RunOnHost []string `koanf:"run_on_host"`
+	// TimeoutMinutes is the timeout for shell commands in minutes (default: 10)
+	TimeoutMinutes int `koanf:"timeout_minutes"`
 }
 
 // LoadConfig loads configuration from multiple sources
