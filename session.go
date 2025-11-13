@@ -550,7 +550,7 @@ func (s *Session) processToolCalls(ctx context.Context, toolCalls []llms.ToolCal
 				Parts: []llms.ContentPart{llms.ToolCallResponse{
 					ToolCallID: tc.ID,
 					Name:       name,
-					Content:    fmt.Sprintf("error: tool call loop detected after %d attempts", s.toolCallRepetitionCount),
+					Content:    fmt.Sprintf("error: tool call loop detected after %d attempts, please try a different approach", s.toolCallRepetitionCount),
 				}},
 			})
 			return toolMessages, true // shouldReturn = true
