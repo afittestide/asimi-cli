@@ -1,0 +1,74 @@
+version: 2
+
+before:
+  hooks:
+    - go mod download
+    - go mod verify
+
+builds:
+  - id: asimi
+    binary: asimi
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -mod=vendor
+      - -tags=containers_image_openpgp
+
+archives:
+  - id: asimi
+    name_template: 'asimi_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  github:
+    owner: tuzig
+    name: asimi-cli
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Release {{ .Tag }}
+  footer: |
+    ---
+    **Full Changelog**: https://github.com/tuzig/asimi/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+# brews:
+#   - name: asimi
+#     repository:
+#       owner: tuzig
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+#     homepage: https://github.com/tuzig/asimi
+#     description: "AI-powered CLI assistant with container support"
+#     license: MIT
+#     folder: Formula
+#     install: |
+#       bin.install "asimi"
+#     test: |
+#       system "#{bin}/asimi", "--version"
