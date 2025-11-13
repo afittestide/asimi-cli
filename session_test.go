@@ -1315,7 +1315,7 @@ func TestSession_AskStream(t *testing.T) {
 }
 
 func TestChatComponent_AppendToLastMessage(t *testing.T) {
-	chat := NewChatComponent(80, 20)
+	chat := NewChatComponent(80, 20, false)
 
 	// Chat starts with a welcome message, so append to it first
 	chat.AppendToLastMessage(" Additional text")

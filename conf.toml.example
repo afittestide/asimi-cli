@@ -53,6 +53,11 @@ vi_mode = true
 # Verbose logging (default: false)
 # verbose = false
 
+[ui]
+# Enable markdown rendering for AI responses (default: false).
+# Set to true to re-enable the Glamour renderer; keep false for faster resizing.
+markdown_enabled = false
+
 [run_in_shell]
 # Timeout for shell commands in minutes (default: 10)
 # timeout_minutes = 10

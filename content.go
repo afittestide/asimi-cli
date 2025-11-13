@@ -51,12 +51,12 @@ type ContentComponent struct {
 }
 
 // NewContentComponent creates a new content component
-func NewContentComponent(width, height int) ContentComponent {
+func NewContentComponent(width, height int, markdownEnabled bool) ContentComponent {
 	return ContentComponent{
 		activeView:     ViewChat,
 		width:          width,
 		height:         height,
-		chat:           NewChatComponent(width, height),
+		chat:           NewChatComponent(width, height, markdownEnabled),
 		help:           NewHelpWindow(),
 		models:         NewModelsWindow(),
 		resume:         NewResumeWindow(),

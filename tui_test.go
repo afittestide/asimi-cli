@@ -340,7 +340,7 @@ func TestPromptComponent(t *testing.T) {
 
 // TestChatComponent tests the chat component
 func TestChatComponent(t *testing.T) {
-	chat := NewChatComponent(50, 10)
+	chat := NewChatComponent(50, 10, false)
 
 	// Should have initial welcome message
 	require.Equal(t, 1, len(chat.Messages))

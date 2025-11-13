@@ -108,6 +108,11 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 	status := NewStatusComponent(80)
 	status.SetRepoInfo(repoInfo)
 
+	markdownEnabled := false
+	if config != nil {
+		markdownEnabled = config.UI.MarkdownEnabled
+	}
+
 	model := &TUIModel{
 		config: config,
 		// width:  80, // Default width
@@ -117,7 +122,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 		// Initialize components
 		status:         status,
 		prompt:         prompt,
-		content:        NewContentComponent(80, 18),
+		content:        NewContentComponent(80, 18, markdownEnabled),
 		completions:    NewCompletionDialog(),
 		commandLine:    NewCommandLineComponent(),
 		modal:          nil,
@@ -1489,7 +1494,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Rebuild chat UI from messages
 			chat := m.content.GetChat()
-			*chat = NewChatComponent(chat.Width, chat.Height)
+			markdownEnabled := false
+			if m.config != nil {
+				markdownEnabled = m.config.UI.MarkdownEnabled
+			}
+			*chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {

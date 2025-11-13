@@ -28,6 +28,7 @@ type Config struct {
 	Database   DatabaseConfig   `koanf:"database"`
 	Storage    StorageConfig    `koanf:"storage"`
 	Logging    LoggingConfig    `koanf:"logging"`
+	UI         UIConfig         `koanf:"ui"`
 	LLM        LLMConfig        `koanf:"llm"`
 	History    HistoryConfig    `koanf:"history"`
 	Permission PermissionConfig `koanf:"permission"`
@@ -134,6 +135,11 @@ type HistoryConfig struct {
 	SaveInterval int  `koanf:"save_interval"`
 }
 
+// UIConfig holds UI-specific configuration
+type UIConfig struct {
+	MarkdownEnabled bool `koanf:"markdown_enabled"`
+}
+
 // defaultConfig returns the configuration populated with sensible defaults.
 func defaultConfig() Config {
 	homeDir, _ := os.UserHomeDir()
@@ -150,6 +156,9 @@ func defaultConfig() Config {
 			ListLimit:    0,
 			AutoSave:     false,
 			SaveInterval: 300,
+		},
+		UI: UIConfig{
+			MarkdownEnabled: false,
 		},
 		Session: SessionConfig{
 			Enabled:      true,

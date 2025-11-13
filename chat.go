@@ -30,6 +30,7 @@ type ChatComponent struct {
 
 	// Markdown rendering
 	markdownRenderer *glamour.TermRenderer
+	markdownEnabled  bool
 
 	// Raw session history for debugging/inspection
 	rawSessionHistory []string
@@ -45,25 +46,21 @@ const (
 )
 
 // NewChatComponent creates a new chat component
-func NewChatComponent(width, height int) ChatComponent {
+func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
 	vp := viewport.New(width, height)
 	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
 
-	rendererStart := time.Now()
-	// Create the renderer (this is the expensive operation, done async)
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(width-4),
-	)
+	var renderer *glamour.TermRenderer
+	if markdownEnabled {
+		rendererStart := time.Now()
+		var err error
+		renderer, err = glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(width-4),
+		)
 
-	slog.Debug("[TIMING] Markdown renderer initialized", "load time", time.Since(rendererStart), "err", err)
-
-	/* TODO: Change the return values to *ChatComponent
-	if err != nil {
-		slog.Error("Failed to initialize markdown renderer", "error", err)
-		return nil
+		slog.Debug("[TIMING] Markdown renderer initialized", "load time", time.Since(rendererStart), "err", err)
 	}
-	*/
 
 	return ChatComponent{
 		Viewport:             vp,
@@ -75,7 +72,8 @@ func NewChatComponent(width, height int) ChatComponent {
 		TouchStartY:          0,     // Initialize touch tracking
 		TouchDragging:        false,
 		TouchScrollSpeed:     3,        // Lines to scroll per touch movement unit
-		markdownRenderer:     renderer, // Will be initialized asynchronously via message
+		markdownRenderer:     renderer, // Only set when markdown rendering is enabled
+		markdownEnabled:      markdownEnabled,
 		rawSessionHistory:    make([]string, 0),
 		toolCallMessageIndex: make(map[string]int),
 		Style: lipgloss.NewStyle().
@@ -91,10 +89,10 @@ func (c *ChatComponent) SetWidth(width int) {
 	c.Style = c.Style.Width(width)
 	c.Viewport.Width = width
 
-	// Only create renderer if it doesn't exist yet
+	// Only create renderer if it doesn't exist yet and markdown is enabled
 	// Glamour renderer creation is expensive (~5s on first WindowSizeMsg)
 	// so we reuse the existing renderer and just update the content
-	if c.markdownRenderer == nil {
+	if c.markdownEnabled && c.markdownRenderer == nil {
 		renderer, err := glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
 			glamour.WithWordWrap(width-4),
@@ -332,18 +330,25 @@ func (c *ChatComponent) UpdateContent() {
 
 // renderMarkdown renders markdown content with glamour
 func (c *ChatComponent) renderMarkdown(content string) string {
-	if c.markdownRenderer == nil {
-		// Fallback to plain text if renderer is not available
-		return content
+	if !c.markdownEnabled || c.markdownRenderer == nil {
+		return c.renderPlainText(content)
 	}
 
 	rendered, err := c.markdownRenderer.Render(content)
 	if err != nil {
 		// Fallback to plain text on error
-		return content
+		return c.renderPlainText(content)
 	}
 
 	return strings.TrimSpace(rendered)
+}
+
+func (c *ChatComponent) renderPlainText(content string) string {
+	width := c.Width - 2
+	if width < 1 {
+		width = 1
+	}
+	return strings.TrimSpace(wordwrap.String(content, width))
 }
 
 // extractThinkingContent separates thinking content from regular content
