@@ -240,6 +240,10 @@ func (failingPodmanRunner) Run(ctx context.Context, params RunInShellInput) (Run
 	return RunInShellOutput{}, PodmanUnavailableError{reason: "podman unavailable"}
 }
 
+func (failingPodmanRunner) Restart(ctx context.Context) error {
+	return nil
+}
+
 func TestValidatePathWithinProject(t *testing.T) {
 	// Create a temporary directory to act as project root
 	tempDir := t.TempDir()

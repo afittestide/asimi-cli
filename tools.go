@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -497,6 +498,7 @@ type RunInShellOutput struct {
 
 type shellRunner interface {
 	Run(context.Context, RunInShellInput) (RunInShellOutput, error)
+	Restart(context.Context) error
 }
 
 var (
@@ -587,17 +589,34 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	}
 
 	var output RunInShellOutput
+	var runErr error
+
 	// Check if command should run on host based on config patterns
 	if t.shouldRunOnHost(params.Command) {
 		// Run directly on host
-		output, err = hostShellRunner{}.Run(ctx, params)
+		output, runErr = hostShellRunner{}.Run(ctx, params)
 	} else {
 		runner := getShellRunner()
-		output, err = runner.Run(ctx, params)
+		output, runErr = runner.Run(ctx, params)
+
+		// If we got a harness error, try to restart and retry once
+		if runErr != nil {
+			slog.Warn("Shell runner failed", "error", runErr)
+
+			// Try to restart the container connection
+			if restartErr := runner.Restart(ctx); restartErr != nil {
+				// If restart fails, return the original error
+				return "", fmt.Errorf("command failed and restart failed: %w (restart error: %v)", runErr, restartErr)
+			}
+
+			// Retry the command once after restart
+			output, runErr = runner.Run(ctx, params)
+			slog.Info("bash: Command Finished", "error", runErr)
+		}
 	}
 
-	if err != nil {
-		return "", err
+	if runErr != nil {
+		return "", runErr
 	}
 
 	outputBytes, err := json.Marshal(output)
@@ -670,6 +689,11 @@ func (t RunInShell) Format(input, result string, err error) string {
 }
 
 type hostShellRunner struct{}
+
+func (hostShellRunner) Restart(ctx context.Context) error {
+	// Host shell runner doesn't maintain state, nothing to restart
+	return nil
+}
 
 func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	var output RunInShellOutput
@@ -821,7 +845,6 @@ func (t ReadManyFilesTool) Format(input, result string, err error) string {
 
 	return firstLine + "\n" + secondLine
 }
-
 
 type Tool interface {
 	tools.Tool

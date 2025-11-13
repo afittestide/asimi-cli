@@ -50,6 +50,12 @@ type Session struct {
 	accumulatedContent      strings.Builder         `json:"-"`
 	config                  *LLMConfig              `json:"-"`
 	startTime               time.Time               `json:"-"`
+
+	// Token counts - updated when messages/context changes
+	systemPromptTokens int `json:"-"`
+	systemToolsTokens  int `json:"-"`
+	memoryFilesTokens  int `json:"-"`
+	messagesTokens     int `json:"-"`
 }
 
 // formatMetadata returns the metadata header used by export helpers.
@@ -199,20 +205,26 @@ func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify Notif
 	s.scheduler = NewCoreToolScheduler(s.notify)
 	s.ContextFiles = make(map[string]string)
 	s.startTime = time.Now()
+	s.updateTokenCounts()
 	return s, nil
 }
 
 // AddContextFile adds file content to the context for the next prompt
 func (s *Session) AddContextFile(path, content string) {
 	s.ContextFiles[path] = content
+	// Invalidate context cache since context files changed
+	s.updateTokenCounts()
 }
 
 // ClearContext removes all dynamically added file content from the context
 func (s *Session) ClearContext() {
 	s.ContextFiles = make(map[string]string)
+	// Invalidate context cache since context files changed
+	s.updateTokenCounts()
 }
 
 // ClearHistory clears the conversation history but keeps the system message
+// TODO: rename to ClearMessages
 func (s *Session) ClearHistory() {
 	// Keep only the system message (first message)
 	if len(s.Messages) > 0 && s.Messages[0].Role == llms.ChatMessageTypeSystem {
@@ -224,6 +236,9 @@ func (s *Session) ClearHistory() {
 	// Reset tool call tracking
 	s.lastToolCallKey = ""
 	s.toolCallRepetitionCount = 0
+
+	// Invalidate context cache since messages changed
+	s.updateTokenCounts()
 
 	// Reset session start time
 	s.startTime = time.Now()
@@ -378,6 +393,8 @@ func (s *Session) prepareUserMessage(prompt string) {
 		Role:  llms.ChatMessageTypeHuman,
 		Parts: []llms.ContentPart{llms.TextPart(fullPrompt)},
 	})
+	// Invalidate context cache since messages changed
+	s.updateTokenCounts()
 }
 
 func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ctx context.Context, chunk []byte) error) (*llms.ContentChoice, error) {
@@ -435,6 +452,8 @@ func (s *Session) appendMessages(content string, toolCalls []llms.ToolCall) {
 			Role:  llms.ChatMessageTypeAI,
 			Parts: parts,
 		})
+		// Invalidate context cache since messages changed
+		s.updateTokenCounts()
 	}
 }
 
@@ -481,6 +500,8 @@ func (s *Session) RollbackTo(snapshot int) {
 	}
 	if snapshot < len(s.Messages) {
 		s.Messages = s.Messages[:snapshot]
+		// Invalidate context cache since messages changed
+		s.updateTokenCounts()
 	}
 
 	// Reset tool loop detection state when rolling back
@@ -635,6 +656,8 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		toolMessages, shouldReturn := s.processToolCalls(ctx, choice.ToolCalls)
 		if len(toolMessages) > 0 {
 			s.Messages = append(s.Messages, toolMessages...)
+			// Invalidate context cache since messages changed
+			s.updateTokenCounts()
 		}
 
 		if shouldReturn {
@@ -766,6 +789,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 			toolMessages, shouldReturn := s.processToolCalls(ctx, choice.ToolCalls)
 			if len(toolMessages) > 0 {
 				s.Messages = append(s.Messages, toolMessages...)
+				// Invalidate context cache since messages changed
+				s.updateTokenCounts()
 			}
 
 			if shouldReturn {
@@ -935,6 +960,14 @@ func (s *Session) GetSessionDuration() time.Duration {
 	return time.Since(s.startTime)
 }
 
+// updateTokenCounts recalculates and stores token counts for all context components
+func (s *Session) updateTokenCounts() {
+	s.systemPromptTokens = s.CountSystemPromptTokens()
+	s.systemToolsTokens = s.CountSystemToolsTokens()
+	s.memoryFilesTokens = s.CountMemoryFilesTokens()
+	s.messagesTokens = s.CountMessagesTokens()
+}
+
 // GetContextUsagePercent returns the percentage of context used (0-100)
 func (s *Session) GetContextUsagePercent() float64 {
 	info := s.GetContextInfo()
@@ -1021,6 +1054,7 @@ func (s *Session) CompactHistory(ctx context.Context, compactPrompt string) (str
 	if err != nil {
 		// Restore original messages on error
 		s.Messages = originalMessages
+		s.updateTokenCounts()
 		return "", fmt.Errorf("failed to generate summary: %w", err)
 	}
 
@@ -1045,6 +1079,9 @@ func (s *Session) CompactHistory(ctx context.Context, compactPrompt string) (str
 	// Reset tool call tracking
 	s.lastToolCallKey = ""
 	s.toolCallRepetitionCount = 0
+
+	// Invalidate context cache since messages changed
+	s.updateTokenCounts()
 
 	return summary, nil
 }

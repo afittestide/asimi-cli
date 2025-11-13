@@ -15,16 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Context validation error when interrupting tool execution (issue #37)
 - Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
+- Command timeout is now returned as command output (with exit code 124) instead of harness error
+- Harness errors (connection failures) now trigger automatic container restart and command retry
+
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
   - Accepts raw access token format
   - Accepts full JSON format with refresh token and expiry
   - Accepts base64-encoded JSON (useful when copying from macOS Keychain)
+- Configuration option `run_in_shell.timeout_minutes` to set shell command timeout (default: 10 minutes)
 - :! <cmd> - running in the container, to verify `:!uname -a`
 - :resume to resume session
 - :init - analyzes the project and creates a `.agents/asimi.conf`, `
 - Each branch has its own prompt & command history
-- 
 
 ### Changed
 

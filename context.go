@@ -57,15 +57,17 @@ type ContextInfo struct {
 
 // GetContextInfo returns detailed information about context usage.
 func (s *Session) GetContextInfo() ContextInfo {
+	s.updateTokenCounts()
+
 	info := ContextInfo{
-		Model:       s.getModelName(),
-		TotalTokens: s.getModelContextSize(),
+		Model:              s.getModelName(),
+		TotalTokens:        s.getModelContextSize(),
+		SystemPromptTokens: s.systemPromptTokens,
+		SystemToolsTokens:  s.systemToolsTokens,
+		MemoryFilesTokens:  s.memoryFilesTokens,
+		MessagesTokens:     s.messagesTokens,
 	}
 
-	info.SystemPromptTokens = s.CountSystemPromptTokens()
-	info.SystemToolsTokens = s.CountSystemToolsTokens()
-	info.MemoryFilesTokens = s.CountMemoryFilesTokens()
-	info.MessagesTokens = s.CountMessagesTokens()
 	info.UsedTokens = info.SystemPromptTokens + info.SystemToolsTokens + info.MemoryFilesTokens + info.MessagesTokens
 
 	buffer := int(math.Round(float64(info.TotalTokens) * autocompactBufferRatio))
