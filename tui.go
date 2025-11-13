@@ -1896,7 +1896,8 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 	if commandLineView != "" {
 		commandLineHeight = 1
 	}
-	bottomOffset := commandLineHeight
+	// TODO: bring it down and cover part of the prompt. Need to wait for bubbletea 2.0
+	bottomOffset := commandLineHeight + lipgloss.Height(promptView)
 
 	dialogHeight := lipgloss.Height(dialog)
 	yPos := m.height - bottomOffset - dialogHeight
