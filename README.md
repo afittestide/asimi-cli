@@ -4,12 +4,10 @@
 
 Asimi is an opinionated command-line interface that brings AI-powered coding assistance directly to your terminal. Built with modern Go libraries and a focus on developer experience, Asimi helps you write better code faster.
 
-> TLDR; `just run`, `:login`, `:init`
-
 ## ✨ Features
 
   📦 **Integrated Podman Sandboxes** - Agent's shell run in its own container
-- 🎨 **vi mimicry ** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
+- 🎨 **vi mimicry** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
 - 🤖 **Multiple AI Providers** - Support for Ollama and Claude foe now. More are comming [TODO: Add a link to issues with a label of "new providers"]
 -  **Less Clutter** - Asimi's special files are under `.agents` directory and TOML is used for .conf
 - 🔧 Fast Shell** - Asimi's persistent, containerized shell is >100 times faster than the others
@@ -23,31 +21,23 @@ We're still missing MCP support. If it's critical for you, please consider helpi
 
 Please choose your installer flavor:
 
-### Brew
-
-```
-brew install asimi
-```
-
-### Download Binaries
-
-TODO: add link to latest release page
-
-### One line installer
-
-TODO: add a one line installer . The script will be part installed at https://asimi.dev/installer
-
 ### Go
 
-
 ```bash
-go install github.com/asimi/asimi-cli
-./asimi
+go install github.com/affitestide/asimi-cli
 ```
 
+### Binaries
+
+Downloand the binary from your platform from [latest releases](https://github.com/afittestide/asimi-cli/releases/latest) and copy to your favorite bin dir
+
+### One liner
+
+TODO: add a one line installer probably at https://asimi.dev/installer
 
 ### First Steps
 
+After To start Asimi in interactive mode type `asimi`. 
 1. **Add the infrastructure to your project**
    `:init` To add:
 
