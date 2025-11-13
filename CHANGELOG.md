@@ -7,16 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- non-vi mode is no longer supported - vi FTW!
+- `/` is just a slash. Use `:` to enter command mode
+
+### Fixed
+- Context validation error when interrupting tool execution (issue #37)
+- Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
   - Accepts raw access token format
   - Accepts full JSON format with refresh token and expiry
   - Accepts base64-encoded JSON (useful when copying from macOS Keychain)
+- :! <cmd> - running in the container, to verify `:!uname -a`
+- :resume to resume session
+- :init - analyzes the project and creates a `.agents/asimi.conf`, `
+- Each branch has its own prompt & command history
+- 
 
-### Fixed
-- `ANTHROPIC_OAUTH_TOKEN` now properly handles multiple input formats without JSON unmarshalling errors
-- Context validation error when interrupting tool execution (issue #37)
-- Test failure in CI when repository is forked or has different organization name
+### Changed
+
+
 
 ## [0.1.0] - 2025/11/1
 

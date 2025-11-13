@@ -29,7 +29,9 @@ go install github.com/affitestide/asimi-cli
 
 ### Binaries
 
-Downloand the binary from your platform from [latest releases](https://github.com/afittestide/asimi-cli/releases/latest) and copy to your favorite bin dir
+TODO: Release 0.2.0
+
+Download the binary from your platform from [latest releases](https://github.com/afittestide/asimi-cli/releases/latest) and copy to your favorite bin directory e.g, `/usr/local/bin`.
 
 ### One liner
 
