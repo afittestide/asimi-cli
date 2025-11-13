@@ -553,6 +553,15 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// If not handled by history, pass to textarea for navigation
 		m.prompt, _ = m.prompt.Update(msg)
 		return m, nil
+	case "enter":
+		// Only submit from actual normal mode to avoid interfering with visual selections
+		if !m.prompt.IsViNormalMode() {
+			break
+		}
+		if m.prompt.Value() == "" {
+			return m, nil
+		}
+		return m.handleEnterKey()
 	}
 
 	// Handle mode switching keys

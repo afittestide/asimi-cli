@@ -210,3 +210,22 @@ func TestViModeHistoryNavigationWithKJ(t *testing.T) {
 	assert.Equal(t, 2, updatedModel.historyCursor)
 	assert.Equal(t, "current", updatedModel.prompt.Value())
 }
+
+func TestViNormalModeEnterSubmitsPrompt(t *testing.T) {
+	config := &Config{}
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
+
+	model.prompt.SetValue("ship it")
+	model.prompt.EnterViNormalMode()
+
+	newModel, cmd := model.handleViNormalMode(tea.KeyMsg{Type: tea.KeyEnter})
+	assert.Nil(t, cmd)
+
+	updatedModel, ok := newModel.(TUIModel)
+	assert.True(t, ok)
+	assert.Equal(t, "", updatedModel.prompt.Value(), "Prompt should clear after submission")
+
+	chat := updatedModel.content.GetChat()
+	assert.NotEmpty(t, chat.Messages)
+	assert.Equal(t, "You: ship it", chat.Messages[len(chat.Messages)-1])
+}

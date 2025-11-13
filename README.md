@@ -173,6 +173,11 @@ provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 vi_mode = true  # Enable vi-style keybindings (default: true)
 max_output_tokens = 4096
+
+[ui]
+# Toggle Glamour-based markdown rendering (default: false). Set to true for full markdown.
+markdown_enabled = false
+
 [run_in_shell]
 # Commands regex to run on the host instead of the container
 run_on_host = ['^gh ']
@@ -187,6 +192,7 @@ run_on_host = ['^gh ']
 - **`model`** - Model name (provider-specific)
 - **`max_output_tokens`** - Maximum tokens in AI responses
 - **`max_turns`** - Maximum conversation turns before stopping
+- **`ui.markdown_enabled`** - Enable Glamour markdown rendering when `true` (default: `false`); when `false`, Asimi uses lightweight word wrapping for faster UI resizing. Override via `ASIMI_UI_MARKDOWN_ENABLED=true|false`.
 
 ### Environment Variables
 

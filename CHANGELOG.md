@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
 - Command timeout is now returned as command output (with exit code 124) instead of harness error
 - Harness errors (connection failures) now trigger automatic container restart and command retry
+- Enter now submits prompts directly from vi normal mode when the prompt is non-empty (#32)
 
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :resume to resume session
 - :init - analyzes the project and creates a `.agents/asimi.conf`, `
 - Each branch has its own prompt & command history
+- `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
 
 ### Changed
 
@@ -36,5 +38,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2025/11/1
 
 A development snapshort made for a friend. Not production ready at all.
-
 
