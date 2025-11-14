@@ -301,10 +301,15 @@ func (s *Session) checkToolCallLoop(name, argsJSON string) bool {
 	return false
 }
 
-// removeUnmatchedToolCalls removes any trailing assistant messages with tool calls
+// sanitizeMessages removes any trailing assistant messages with tool calls
 // that don't have corresponding tool responses. This prevents errors when the agent
-// is interrupted mid-execution.
-func (s *Session) removeUnmatchedToolCalls() {
+// is interrupted mid-execution. Can be disabled via config.
+func (s *Session) sanitizeMessages() {
+	// Check if sanitization is disabled
+	if s.config != nil && s.config.DisableContextSanitization {
+		return
+	}
+
 	if len(s.Messages) == 0 {
 		return
 	}
@@ -386,7 +391,7 @@ func (s *Session) removeUnmatchedToolCalls() {
 // prepareUserMessage builds the prompt with context and adds it to the message history
 func (s *Session) prepareUserMessage(prompt string) {
 	// Before adding a new user message, check for and remove any unmatched tool calls
-	s.removeUnmatchedToolCalls()
+	s.sanitizeMessages()
 
 	fullPrompt := s.buildPromptWithContext(prompt)
 	s.Messages = append(s.Messages, llms.MessageContent{
@@ -413,8 +418,12 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	}
 
 	// Remove any unmatched tool calls from context before sending to API
-	s.removeUnmatchedToolCalls()
+	s.sanitizeMessages()
 
+	/* TODO: Add to options so we can get the reasoning displayed
+	**       onReasoning should be a member pointing to a function set by the creator
+	llms.WithStreamingReasoningFunc(s.onReasoning)
+	*/
 	// Attempt with explicit tool choice first.
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {

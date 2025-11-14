@@ -260,7 +260,7 @@ func (s *SessionStore) saveSessionSync(session *Session) error {
 	}
 
 	// Remove unmatched tool calls before saving
-	session.removeUnmatchedToolCalls()
+	session.sanitizeMessages()
 
 	// Don't save empty sessions (only system messages)
 	hasUserContent := false

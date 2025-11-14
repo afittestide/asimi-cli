@@ -120,6 +120,7 @@ type LLMConfig struct {
 	MaxMcpOutputTokens            int               `koanf:"max_mcp_output_tokens"`
 	UseBuiltinRipgrep             bool              `koanf:"use_builtin_ripgrep"`
 	MaxTurns                      int               `koanf:"max_turns"`
+	DisableContextSanitization    bool              `koanf:"disable_sanitization"`
 	// OAuth tokens (optional) when authenticating via OAuth2
 	AuthToken    string `koanf:"auth_token"`
 	RefreshToken string `koanf:"refresh_token"`
