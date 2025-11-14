@@ -697,12 +697,12 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleCtrlZ handles Ctrl+Z to send the application to background
 func (m TUIModel) handleCtrlZ() (tea.Model, tea.Cmd) {
-	// Display message to user
-	// TODO: this doesn't show anywhere
-	fmt.Fprintf(os.Stderr, "\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
-
-	// Send SIGTSTP signal to self to suspend the process
-	return m, tea.Suspend
+	// TODO: Fix Ctrl+Z message not showing. tea.Println doesn't work here.
+	// Need to investigate proper way to show message before suspension.
+	return m, tea.Sequence(
+		tea.Println("⏸️  Asimi is now in the background. Use `fg` to restore."),
+		tea.Suspend,
+	)
 }
 
 // handleEscape handles the escape key and the first ctrl-c
@@ -1919,7 +1919,11 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 		commandLineHeight = 1
 	}
 	// TODO: bring it down and cover part of the prompt. Need to wait for bubbletea 2.0
-	bottomOffset := commandLineHeight + lipgloss.Height(promptView) + 1
+	bottomOffset := commandLineHeight + lipgloss.Height(promptView)
+	if m.completionMode == "file" {
+		// Command completion needs extra spacing
+		bottomOffset += 1
+	}
 
 	dialogHeight := lipgloss.Height(dialog)
 	yPos := m.height - bottomOffset - dialogHeight
