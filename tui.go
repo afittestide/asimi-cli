@@ -698,7 +698,8 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleCtrlZ handles Ctrl+Z to send the application to background
 func (m TUIModel) handleCtrlZ() (tea.Model, tea.Cmd) {
 	// Display message to user
-	m.content.GetChat().AddMessage("\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
+	// TODO: this doesn't show anywhere
+	fmt.Fprintf(os.Stderr, "\n⏸️  Asimi will be running in the background now. Use `fg` to restore.")
 
 	// Send SIGTSTP signal to self to suspend the process
 	return m, tea.Suspend
@@ -1526,6 +1527,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+			if m.session != nil {
+				m.session.updateTokenCounts()
+			}
 			m.sessionActive = true
 			timeStr := formatRelativeTime(msg.session.LastUpdated)
 			m.commandLine.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
@@ -1915,7 +1919,7 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 		commandLineHeight = 1
 	}
 	// TODO: bring it down and cover part of the prompt. Need to wait for bubbletea 2.0
-	bottomOffset := commandLineHeight + lipgloss.Height(promptView)
+	bottomOffset := commandLineHeight + lipgloss.Height(promptView) + 1
 
 	dialogHeight := lipgloss.Height(dialog)
 	yPos := m.height - bottomOffset - dialogHeight

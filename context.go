@@ -57,8 +57,6 @@ type ContextInfo struct {
 
 // GetContextInfo returns detailed information about context usage.
 func (s *Session) GetContextInfo() ContextInfo {
-	s.updateTokenCounts()
-
 	info := ContextInfo{
 		Model:              s.getModelName(),
 		TotalTokens:        s.getModelContextSize(),
