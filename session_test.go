@@ -585,7 +585,7 @@ func TestSession_RollbackResetsToolLoopDetection(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 

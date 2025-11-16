@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +25,15 @@ type RepoInfo struct {
 	IsWorktree   bool
 	IsMain       bool
 	status       string // Cached git status
+	LinesAdded   int    // Lines added in working directory
+	LinesDeleted int    // Lines deleted in working directory
+	repo         *gogit.Repository
+}
+
+// isMainBranch checks if the given branch name is considered a main branch.
+// Currently checks for "main" and "master".
+func isMainBranch(branch string) bool {
+	return branch == "main" || branch == "master"
 }
 
 // GetStatus returns a short git status string (e.g., "[!+]")
@@ -28,8 +42,153 @@ func (r *RepoInfo) GetStatus() string {
 	return r.status
 }
 
+// RefreshDiff recalculates diff statistics using gogit
+func (r *RepoInfo) RefreshDiff() {
+	if r.repo == nil {
+		return
+	}
+
+	// TODO: add support for non-worktree branches
+	worktree, err := r.repo.Worktree()
+	if err != nil {
+		return
+	}
+
+	repoPath := worktree.Filesystem.Root()
+	if repoPath == "" {
+		repoPath = r.ProjectRoot
+	}
+	if repoPath == "" {
+		return
+	}
+
+	headExists := true
+	if _, err := r.repo.Head(); err != nil {
+		headExists = false
+	}
+
+	added := 0
+	deleted := 0
+
+	if headExists {
+		added, deleted = collectDiffFromGit(repoPath, []string{"--numstat", "HEAD"})
+	} else {
+		slog.Debug("Getting diff for initial commit")
+		a, d := collectDiffFromGit(repoPath, []string{"--numstat", "--cached"})
+		added += a
+		deleted += d
+
+		a, d = collectDiffFromGit(repoPath, []string{"--numstat"})
+		added += a
+		deleted += d
+	}
+
+	r.LinesAdded = added
+	r.LinesDeleted = deleted
+	slog.Debug("Refreshed git diff", "+", added, "-", deleted)
+}
+
+func collectDiffFromGit(repoPath string, opts []string) (int, int) {
+
+	args := []string{"diff"}
+	args = append(args, opts...)
+	output, err := runGitCommand(repoPath, args...)
+	if err != nil {
+		slog.Debug("git diff failed", "args", strings.Join(args, " "), "err", err, "output", strings.TrimSpace(string(output)))
+		return 0, 0
+	}
+
+	return parseGitNumstat(output)
+}
+
+func runGitCommand(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return out, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return out, nil
+}
+
+func parseGitNumstat(data []byte) (int, int) {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	buf := make([]byte, 1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	added := 0
+	deleted := 0
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+
+		added += parseNumStatValue(parts[0])
+		deleted += parseNumStatValue(parts[1])
+	}
+
+	if err := scanner.Err(); err != nil {
+		slog.Debug("failed to parse git numstat output", "err", err)
+	}
+
+	return added, deleted
+}
+
+func parseNumStatValue(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "-" {
+		return 0
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
+// diffLines performs a simple line-based diff
+func diffLines(original, current []string) (added int, deleted int) {
+	// Create maps for quick lookup
+	origMap := make(map[string]int)
+	currMap := make(map[string]int)
+
+	for _, line := range original {
+		origMap[line]++
+	}
+
+	for _, line := range current {
+		currMap[line]++
+	}
+
+	// Count added lines (in current but not in original)
+	for line, count := range currMap {
+		origCount := origMap[line]
+		if count > origCount {
+			added += count - origCount
+		}
+	}
+
+	// Count deleted lines (in original but not in current)
+	for line, count := range origMap {
+		currCount := currMap[line]
+		if count > currCount {
+			deleted += count - currCount
+		}
+	}
+
+	return added, deleted
+}
+
 // GetRepoInfo returns information about the current git repository and worktree
 func GetRepoInfo() RepoInfo {
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return RepoInfo{}
@@ -91,17 +250,26 @@ func GetRepoInfo() RepoInfo {
 		branch = readBranchFromWorktree()
 	}
 
-	// Detect if branch is main/master
-	isMain := branch == "main" || branch == "master"
+	// Detect if branch is a main branch
+	isMain := isMainBranch(branch)
 
-	return RepoInfo{
+	repoInfo := RepoInfo{
 		ProjectRoot:  projectRoot,
 		WorktreePath: worktreePath,
 		Branch:       branch,
 		IsWorktree:   isWorktree,
 		IsMain:       isMain,
 		status:       status,
+		repo:         repo,
 	}
+
+	// Calculate diff stats if we have a repo and not skipping git status
+	if repo != nil && os.Getenv("ASIMI_SKIP_GIT_STATUS") == "" {
+		// TODO: this should run in the background and update the status when done
+		repoInfo.RefreshDiff()
+	}
+
+	return repoInfo
 }
 
 func getFileTree(root string) ([]string, error) {

@@ -30,8 +30,8 @@ func NewStatusComponent(width int) StatusComponent {
 	return StatusComponent{
 		Width: width,
 		Style: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#01FAFA")). // Terminal7 text color
-			Padding(0),
+			Foreground(globalTheme.TextColor).
+			Padding(0, 0),
 		mode: "INSERT", // start in insert mode
 	}
 }
@@ -116,7 +116,7 @@ func (s StatusComponent) View() string {
 	// The style has Width() set, so lipgloss will handle padding internally
 	// We need to account for the horizontal padding (1 left + 1 right = 2 chars)
 	totalContentWidth := leftWidth + middleWidth + rightWidth
-	availableSpace := s.Width - 2 // Account for horizontal padding
+	availableSpace := s.Width
 
 	if totalContentWidth > availableSpace {
 		// Truncate if content is too long
@@ -158,7 +158,10 @@ func (s StatusComponent) View() string {
 		statusLine = leftSection + strings.Repeat(" ", spacing) + rightSection
 	}
 
-	return s.Style.Render(statusLine)
+	// Apply the status background to the entire width
+	return s.Style.
+		Width(s.Width).
+		Render(statusLine)
 }
 
 func (s *StatusComponent) SetMode(mode string) {
@@ -172,13 +175,12 @@ func (s StatusComponent) renderLeftSection() string {
 	// Add vi mode indicator first
 	parts = append(parts, fmt.Sprintf(" %s", s.mode))
 
-	// Get branch from RepoInfo if available, otherwise fall back to git info manager
+	// Get branch from RepoInfo - it always has a value (empty string if no git)
 	var branch string
-	// TODO: why test? Even when no git, RepoInfo should have defaults to use
 	if s.repoInfo != nil {
 		branch = s.repoInfo.Branch
 	}
-	// TODO: ditto
+
 	if branch == "" {
 		parts = append(parts, "🪾no-git")
 		return strings.Join(parts, " ")
@@ -186,22 +188,32 @@ func (s StatusComponent) renderLeftSection() string {
 
 	// Color branch name: yellow for main, green for others
 	var bs lipgloss.Style
-	if branch == "main" || branch == "master" {
-		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4DB53")) // Terminal7 warning/yellow
+	if s.repoInfo != nil && s.repoInfo.IsMain {
+		bs = lipgloss.NewStyle().Foreground(globalTheme.Warning)
 	} else {
-		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green
+		// Use a green color for non-main branches
+		// TODO use globalTheme for the color
+		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 	}
 
 	parts = append(parts, "🌴 "+bs.Render(branch))
 
 	// Add diff stats if available
 	if s.repoInfo != nil {
-		added, deleted := s.repoInfo.GetDiffStats()
+		added := s.repoInfo.LinesAdded
+		deleted := s.repoInfo.LinesDeleted
 		if added > 0 || deleted > 0 {
-			redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))   // Red for additions
-			greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green for deletions
-			parts = append(parts, fmt.Sprintf("← %s %s", redStyle.Render(fmt.Sprintf("+%d", added)),
-				greenStyle.Render(fmt.Sprintf("-%d", deleted))))
+			addedStyle := lipgloss.NewStyle().Foreground(globalTheme.Error)
+			deletedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+
+			var diffParts []string
+			if added > 0 {
+				diffParts = append(diffParts, addedStyle.Render(fmt.Sprintf("+%d", added)))
+			}
+			if deleted > 0 {
+				diffParts = append(diffParts, deletedStyle.Render(fmt.Sprintf("-%d", deleted)))
+			}
+			parts = append(parts, "← "+strings.Join(diffParts, " "))
 		}
 	}
 	return strings.Join(parts, " ")
@@ -241,8 +253,8 @@ func (s StatusComponent) renderMiddleSection() string {
 		}
 	}
 
-	// Style with Terminal7 text color
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA"))
+	// Style with theme text color
+	statusStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 	return statusStyle.Render(statusStr)
 }
 
@@ -251,8 +263,8 @@ func (s StatusComponent) renderRightSection() string {
 	icon := getProviderStatusIcon(s.Connected)
 	providerModel := shortenProviderModel(s.Provider, s.Model)
 
-	// Style provider info
-	providerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA")) // Terminal7 text color
+	// Style provider info using theme
+	providerStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 
 	return providerStyle.Render(providerModel) + " " + icon
 }
