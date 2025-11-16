@@ -193,9 +193,15 @@ func (s StatusComponent) renderLeftSection() string {
 	}
 
 	parts = append(parts, "🌴 "+bs.Render(branch))
+
+	// Add diff stats if available
 	if s.repoInfo != nil {
-		if gitStatus := s.repoInfo.GetStatus(); gitStatus != "" {
-			parts = append(parts, gitStatus)
+		added, deleted := s.repoInfo.GetDiffStats()
+		if added > 0 || deleted > 0 {
+			redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))   // Red for additions
+			greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green for deletions
+			parts = append(parts, fmt.Sprintf("← %s %s", redStyle.Render(fmt.Sprintf("+%d", added)),
+				greenStyle.Render(fmt.Sprintf("-%d", deleted))))
 		}
 	}
 	return strings.Join(parts, " ")
