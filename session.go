@@ -602,7 +602,7 @@ func (s *Session) processToolCalls(ctx context.Context, toolCalls []llms.ToolCal
 
 		// Execute tool and add response
 		response := s.executeToolCall(ctx, tool, tc, argsJSON)
-		slog.Debug("Called a tool", "tool", name, "args", argsJSON, "response", response)
+		slog.Debug("Called a tool", "tool", name, "args", argsJSON)
 		toolMessages = append(toolMessages, llms.MessageContent{
 			Role:  llms.ChatMessageTypeTool,
 			Parts: []llms.ContentPart{response},

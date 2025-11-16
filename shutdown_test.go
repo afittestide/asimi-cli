@@ -26,7 +26,7 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 	}
 	defer db.Close()
 
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{ProjectRoot: tmpHome}
 	store, err := NewSessionStore(db, repoInfo, 10, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
@@ -40,7 +40,7 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 		FirstPrompt:  "Test prompt",
 		Provider:     "test",
 		Model:        "test-model",
-		WorkingDir:   GetRepoInfo().ProjectRoot,
+		WorkingDir:   repoInfo.ProjectRoot,
 		ContextFiles: make(map[string]string),
 	}
 
@@ -104,7 +104,7 @@ func TestTUIModelShutdown(t *testing.T) {
 	defer db.Close()
 
 	// Create a session store using NewSessionStore
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{ProjectRoot: tmpDir}
 	store, err := NewSessionStore(db, repoInfo, 10, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)

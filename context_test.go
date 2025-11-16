@@ -231,8 +231,7 @@ func TestHandleContextCommand(t *testing.T) {
 // TestAGENTSmdInSystemPrompt verifies that AGENTS.md content is included in the system prompt
 func TestAGENTSmdInSystemPrompt(t *testing.T) {
 	llm := &sessionMockLLMContext{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	info := sess.GetContextInfo()

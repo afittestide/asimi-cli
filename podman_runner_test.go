@@ -8,7 +8,7 @@ import (
 
 func TestPodmanRunnerStub(t *testing.T) {
 	// Test that the stub implementation works
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo)
 	require.NotNil(t, runner)
 	require.Equal(t, "localhost/asimi-shell:latest", runner.imageName)

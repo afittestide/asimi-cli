@@ -44,7 +44,7 @@ var cli struct {
 }
 
 // Update the version as part of the version release process
-var version = "0.2.0-beta.2"
+var version = "0.2.0-beta.4"
 
 func initLogger() {
 	var logDir string

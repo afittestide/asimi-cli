@@ -20,6 +20,14 @@ type sessionMockLLM struct {
 	response string // If set, returns this as a simple response instead of tool calling
 }
 
+// repoInfoWithProjectRoot returns a RepoInfo populated with the current working directory.
+func repoInfoWithProjectRoot(t *testing.T) RepoInfo {
+	t.Helper()
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	return RepoInfo{ProjectRoot: cwd}
+}
+
 // Call is unused in these tests but required by the interface.
 func (m *sessionMockLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
 	resp, err := m.GenerateContent(ctx, []llms.MessageContent{{
@@ -111,8 +119,7 @@ func TestSession_ToolRoundTrip(t *testing.T) {
 
 	// Set up a native session with the mock LLM and real tools/scheduler.
 	llm := &sessionMockLLM{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	out, err := sess.Ask(context.Background(), "please read the file")
@@ -134,8 +141,7 @@ func TestSession_NoTools(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	out, err := sess.Ask(context.Background(), "say hi")
@@ -154,8 +160,7 @@ func TestNewSessionSystemMessageSinglePart(t *testing.T) {
 		},
 	}
 
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, cfg, repoInfo, func(any) {})
+	sess, err := NewSession(llm, cfg, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	if assert.NotEmpty(t, sess.Messages) {
@@ -233,8 +238,7 @@ func TestSession_WriteAndReadFile(t *testing.T) {
 	// We encode the path into the system message content via the template; to avoid
 	// changing the template, we pass it through the first system message text part.
 	// The mock reads that value back.
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(&sessionMockLLMWriteRead{}, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(&sessionMockLLMWriteRead{}, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 	// Overwrite the first system message text with the temp path as a simple channel to the mock
 	sess.Messages[0].Parts = []llms.ContentPart{llms.TextPart(path)}
@@ -287,8 +291,7 @@ func TestSession_ChatHistoryPersistence(t *testing.T) {
 
 	// Create session with history-preserving mock
 	llm := &historyPreservingMockLLM{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	// First message
@@ -316,8 +319,7 @@ func TestSession_ContextFiles(t *testing.T) {
 	assert.NoError(t, err)
 
 	llm := &sessionMockLLMContext{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	// Test HasContextFiles - should be false initially (AGENTS.md is in system prompt, not ContextFiles)
@@ -418,8 +420,7 @@ func TestSession_MultipleToolCalls(t *testing.T) {
 	defer os.Chdir(oldWd)
 
 	llm := &sessionMockLLMMultiTools{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	out, err := sess.Ask(context.Background(), "read two files")
@@ -485,8 +486,7 @@ func TestSession_GetMessageSnapshot(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	// Initial snapshot should be 1 (system message)
@@ -515,8 +515,7 @@ func TestSession_RollbackTo(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	// Add some messages
@@ -546,8 +545,7 @@ func TestSession_RollbackToZero(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	_, err = sess.Ask(context.Background(), "test message")
@@ -567,8 +565,7 @@ func TestSession_RollbackBeyondLength(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	_, err = sess.Ask(context.Background(), "test message")
@@ -643,7 +640,7 @@ func TestSession_RollbackWithToolCalls(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMToolMessages{}
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
@@ -671,7 +668,7 @@ func TestSession_MultipleToolMessagesPerCall(t *testing.T) {
 	t.Parallel()
 
 	llm := &sessionMockLLMMultiTools{}
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
@@ -702,7 +699,7 @@ func TestSession_RollbackPreservesSystemPrompt(t *testing.T) {
 	t.Parallel()
 
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	assert.NoError(t, err)
 
@@ -745,7 +742,7 @@ func TestSessionStore_SaveAndLoad(t *testing.T) {
 	}
 	defer db.Close()
 
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
@@ -889,7 +886,8 @@ func TestSessionStore_RemovesDanglingToolCallsOnSave(t *testing.T) {
 	}
 	defer db.Close()
 
-	store, err := NewSessionStore(db, RepoInfo{}, 50, 30)
+	repoInfo := RepoInfo{ProjectRoot: tempDir}
+	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -1072,7 +1070,7 @@ func TestSessionStore_EmptySession(t *testing.T) {
 	}
 	defer db.Close()
 
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{ProjectRoot: tempDir}
 	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
@@ -1123,7 +1121,7 @@ func TestSessionStore_Cleanup(t *testing.T) {
 	}
 	defer db.Close()
 
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{ProjectRoot: tempDir}
 	store, err := NewSessionStore(db, repoInfo, 2, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
@@ -1182,7 +1180,7 @@ func TestSessionStore_ListSessionsLimit(t *testing.T) {
 	}
 	defer db.Close()
 
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{ProjectRoot: tempDir}
 	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
@@ -1255,7 +1253,7 @@ func TestSessionStore_DirectoryCreation(t *testing.T) {
 	}
 	defer db.Close()
 
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{ProjectRoot: tempDir}
 	store, err := NewSessionStore(db, repoInfo, 50, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
@@ -1285,7 +1283,7 @@ func TestSession_AskStream(t *testing.T) {
 	}
 
 	// Create session
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	session, err := NewSession(mockLLM, nil, repoInfo, notify)
 	require.NoError(t, err)
 

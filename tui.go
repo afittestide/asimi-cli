@@ -933,6 +933,8 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 					m.commandLine.AddToast(fmt.Sprintf("Failed to write to AGENTS.md: %v", err), "error", time.Second*3)
 				} else {
 					m.commandLine.AddToast("Added to AGENTS.md", "success", time.Second*2)
+					m.content.GetChat().AddMessage(fmt.Sprintf("📝 Learning added: %s", learningNote))
+					m.sessionActive = true
 				}
 			}
 		}

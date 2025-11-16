@@ -83,8 +83,7 @@ func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 	model.persistentPromptHistory = nil
 	model.initHistory()
 	// Use native session path for tests now that legacy agent is removed.
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 	return model, llm
@@ -1207,7 +1206,7 @@ func TestStatusComponent_WaitingIndicatorView(t *testing.T) {
 
 	// Create a mock session to provide usage data
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	require.NoError(t, err)
 	status.SetSession(sess)
@@ -1353,8 +1352,7 @@ func TestFileCompletion(t *testing.T) {
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 
@@ -1419,8 +1417,7 @@ func TestColonCommandCompletionE2E(t *testing.T) {
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 

@@ -174,7 +174,7 @@ func TestReadFileToolWithOffsetAndLimit(t *testing.T) {
 }
 
 func TestPodmanShellRunner(t *testing.T) {
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
@@ -198,7 +198,7 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 		t.Skip("Skipping Podman test. Set ASIMI_TEST_PODMAN=1 to run this test (requires podman and asimi-shell image)")
 	}
 
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(false, nil, repoInfo)
 
 	// First command
@@ -221,7 +221,7 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 }
 
 func TestPodmanShellRunnerWithStderr(t *testing.T) {
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
