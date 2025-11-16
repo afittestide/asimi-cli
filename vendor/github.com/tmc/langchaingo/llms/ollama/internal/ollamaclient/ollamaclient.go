@@ -229,6 +229,7 @@ func (c *Client) GenerateChat(ctx context.Context, req *ChatRequest, fn ChatResp
 	if !req.Stream {
 		var finalResp ChatResponse
 		var accumulatedContent string
+		var accumulatedToolCalls []ToolCall
 		return c.stream(ctx, http.MethodPost, "/api/chat", req, func(bts []byte) error {
 			var resp ChatResponse
 			if err := json.Unmarshal(bts, &resp); err != nil {
@@ -243,12 +244,18 @@ func (c *Client) GenerateChat(ctx context.Context, req *ChatRequest, fn ChatResp
 				accumulatedContent += resp.Message.Content
 			}
 
+			// Accumulate tool calls
+			if resp.Message != nil && len(resp.Message.ToolCalls) > 0 {
+				accumulatedToolCalls = append(accumulatedToolCalls, resp.Message.ToolCalls...)
+			}
+
 			// If this is the final chunk, set the complete content and call fn
 			if resp.Done {
 				if finalResp.Message == nil {
 					finalResp.Message = &Message{}
 				}
 				finalResp.Message.Content = accumulatedContent
+				finalResp.Message.ToolCalls = accumulatedToolCalls
 				return fn(finalResp)
 			}
 

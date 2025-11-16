@@ -1000,7 +1000,7 @@ github.com/tchap/go-patricia/v2/patricia
 # github.com/titanous/rocacheck v0.0.0-20171023193734-afe73141d399
 ## explicit
 github.com/titanous/rocacheck
-# github.com/tmc/langchaingo v0.1.13 => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
+# github.com/tmc/langchaingo v0.1.13 => /Users/daonb/src/langchaingo/
 ## explicit; go 1.24.4
 github.com/tmc/langchaingo/callbacks
 github.com/tmc/langchaingo/httputil
@@ -1449,4 +1449,4 @@ sigs.k8s.io/yaml
 # tags.cncf.io/container-device-interface v1.0.1
 ## explicit; go 1.20
 tags.cncf.io/container-device-interface/pkg/parser
-# github.com/tmc/langchaingo => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
+# github.com/tmc/langchaingo => /Users/daonb/src/langchaingo/

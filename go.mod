@@ -25,10 +25,12 @@ require (
 	github.com/zalando/go-keyring v0.2.6
 	go.uber.org/fx v1.24.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+	modernc.org/sqlite v1.40.0
 )
 
 // IMPORTANT: We have some changes pending for langchaingo, go to keep this
-replace github.com/tmc/langchaingo => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
+// replace github.com/tmc/langchaingo => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
+replace github.com/tmc/langchaingo => /Users/daonb/src/langchaingo/
 
 require (
 	al.essio.dev/pkg/shellescape v1.5.1 // indirect
@@ -226,7 +228,6 @@ require (
 	modernc.org/libc v1.66.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.40.0 // indirect
 	sigs.k8s.io/yaml v1.5.0 // indirect
 	tags.cncf.io/container-device-interface v1.0.1 // indirect
 )

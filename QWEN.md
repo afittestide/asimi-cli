@@ -68,3 +68,5 @@ Once a change is finished and ALL tests pass update the CHANGELOG.md
 
 - Logs: ./asimi.log
 - Config: `~/.config/asimi/asimi.toml` or `.agents/asimi.toml`
+
+For scratch pad use the project's `tmp`
