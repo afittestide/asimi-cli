@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"al.essio.dev/pkg/shellescape"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/containers/podman/v5/pkg/bindings"
@@ -273,37 +274,29 @@ func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
 		line := scanner.Text()
 		slog.Debug("stream reader line", "stream", streamName, "line", line)
 
-		// Check for start marker
-		if strings.Contains(line, "__ASIMI_STDOUT_START_") || strings.Contains(line, "__ASIMI_STDERR_START_") {
-			// Extract ID from marker
-			parts := strings.Split(line, "__ASIMI_")
+		// Check for start marker (format: __ASIMI_STDOUT_START:123 or __ASIMI_STDERR_START:123)
+		if strings.HasPrefix(line, "__ASIMI_STDOUT_START:") || strings.HasPrefix(line, "__ASIMI_STDERR_START:") {
+			// Extract ID from marker by splitting on ':'
+			// Format is "__ASIMI_STDOUT_START:ID" or "__ASIMI_STDERR_START:ID"
+			parts := strings.Split(line, ":")
 			if len(parts) >= 2 {
-				idParts := strings.Split(parts[1], "__")
-				if len(idParts) >= 1 {
-					// Extract the ID part
-					prefix := "STDOUT_START_"
-					if !isStdout {
-						prefix = "STDERR_START_"
-					}
-					if strings.HasPrefix(idParts[0], prefix) {
-						idStr := strings.TrimPrefix(idParts[0], prefix)
-						if _, err := fmt.Sscanf(idStr, "%d", &currentID); err == nil {
-							inCommand = true
-							output.Reset()
-							slog.Debug("found start marker", "stream", streamName, "id", currentID)
-							continue
-						}
-					}
+				if _, err := fmt.Sscanf(parts[1], "%d", &currentID); err == nil {
+					inCommand = true
+					output.Reset()
+					slog.Debug("found start marker", "stream", streamName, "id", currentID)
+					continue
 				}
 			}
 		}
 
-		// Check for end marker
-		if inCommand && (strings.HasPrefix(line, "__ASIMI_STDOUT_END_") || strings.HasPrefix(line, "__ASIMI_STDERR_END_")) {
-			// Extract exit code from marker
+		// Check for end marker (format: __ASIMI_STDOUT_END:123:0 or __ASIMI_STDERR_END:123:0)
+		if inCommand && (strings.HasPrefix(line, "__ASIMI_STDOUT_END:") || strings.HasPrefix(line, "__ASIMI_STDERR_END:")) {
+			// Extract ID and exit code from marker by splitting on ':'
+			// Format is "__ASIMI_STDOUT_END:ID:exitcode" or "__ASIMI_STDERR_END:ID:exitcode"
+			parts := strings.Split(line, ":")
 			var exitCode string
-			if colonIdx := strings.Index(line, ":"); colonIdx != -1 {
-				exitCode = line[colonIdx+1:]
+			if len(parts) >= 3 {
+				exitCode = parts[2]
 			}
 			slog.Debug("found end marker", "stream", streamName, "id", currentID, "exitCode", exitCode)
 
@@ -475,17 +468,9 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	r.outputs[id] = cmd
 	r.outputsMu.Unlock()
 
-	// Build command wrapped with markers for stdout and stderr
-	var cmdStr strings.Builder
-	cmdStr.WriteString(fmt.Sprintf("echo '__ASIMI_STDOUT_START_%d__'", id))
-	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDERR_START_%d__' >&2", id))
-	cmdStr.WriteString("; " + params.Command)
-	cmdStr.WriteString("; __EXIT_CODE=$?")
-	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDOUT_END_%d__:'$__EXIT_CODE", id))
-	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDERR_END_%d__:'$__EXIT_CODE >&2", id))
-	cmdStr.WriteString("\n")
-
-	command := cmdStr.String()
+	// Quote the command using shellescape to preserve newlines (for heredocs) while escaping special chars
+	// This prevents redirects from being parsed as function redirects
+	command := fmt.Sprintf("__asimi_run %d %s\n", id, shellescape.Quote(params.Command))
 	slog.Debug("wrapped command", "command", command)
 
 	// Write the command to the persistent session's stdin
