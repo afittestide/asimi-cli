@@ -1003,7 +1003,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			m.streamingCancel = cancel
 			m.session.AskStream(ctx, content)
 		} else {
-			m.commandLine.AddToast("No LLM configured. Please use /login to configure an API key.", "error", time.Second*5)
+			m.commandLine.AddToast("No LLM configured. Please use :login to configure an API key.", "error", time.Second*5)
 			m.prompt.SetValue("")
 		}
 		m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
@@ -1973,6 +1973,7 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		"▶ Asimi starts in INSERT mode",
 		"▶ Press `Esc` to switch models",
 		"▶ Press `:` in NORMAL for COMMAND mode",
+		"▶ Type `:init` to setup the project",
 		"▶ Press `!` in COMMAND to run command in the sandbox",
 		"▶ Type `:q` to quit",
 		"",
