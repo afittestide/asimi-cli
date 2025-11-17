@@ -280,14 +280,9 @@ func (m TUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
-		// Handle content scrolling first (including touch gestures)
 		var contentCmd tea.Cmd
-		if msg.Type == tea.MouseWheelUp || msg.Type == tea.MouseWheelDown ||
-			msg.Type == tea.MouseLeft || msg.Type == tea.MouseMotion {
-			m.content, contentCmd = m.content.Update(msg)
-		}
-		model, cmd := m.handleMouseMsg(msg)
-		return model, tea.Batch(contentCmd, cmd)
+		m.content, contentCmd = m.content.Update(msg)
+		return m, contentCmd
 
 	case tea.WindowSizeMsg:
 		return m.handleWindowSizeMsg(msg)
@@ -1133,17 +1128,6 @@ func (m TUIModel) handleShellCommand(command string) (tea.Model, tea.Cmd) {
 			err:      nil,
 		}
 	}
-}
-
-// handleMouseMsg handles mouse events
-func (m TUIModel) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.MouseWheelUp:
-		m.content.GetChat().Viewport.LineUp(1)
-	case tea.MouseWheelDown:
-		m.content.GetChat().Viewport.LineDown(1)
-	}
-	return m, nil
 }
 
 // handleWindowSizeMsg handles window resize events
