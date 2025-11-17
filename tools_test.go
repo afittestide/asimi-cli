@@ -488,3 +488,40 @@ func TestPathValidationWithSymlinks(t *testing.T) {
 		}
 	})
 }
+
+func TestReadFileWithStringNumbers(t *testing.T) {
+	// Create a test file
+	testContent := "line1\nline2\nline3\nline4\nline5\n"
+	testFile := "test_read_file_temp.txt"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer os.Remove(testFile)
+
+	tool := ReadFileTool{}
+	ctx := context.Background()
+
+	// Test with string values for offset and limit (Claude Code CLI bug workaround)
+	input := `{"path":"test_read_file_temp.txt","offset":"2","limit":"2"}`
+	result, err := tool.Call(ctx, input)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+
+	expected := "line2\nline3"
+	if result != expected {
+		t.Errorf("Expected %q, got %q", expected, result)
+	}
+
+	// Test with numeric values (normal case)
+	input2 := `{"path":"test_read_file_temp.txt","offset":2,"limit":2}`
+	result2, err := tool.Call(ctx, input2)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+
+	if result2 != expected {
+		t.Errorf("Expected %q, got %q", expected, result2)
+	}
+}

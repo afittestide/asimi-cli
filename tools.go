@@ -89,6 +89,13 @@ type ReadFileInput struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
+// readFileInputRaw is used to handle string values for numeric fields (workaround for Claude Code CLI)
+type readFileInputRaw struct {
+	Path   string `json:"path"`
+	Offset any    `json:"offset,omitempty"`
+	Limit  any    `json:"limit,omitempty"`
+}
+
 // ReadFileTool is a tool for reading files
 type ReadFileTool struct{}
 
@@ -106,6 +113,22 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		// If unmarshalling fails, assume the input is a raw path
 		params.Path = input
+	}
+	
+	// Workaround for Claude Code CLI bug: numeric params come as strings
+	// If offset/limit are zero but the input contains them, try flexible parsing
+	if (params.Offset == 0 && strings.Contains(input, `"offset"`)) ||
+	   (params.Limit == 0 && strings.Contains(input, `"limit"`)) {
+		var rawParams readFileInputRaw
+		if json.Unmarshal([]byte(input), &rawParams) == nil {
+			params.Path = rawParams.Path
+			if s, ok := rawParams.Offset.(string); ok && s != "" {
+				fmt.Sscanf(s, "%d", &params.Offset)
+			}
+			if s, ok := rawParams.Limit.(string); ok && s != "" {
+				fmt.Sscanf(s, "%d", &params.Limit)
+			}
+		}
 	}
 
 	// Clean up the path to remove any surrounding quotes
