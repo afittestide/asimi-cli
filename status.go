@@ -30,8 +30,7 @@ func NewStatusComponent(width int) StatusComponent {
 	return StatusComponent{
 		Width: width,
 		Style: lipgloss.NewStyle().
-			Foreground(globalTheme.TextColor).
-			Padding(0, 0),
+			Foreground(globalTheme.TextColor),
 		mode: "INSERT", // start in insert mode
 	}
 }
@@ -158,7 +157,6 @@ func (s StatusComponent) View() string {
 		statusLine = leftSection + strings.Repeat(" ", spacing) + rightSection
 	}
 
-	// Apply the status background to the entire width
 	return s.Style.
 		Width(s.Width).
 		Render(statusLine)
@@ -263,10 +261,9 @@ func (s StatusComponent) renderRightSection() string {
 	icon := getProviderStatusIcon(s.Connected)
 	providerModel := shortenProviderModel(s.Provider, s.Model)
 
-	// Style provider info using theme
 	providerStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 
-	return providerStyle.Render(providerModel) + " " + icon
+	return fmt.Sprintf("%s %s ", providerStyle.Render(providerModel), icon)
 }
 
 // truncateString truncates a string to fit within maxWidth, adding "..." if needed

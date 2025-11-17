@@ -1990,7 +1990,8 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		"▶ Press `Esc` to switch models",
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Press `!` in COMMAND to run command in the sandbox",
-		"▶ Press Ctrl+C to quit",
+		"▶ Type `:q` to quit",
+		"",
 		"e.g. ⌨️  ESC:!uname -aENTER ⌨️",
 	}
 
