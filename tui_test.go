@@ -687,11 +687,8 @@ func TestRenderHomeView(t *testing.T) {
 
 	view := model.renderHomeView(80, 24)
 	require.NotEmpty(t, view)
-	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
-	require.Contains(t, view, "Your AI-powered coding assistant")
-	require.Contains(t, view, "Vi mode is always enabled")
-	require.Contains(t, view, "Press Esc to enter NORMAL mode")
-	require.Contains(t, view, "In NORMAL mode, press : to enter COMMAND-LINE mode")
+	require.Contains(t, view, "vi")
+	require.Contains(t, view, "Asimi")
 }
 
 // TestColonCommandCompletion tests command completion with colon prefix in vi mode

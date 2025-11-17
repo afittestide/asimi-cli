@@ -1974,7 +1974,7 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		Align(lipgloss.Center).
 		Width(width)
 
-	title := titleStyle.Render("Asimi CLI - Interactive Coding Agent")
+	title := titleStyle.Render("Asimi - Safe, Fast & Opinionated Coding Agent")
 
 	// Create a subtitle
 	subtitleStyle := lipgloss.NewStyle().
@@ -1982,17 +1982,16 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		Align(lipgloss.Center).
 		Width(width)
 
-	subtitle := subtitleStyle.Render("Your AI-powered coding assistant")
+	subtitle := subtitleStyle.Render("🎂  vi 40th Birthday 🎂")
 
 	// Create a list of helpful commands
 	commands := []string{
-		"▶ Vi mode is always enabled - You start in INSERT mode",
-		"▶ Press Esc to enter NORMAL mode (for navigation)",
-		"▶ In NORMAL mode, press : to enter COMMAND-LINE mode",
-		"▶ In COMMAND-LINE mode, type commands (e.g., :help, :new) and press Enter",
-		"▶ After executing a command, you return to INSERT mode",
-		"▶ Use @ to reference files (e.g., @main.go)",
+		"▶ Asimi starts in INSERT mode",
+		"▶ Press `Esc` to switch models",
+		"▶ Press `:` in NORMAL for COMMAND mode",
+		"▶ Press `!` in COMMAND to run command in the sandbox",
 		"▶ Press Ctrl+C to quit",
+		"e.g. ⌨️  ESC:!uname -aENTER ⌨️",
 	}
 
 	// Style for commands
