@@ -1982,7 +1982,7 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		Align(lipgloss.Center).
 		Width(width)
 
-	subtitle := subtitleStyle.Render("🎂  vi 40th Birthday 🎂")
+	subtitle := subtitleStyle.Render("🎂  vi 50th Birthday 🎂")
 
 	// Create a list of helpful commands
 	commands := []string{
