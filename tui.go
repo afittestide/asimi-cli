@@ -173,9 +173,11 @@ func (m *TUIModel) initHistory() {
 			// Convert persistent entries to in-memory format
 			// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
 			// as they're only meaningful for the current session
-			for _, entry := range entries {
+			// Database returns entries in DESC order (newest first), but we need
+			// them in chronological order (oldest first) for navigation to work correctly
+			for i := len(entries) - 1; i >= 0; i-- {
 				m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
-					Prompt:          entry.Content,
+					Prompt:          entries[i].Content,
 					SessionSnapshot: 0,
 					ChatSnapshot:    0,
 				})
