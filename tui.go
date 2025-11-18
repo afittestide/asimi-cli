@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	ctrlCDebounceTime = 200 * time.Millisecond  // Debounce duplicate ctrl-c events
-	ctrlCWindowTime   = 2000 * time.Millisecond // Window for double ctrl-c to quit
+	ctrlCDebounceTime        = 200 * time.Millisecond  // Debounce duplicate ctrl-c events
+	ctrlCWindowTime          = 2000 * time.Millisecond // Window for double ctrl-c to quit
 )
 
 // TUIModel represents the bubbletea model for the TUI
@@ -147,6 +147,9 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 		persistentPromptHistory:  promptHistory,
 		persistentCommandHistory: commandHistory,
 	}
+
+	// Set the GetStatus callback for the chat component
+	model.content.GetChat().GetStatus = func() string { return model.Mode }
 
 	// Set initial status info - show disconnected state initially
 	model.status.SetProvider(config.LLM.Provider, config.LLM.Model, false)
@@ -407,9 +410,21 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Scroll mode activation and handling
+	if keyStr == "ctrl+b" && m.Mode != "scroll" {
+		return m.enterScrollMode()
+	}
+	if m.Mode == "scroll" {
+		if newModel, cmd, handled := m.handleScrollModeKey(msg); handled {
+			return newModel, cmd
+		}
+	}
+
 	// Handle escape key for vi mode transitions BEFORE other escape handling
 	// ESC in Insert mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViInsertMode() {
+	if keyStr == "esc" && m.Mode == "insert" {
+		m.Mode = "normal"
+		m.status.SetMode(m.Mode)
 		m.prompt.EnterViNormalMode()
 		// Also clear completion dialog and modal if present
 		m.modal = nil
@@ -421,7 +436,9 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Visual mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViVisualMode() {
+	if keyStr == "esc" && m.Mode == "visual" {
+		m.Mode = "normal"
+		m.status.SetMode(m.Mode)
 		m.prompt.EnterViNormalMode()
 		// Also clear completion dialog and modal if present
 		m.modal = nil
@@ -433,7 +450,9 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Command-line mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViCommandLineMode() {
+	if keyStr == "esc" && m.Mode == "command" {
+		m.Mode = "normal"
+		m.status.SetMode(m.Mode)
 		m.prompt.EnterViNormalMode()
 		// Hide completion dialog
 		m.showCompletionDialog = false
@@ -442,7 +461,9 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Learning mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViLearningMode() {
+	if keyStr == "esc" && m.Mode == "learning" {
+		m.Mode = "normal"
+		m.status.SetMode(m.Mode)
 		m.prompt.EnterViNormalMode()
 		m.prompt.SetValue("")
 		// Also clear completion dialog and modal if present
@@ -466,12 +487,12 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle vi mode key bindings when in normal or visual mode
-	if m.prompt.IsViNormalMode() || m.prompt.IsViVisualMode() {
+	if m.Mode == "normal" || m.Mode == "visual" {
 		return m.handleViNormalMode(msg)
 	}
 
 	// Handle command-line mode
-	if m.prompt.IsViCommandLineMode() {
+	if m.Mode == "command" {
 		return m.handleViCommandLineMode(msg)
 	}
 
@@ -522,6 +543,90 @@ func (m TUIModel) handleToggleRawMode() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m TUIModel) enterScrollMode() (tea.Model, tea.Cmd) {
+	if m.Mode == "scroll" || m.content.GetActiveView() != ViewChat {
+		return m, nil
+	}
+	chat := m.content.GetChat()
+	chat.SetScrollLock(true)
+	if chat.Viewport.AtBottom() {
+		chat.ScrollHalfPageUp()
+	}
+	m.Mode = "scroll"
+	m.status.SetMode(m.Mode)
+	m.prompt.EnterViNormalMode()
+	if m.showCompletionDialog {
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+	}
+	return m, func() tea.Msg { return ChangeModeMsg{NewMode: "scroll"} }
+}
+
+func (m *TUIModel) disableScrollMode() {
+	if m.Mode != "scroll" {
+		return
+	}
+	m.Mode = "insert"
+	m.status.SetMode(m.Mode)
+	m.content.GetChat().SetScrollLock(false)
+}
+
+func (m TUIModel) exitScrollModeToInsert() (tea.Model, tea.Cmd) {
+	if m.Mode != "scroll" {
+		return m, nil
+	}
+	m.disableScrollMode()
+	m.prompt.EnterViInsertMode()
+	m.prompt.Focus()
+	if m.showCompletionDialog {
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+	}
+	return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
+}
+
+func (m TUIModel) handleScrollModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if m.Mode != "scroll" {
+		return m, nil, false
+	}
+	chat := m.content.GetChat()
+
+	switch msg.String() {
+	case "ctrl+f":
+		chat.ScrollPageDown()
+		return m, nil, true
+	case "ctrl+b":
+		chat.ScrollPageUp()
+		return m, nil, true
+	case "ctrl+d":
+		chat.ScrollHalfPageDown()
+		return m, nil, true
+	case "ctrl+u":
+		chat.ScrollHalfPageUp()
+		return m, nil, true
+	case "G":
+		chat.ScrollToBottom()
+		return m, nil, true
+	case "j", "down":
+		chat.ScrollHalfPageDown()
+		return m, nil, true
+	case "k", "up":
+		chat.ScrollHalfPageUp()
+		return m, nil, true
+	case ":":
+		m.disableScrollMode()
+		newModel, cmd := m.handleColonKey(msg)
+		return newModel, cmd, true
+	case "esc", "escape", "i":
+		newModel, cmd := m.exitScrollModeToInsert()
+		return newModel, cmd, true
+	}
+
+	return m, nil, false
+}
+
 // handleViNormalMode handles key presses when in vi normal or visual mode
 func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
@@ -550,7 +655,7 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		// Only submit from actual normal mode to avoid interfering with visual selections
-		if !m.prompt.IsViNormalMode() {
+		if m.Mode != "normal" {
 			break
 		}
 		if m.prompt.Value() == "" {
@@ -912,7 +1017,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 	}
 
 	// Handle learning mode - append to AGENTS.md
-	if m.prompt.IsViLearningMode() {
+	if m.Mode == "learning" {
 		// Remove the leading "#" and trim whitespace
 		learningNote := strings.TrimSpace(strings.TrimPrefix(content, "#"))
 		if learningNote != "" {
@@ -1188,11 +1293,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if len(m.content.GetChat().Messages) == 0 || !strings.HasPrefix(m.content.GetChat().Messages[len(m.content.GetChat().Messages)-1], "Asimi:") {
-			m.content.GetChat().AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
+		chat := m.content.GetChat()
+		if len(chat.Messages) == 0 || !strings.HasPrefix(chat.Messages[len(chat.Messages)-1], "Asimi:") {
+			chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
 			slog.Debug("added_new_message", "total_messages", len(m.content.GetChat().Messages))
 		} else {
-			m.content.GetChat().AppendToLastMessage(string(msg))
+			chat.AppendToLastMessage(string(msg))
 			slog.Debug("appended_to_last_message", "total_messages", len(m.content.GetChat().Messages))
 		}
 
@@ -1364,8 +1470,14 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.content.ShowResume(msg.sessions)
 
 	case ChangeModeMsg:
-		// Centralized mode management - update Mode and status
+		wasScroll := m.Mode == "scroll"
 		m.Mode = msg.NewMode
+		isScroll := m.Mode == "scroll"
+		if wasScroll && !isScroll {
+			m.content.GetChat().SetScrollLock(false)
+		} else if !wasScroll && isScroll {
+			m.content.GetChat().SetScrollLock(true)
+		}
 		m.status.SetMode(m.Mode)
 		if m.Mode == "resume" || m.Mode == "models" {
 			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
@@ -1494,7 +1606,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.config != nil {
 				markdownEnabled = m.config.UI.MarkdownEnabled
 			}
-			*chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
+			*chat = NewChatComponentWithStatus(chat.Width, chat.Height, markdownEnabled, func() string { return m.Mode })
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {

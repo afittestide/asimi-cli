@@ -217,6 +217,7 @@ func TestViNormalModeEnterSubmitsPrompt(t *testing.T) {
 
 	model.prompt.SetValue("ship it")
 	model.prompt.EnterViNormalMode()
+	model.Mode = "normal"
 
 	newModel, cmd := model.handleViNormalMode(tea.KeyMsg{Type: tea.KeyEnter})
 	assert.Nil(t, cmd)

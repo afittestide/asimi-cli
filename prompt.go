@@ -112,8 +112,7 @@ func NewPromptComponent(width, height int) PromptComponent {
 		viInsertKeyMap: viInsertKeyMap,
 		Style: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			//TODO: get the color from the theme
-			BorderForeground(lipgloss.Color("#F952F9")). // Terminal7 prompt border
+			BorderForeground(globalTheme.PromptOnBorder). // Use theme's on border for insert mode
 			Width(width).
 			Height(height),
 	}
@@ -270,23 +269,25 @@ func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending stri
 }
 
 // updateViModeStyle updates the border color based on vi mode state
+// Uses globalTheme.promptOnBorder when focused on prompt (INSERT/COMMAND/LEARNING)
+// Uses globalTheme.promptOffBorder when focused away from prompt (NORMAL/VISUAL)
 func (p *PromptComponent) updateViModeStyle() {
 	switch p.ViCurrentMode {
 	case ViModeInsert:
-		// Insert mode: green border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#00FF00")) // Green
+		// Insert mode: on border (focus on prompt input)
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
 	case ViModeNormal:
-		// Normal mode: yellow border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F4DB53")) // Terminal7 warning/chat border (yellow)
+		// Normal mode: off border (focus away from prompt, on content navigation)
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOffBorder)
 	case ViModeVisual:
-		// Visual mode: blue border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#01FAFA")) // Terminal7 text color (cyan)
+		// Visual mode: off border (focus away from prompt, on content selection)
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOffBorder)
 	case ViModeCommandLine:
-		// Command-line mode: magenta border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
+		// Command-line mode: on border (focus on command input)
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
 	case ViModeLearning:
-		// Learning mode: orange border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#FFA500")) // Orange
+		// Learning mode: on border (focus on learning input)
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
 	}
 }
 

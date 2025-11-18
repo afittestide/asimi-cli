@@ -359,6 +359,27 @@ func TestChatComponent(t *testing.T) {
 	require.Equal(t, 15, chat.Height)
 }
 
+func TestChatComponentScrollLock(t *testing.T) {
+	chat := NewChatComponent(50, 10, false)
+
+	chat.SetScrollLock(true)
+	require.True(t, chat.IsScrollLocked())
+	require.True(t, chat.UserScrolled)
+	require.False(t, chat.AutoScroll)
+
+	chat.AddMessage("Asimi: hello")
+	require.True(t, chat.UserScrolled, "user should remain scrolled when locked")
+	require.False(t, chat.AutoScroll, "auto-scroll should stay disabled when locked")
+
+	chat.ScrollToBottom()
+	require.False(t, chat.AutoScroll, "still locked, auto-scroll stays disabled even at bottom")
+
+	chat.SetScrollLock(false)
+	require.False(t, chat.IsScrollLocked())
+	require.True(t, chat.AutoScroll, "auto-scroll should resume when unlock at bottom")
+	require.False(t, chat.UserScrolled, "unlock at bottom should mark user as not scrolled")
+}
+
 // TestCompletionDialog tests the completion dialog
 func TestCompletionDialog(t *testing.T) {
 	dialog := NewCompletionDialog()
@@ -723,12 +744,12 @@ func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
 	model, _ := newTestModel(t)
 
 	// Start in insert mode
-	require.True(t, model.prompt.IsViInsertMode())
+	require.Equal(t, "insert", model.Mode)
 
 	// Press Esc to enter normal mode
 	newModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updatedModel := newModel.(TUIModel)
-	require.True(t, updatedModel.prompt.IsViNormalMode())
+	require.Equal(t, "normal", updatedModel.Mode)
 
 	// Press : to enter command-line mode
 	newModel, _ = updatedModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})

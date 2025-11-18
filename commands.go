@@ -58,6 +58,7 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
 	registry.RegisterCommand("/init", "Init project to work with asimi", handleInitCommand)
 	registry.RegisterCommand("/compact", "Compact conversation history to reduce context usage", handleCompactCommand)
+	registry.RegisterCommand("/1", "Jump to the beginning of the chat history", handleScrollTopCommand)
 
 	return registry
 }
@@ -393,4 +394,12 @@ func handleCompactCommand(model *TUIModel, args []string) tea.Cmd {
 		// Send the compact request
 		return compactConversationMsg{}
 	}
+}
+
+func handleScrollTopCommand(model *TUIModel, args []string) tea.Cmd {
+	if model == nil || model.content.GetActiveView() != ViewChat {
+		return nil
+	}
+	model.content.GetChat().ScrollToTop()
+	return nil
 }

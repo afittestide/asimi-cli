@@ -22,6 +22,8 @@ type ChatComponent struct {
 	Style        lipgloss.Style
 	AutoScroll   bool // Track if auto-scrolling is enabled
 	UserScrolled bool // Track if user has manually scrolled
+	ScrollLocked bool // Prevent auto-scroll when user is in scroll mode
+	GetStatus    func() string // Callback to get current status/mode from caller
 
 	// Touch gesture support
 	TouchStartY      int  // Y coordinate where touch/drag started
@@ -47,6 +49,11 @@ const (
 
 // NewChatComponent creates a new chat component
 func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
+	return NewChatComponentWithStatus(width, height, markdownEnabled, func() string { return "insert" })
+}
+
+// NewChatComponentWithStatus creates a new chat component with a status callback
+func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStatus func() string) ChatComponent {
 	vp := viewport.New(width, height)
 	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
 
@@ -69,6 +76,7 @@ func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
 		Height:               height,
 		AutoScroll:           true,  // Enable auto-scroll by default
 		UserScrolled:         false, // User hasn't scrolled yet
+		GetStatus:            getStatus,
 		TouchStartY:          0,     // Initialize touch tracking
 		TouchDragging:        false,
 		TouchScrollSpeed:     3,        // Lines to scroll per touch movement unit
@@ -123,8 +131,10 @@ func (c *ChatComponent) AddMessage(message string) {
 	c.Messages = append(c.Messages, message)
 	c.UpdateContent()
 	// Reset auto-scroll when new message is added
-	c.AutoScroll = true
-	c.UserScrolled = false
+	if !c.ScrollLocked {
+		c.AutoScroll = true
+		c.UserScrolled = false
+	}
 }
 
 // AddMessages adds multiple messages to the chat component in batch
@@ -133,8 +143,82 @@ func (c *ChatComponent) AddMessages(messages []string) {
 	c.Messages = append(c.Messages, messages...)
 	c.UpdateContent()
 	// Reset auto-scroll when new messages are added
-	c.AutoScroll = true
+	if !c.ScrollLocked {
+		c.AutoScroll = true
+		c.UserScrolled = false
+	}
+}
+
+// SetScrollLock toggles scroll locking (prevents auto-scroll when true)
+func (c *ChatComponent) SetScrollLock(lock bool) {
+	c.ScrollLocked = lock
+	if lock {
+		c.AutoScroll = false
+		c.UserScrolled = true
+		return
+	}
+	if c.Viewport.AtBottom() {
+		c.AutoScroll = true
+		c.UserScrolled = false
+	}
+}
+
+// IsScrollLocked returns true if the chat is currently scroll-locked
+func (c *ChatComponent) IsScrollLocked() bool {
+	return c.ScrollLocked
+}
+
+// ScrollHalfPageUp scrolls the viewport up by half a page
+func (c *ChatComponent) ScrollHalfPageUp() {
+	c.Viewport.HalfPageUp()
+	c.UserScrolled = true
+}
+
+// ScrollHalfPageDown scrolls the viewport down by half a page
+func (c *ChatComponent) ScrollHalfPageDown() {
+	c.Viewport.HalfPageDown()
+	if c.Viewport.AtBottom() {
+		c.UserScrolled = false
+		if !c.ScrollLocked {
+			c.AutoScroll = true
+		}
+	} else {
+		c.UserScrolled = true
+	}
+}
+
+// ScrollPageUp scrolls the viewport up by a full page
+func (c *ChatComponent) ScrollPageUp() {
+	c.Viewport.PageUp()
+	c.UserScrolled = true
+}
+
+// ScrollPageDown scrolls the viewport down by a full page
+func (c *ChatComponent) ScrollPageDown() {
+	c.Viewport.PageDown()
+	if c.Viewport.AtBottom() {
+		c.UserScrolled = false
+		if !c.ScrollLocked {
+			c.AutoScroll = true
+		}
+	} else {
+		c.UserScrolled = true
+	}
+}
+
+// ScrollToTop scrolls to the beginning of the chat history
+func (c *ChatComponent) ScrollToTop() {
+	c.Viewport.GotoTop()
+	c.UserScrolled = true
+}
+
+// ScrollToBottom scrolls to the latest message
+func (c *ChatComponent) ScrollToBottom() {
+	c.Viewport.GotoBottom()
 	c.UserScrolled = false
+	if !c.ScrollLocked {
+		c.AutoScroll = true
+	}
 }
 
 // AddShellCommandInput adds the entered shell command at column 0
@@ -400,7 +484,9 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 			// Check if we're at the bottom after scrolling down
 			if c.Viewport.AtBottom() {
 				c.UserScrolled = false // Re-enable autoscroll when at bottom
-				c.AutoScroll = true
+				if !c.ScrollLocked {
+					c.AutoScroll = true
+				}
 			} else {
 				c.UserScrolled = true
 			}
@@ -427,7 +513,9 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 						// Check if we're at the bottom after scrolling down
 						if c.Viewport.AtBottom() {
 							c.UserScrolled = false
-							c.AutoScroll = true
+							if !c.ScrollLocked {
+								c.AutoScroll = true
+							}
 						} else {
 							c.UserScrolled = true
 						}
@@ -454,7 +542,9 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 			// Check if we're at the bottom after scrolling down
 			if c.Viewport.AtBottom() {
 				c.UserScrolled = false
-				c.AutoScroll = true
+				if !c.ScrollLocked {
+					c.AutoScroll = true
+				}
 			} else {
 				c.UserScrolled = true
 			}
@@ -466,7 +556,9 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 			// Check if we're at the bottom after page down
 			if c.Viewport.AtBottom() {
 				c.UserScrolled = false
-				c.AutoScroll = true
+				if !c.ScrollLocked {
+					c.AutoScroll = true
+				}
 			} else {
 				c.UserScrolled = true
 			}
@@ -477,7 +569,9 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 			c.Viewport.GotoBottom()
 			// If user scrolls to bottom, re-enable auto-scroll
 			c.UserScrolled = false
-			c.AutoScroll = true
+			if !c.ScrollLocked {
+				c.AutoScroll = true
+			}
 		}
 	}
 	c.Viewport, cmd = c.Viewport.Update(msg)
@@ -486,13 +580,14 @@ func (c ChatComponent) Update(msg tea.Msg) (ChatComponent, tea.Cmd) {
 
 // View renders the chat component
 func (c ChatComponent) View() string {
-	content := lipgloss.JoinVertical(lipgloss.Left, c.Viewport.View())
+	// Get the viewport content
+	viewportContent := c.Viewport.View()
 
 	// Adjust height
 	c.Style = c.Style.Height(c.Height)
 	c.Viewport.Height = c.Height
 
-	return c.Style.Render(content)
+	return c.Style.Render(viewportContent)
 }
 
 // ===== Raw History Management =====

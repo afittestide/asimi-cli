@@ -97,7 +97,7 @@ This violated separation of concerns and created tight coupling.
 
 ```go
 type ChangeModeMsg struct {
-    NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume"
+    NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume", "scroll"
 }
 ```
 
@@ -128,6 +128,8 @@ case ChangeModeMsg:
         displayMode = "MODELS"
     case "resume":
         displayMode = "RESUME"
+    case "scroll":
+        displayMode = "SCROLL"
     default:
         displayMode = msg.NewMode
     }
@@ -135,6 +137,14 @@ case ChangeModeMsg:
     m.status.SetViMode(viEnabled, displayMode, viPending)
     return m, nil
 ```
+
+- `scroll` is a dedicated chat-navigation mode entered with `Ctrl-B`. It locks the viewport in place (no auto-scroll) and provides vi-style paging:
+  - `Ctrl-F` / `Ctrl-B` - Page down/up
+  - `Ctrl-D` / `Ctrl-U` - Half page down/up
+  - `j` / `k` / `↓` / `↑` - Half page down/up (vi-style)
+  - `G` - Jump to bottom
+  - `:` - Enter command mode without snapping back
+  - `Esc` / `i` - Return to insert mode
 
 ### Component Integration
 

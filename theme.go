@@ -19,6 +19,10 @@ type Theme struct {
 	PaneBackground   lipgloss.Color
 	DarkBorder       lipgloss.Color
 
+	// Prompt focus indicators
+	PromptOnBorder  lipgloss.Color // Border color when focused on prompt (INSERT/COMMAND/LEARNING modes)
+	PromptOffBorder lipgloss.Color // Border color when focused away from prompt (NORMAL/VISUAL modes)
+
 	// Legacy colors for compatibility
 	PrimaryColor   lipgloss.Color
 	SecondaryColor lipgloss.Color
@@ -49,6 +53,10 @@ func NewTheme() *Theme {
 	paneBackground := lipgloss.Color("#000000")
 	darkBorder := lipgloss.Color("#373702")
 
+	// Prompt focus indicators
+	promptOnBorder := lipgloss.Color("#F4DB53")   // Yellow - focus on prompt (INSERT/other)
+	promptOffBorder := lipgloss.Color("#373702")  // Dark - focus away from prompt (NORMAL/VISUAL)
+
 	theme := &Theme{
 		// Terminal7 colors
 		PromptBorder:     promptBorder,
@@ -61,6 +69,10 @@ func NewTheme() *Theme {
 		TextError:        textError,
 		PaneBackground:   paneBackground,
 		DarkBorder:       darkBorder,
+
+		// Prompt focus indicators
+		PromptOnBorder:  promptOnBorder,
+		PromptOffBorder: promptOffBorder,
 
 		// Legacy colors for compatibility
 		PrimaryColor:   promptBorder,

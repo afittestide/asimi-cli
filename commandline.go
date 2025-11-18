@@ -29,7 +29,7 @@ type (
 
 // Mode management - single unified message for all mode changes
 type ChangeModeMsg struct {
-	NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume"
+	NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume", "scroll"
 }
 
 // CommandLineMode represents the state of the command line
