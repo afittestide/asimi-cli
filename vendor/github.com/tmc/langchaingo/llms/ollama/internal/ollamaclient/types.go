@@ -34,52 +34,24 @@ type GenerateRequest struct {
 	Context   []int  `json:"context,omitempty"`
 	Stream    *bool  `json:"stream"`
 	KeepAlive string `json:"keep_alive,omitempty"`
-	Think     bool   `json:"think,omitempty"` // Ollama 0.9.0+ reasoning mode
 
 	Options Options `json:"options"`
 }
 
 type ImageData []byte
 
-// ToolCall represents a function call requested by the model.
-type ToolCall struct {
-	Function ToolFunction `json:"function"`
-}
-
-// ToolFunction represents the function details in a tool call.
-type ToolFunction struct {
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments"`
-}
-
 type Message struct {
-	Role      string      `json:"role"` // one of ["system", "user", "assistant"]
-	Content   string      `json:"content"`
-	Images    []ImageData `json:"images,omitempty"`
-	ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
-}
-
-// Tool represents a tool that can be used by the model.
-type Tool struct {
-	Type     string           `json:"type"`
-	Function FunctionTool     `json:"function"`
-}
-
-// FunctionTool represents a function tool definition.
-type FunctionTool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Parameters  any    `json:"parameters"`
+	Role    string      `json:"role"` // one of ["system", "user", "assistant"]
+	Content string      `json:"content"`
+	Images  []ImageData `json:"images,omitempty"`
 }
 
 type ChatRequest struct {
 	Model     string     `json:"model"`
 	Messages  []*Message `json:"messages"`
 	Stream    bool       `json:"stream,omitempty"`
-	Format    string     `json:"format,omitempty"`
+	Format    string     `json:"format"`
 	KeepAlive string     `json:"keep_alive,omitempty"`
-	Tools     []Tool     `json:"tools,omitempty"`
-	Think     bool       `json:"think,omitempty"` // Ollama 0.9.0+ reasoning mode
 
 	Options Options `json:"options"`
 }
@@ -195,6 +167,7 @@ type Options struct {
 	MirostatEta      float32 `json:"mirostat_eta,omitempty"`
 	TopP             float32 `json:"top_p,omitempty"`
 	PenalizeNewline  bool    `json:"penalize_newline,omitempty"`
+	Think            bool    `json:"think,omitempty"` // Ollama 0.9.0+ reasoning mode
 }
 
 type PullRequest struct {

@@ -3,6 +3,7 @@ module github.com/afittestide/asimi
 go 1.25.3
 
 require (
+	al.essio.dev/pkg/shellescape v1.5.1
 	github.com/alecthomas/kong v1.12.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.6
@@ -29,11 +30,11 @@ require (
 )
 
 // IMPORTANT: We have some changes pending for langchaingo, go to keep this
-// replace github.com/tmc/langchaingo => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
-replace github.com/tmc/langchaingo => /Users/daonb/src/langchaingo/
+replace github.com/tmc/langchaingo => github.com/daonb/langchaingo v0.1.14-pre.4.asimi
+
+// replace github.com/tmc/langchaingo => /Users/daonb/src/langchaingo/
 
 require (
-	al.essio.dev/pkg/shellescape v1.5.1 // indirect
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/ai v0.7.0 // indirect
 	cloud.google.com/go/aiplatform v1.69.0 // indirect
