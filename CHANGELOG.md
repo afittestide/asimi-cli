@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/` is just a slash. Use `:` to enter command mode
 
 ### Fixed
+- Infinite recursion in TestRunInitGuardrails due to guardrails running tests
 - OAuth token now automatically refreshes during chat sessions to prevent 401 errors when token expires mid-conversation
 - Context validation error when interrupting tool execution (issue #37)
 - Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
@@ -28,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configuration option `run_in_shell.timeout_minutes` to set shell command timeout (default: 10 minutes)
 - :! <cmd> - running in the container, to verify `:!uname -a`
 - :resume to resume session
-- :init - analyzes the project and creates a `.agents/asimi.conf`, `
+- :init - analyzes the project and creates a `.agents/asimi.toml`, `
 - Each branch has its own prompt & command history
 - `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
 
