@@ -1401,7 +1401,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Use FindCommand for vim-style partial matching
 			cmd, matches, found := m.commandRegistry.FindCommand(cmdName)
 			if found {
-				return m, cmd.Handler(&m, parts[1:])
+				c := cmd.Handler(&m, parts[1:])
+				m.prompt.Focus()
+				return m, c
 			} else if len(matches) > 1 {
 				// Ambiguous command
 				displayMatches := make([]string, len(matches))
