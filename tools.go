@@ -114,11 +114,11 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 		// If unmarshalling fails, assume the input is a raw path
 		params.Path = input
 	}
-	
+
 	// Workaround for Claude Code CLI bug: numeric params come as strings
 	// If offset/limit are zero but the input contains them, try flexible parsing
 	if (params.Offset == 0 && strings.Contains(input, `"offset"`)) ||
-	   (params.Limit == 0 && strings.Contains(input, `"limit"`)) {
+		(params.Limit == 0 && strings.Contains(input, `"limit"`)) {
 		var rawParams readFileInputRaw
 		if json.Unmarshal([]byte(input), &rawParams) == nil {
 			params.Path = rawParams.Path
@@ -617,7 +617,7 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	// Check if command should run on host based on config patterns
 	if t.shouldRunOnHost(params.Command) {
 		// Run directly on host
-		output, runErr = hostShellRunner{}.Run(ctx, params)
+		output, runErr = hostRun(ctx, params)
 	} else {
 		runner := getShellRunner()
 		output, runErr = runner.Run(ctx, params)
@@ -711,14 +711,7 @@ func (t RunInShell) Format(input, result string, err error) string {
 	return firstLine + "\n" + secondLine
 }
 
-type hostShellRunner struct{}
-
-func (hostShellRunner) Restart(ctx context.Context) error {
-	// Host shell runner doesn't maintain state, nothing to restart
-	return nil
-}
-
-func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
+func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	var output RunInShellOutput
 
 	var cmd *exec.Cmd

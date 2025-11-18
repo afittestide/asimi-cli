@@ -447,7 +447,7 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 		// If podman is not available, fall back to host shell only if allowed
 		if r.allowFallback {
 			slog.Debug("falling back to host shell")
-			return hostShellRunner{}.Run(ctx, params)
+			return hostRun(ctx, params)
 		}
 		return RunInShellOutput{}, fmt.Errorf("podman unavailable and fallback to host shell is disabled: %w", err)
 	}

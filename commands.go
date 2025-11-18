@@ -303,6 +303,28 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		// Check if user wants to force regeneration
 		forceMode := len(args) > 0 && args[0] == "force"
 
+		// Ensure .agents directory exists
+		if err := os.MkdirAll(".agents", 0o755); err != nil {
+			return showContextMsg{content: fmt.Sprintf("Error creating .agents directory: %v", err)}
+		}
+
+		// Handle .agents/asimi.toml initialization
+		projectConfigPath := ".agents/asimi.toml"
+		if _, err := os.Stat(projectConfigPath); os.IsNotExist(err) || forceMode {
+			exampleConfigPath := "conf.toml.example"
+			exampleConfigContent, err := os.ReadFile(exampleConfigPath)
+			if err != nil {
+				return showContextMsg{content: fmt.Sprintf("Error reading example config file %s: %v", exampleConfigPath, err)}
+			}
+
+			if err := os.WriteFile(projectConfigPath, exampleConfigContent, 0o644); err != nil {
+				return showContextMsg{content: fmt.Sprintf("Error writing project config file %s: %v", projectConfigPath, err)}
+			}
+			if program != nil && !forceMode {
+				program.Send(showContextMsg{content: fmt.Sprintf("Initialized %s from %s\n", projectConfigPath, exampleConfigPath)})
+			}
+		}
+
 		// Check for missing infrastructure files
 		missingFiles := checkMissingInfraFiles()
 
@@ -311,7 +333,8 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 				return showContextMsg{content: strings.Join([]string{"All infrastructure files already exist:",
 					"✓ AGENTS.md",
 					"✓ Justfile",
-					"✓ .agents/Sandbox",
+					"✓ .agents/sandbox",
+					"✓ .agents/asimi.toml",
 					"",
 					"Use `:init force` to regenerate them."}, "\n")}
 			}
@@ -354,19 +377,16 @@ type initializeProjectMsg struct {
 func checkMissingInfraFiles() []string {
 	var missing []string
 
-	// Check for AGENTS.md
-	if _, err := os.Stat("AGENTS.md"); os.IsNotExist(err) {
-		missing = append(missing, "AGENTS.md")
-	}
-
-	// Check for Justfile
-	if _, err := os.Stat("Justfile"); os.IsNotExist(err) {
-		missing = append(missing, "Justfile")
-	}
-
-	// Check for .agents/Sandbox
-	if _, err := os.Stat(".agents/Sandbox"); os.IsNotExist(err) {
-		missing = append(missing, ".agents/Sandbox")
+	for _, file := range []string{
+		"AGENTS.md",
+		"Justfile",
+		".agents/asimi.toml",
+		".agents/sandbox/Dockerfile",
+		".agents/sandbox/bashrc",
+	} {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			missing = append(missing, file)
+		}
 	}
 
 	return missing

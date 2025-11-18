@@ -113,28 +113,50 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 	for _, mc := range messages {
 		msg := &ollamaclient.Message{Role: typeToRole(mc.Role)}
 
-		// Look at all the parts in mc; expect to find a single Text part and
-		// any number of binary parts.
-		var text string
-		foundText := false
+		// Look at all the parts in mc; support Text, Binary (images), tool calls
+		// and tool call responses.
+		var textParts []string
 		var images []ollamaclient.ImageData
 
 		for _, p := range mc.Parts {
 			switch pt := p.(type) {
 			case llms.TextContent:
-				if foundText {
-					return nil, errors.New("expecting a single Text content")
+				if strings.TrimSpace(pt.Text) != "" {
+					textParts = append(textParts, pt.Text)
 				}
-				foundText = true
-				text = pt.Text
 			case llms.BinaryContent:
 				images = append(images, ollamaclient.ImageData(pt.Data))
+			case llms.ToolCall:
+				if pt.FunctionCall == nil {
+					continue
+				}
+
+				var args map[string]any
+				if strings.TrimSpace(pt.FunctionCall.Arguments) != "" {
+					if err := json.Unmarshal([]byte(pt.FunctionCall.Arguments), &args); err != nil {
+						return nil, fmt.Errorf("ollama: invalid tool call arguments: %w", err)
+					}
+				}
+
+				msg.ToolCalls = append(msg.ToolCalls, ollamaclient.ToolCall{
+					Function: ollamaclient.ToolFunction{
+						Name:      pt.FunctionCall.Name,
+						Arguments: args,
+					},
+				})
+			case llms.ToolCallResponse:
+				msg.ToolName = pt.Name
+				if strings.TrimSpace(pt.Content) != "" {
+					textParts = append(textParts, pt.Content)
+				}
 			default:
-				return nil, errors.New("only support Text and BinaryContent parts right now")
+				return nil, fmt.Errorf("ollama: unsupported content part type %T", pt)
 			}
 		}
 
-		msg.Content = text
+		if len(textParts) > 0 {
+			msg.Content = strings.Join(textParts, "\n")
+		}
 		msg.Images = images
 		chatMsgs = append(chatMsgs, msg)
 	}

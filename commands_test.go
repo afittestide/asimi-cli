@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -125,12 +126,12 @@ func TestNormalizeCommandName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{":help", "/help"},
-		{":quit", "/quit"},
-		{"/help", "/help"},
-		{"/quit", "/quit"},
-		{"", ""},
-		{":new", "/new"},
+		{input: ":help", expected: "/help"},
+		{input: ":quit", expected: "/quit"},
+		{input: "/help", expected: "/help"},
+		{input: "/quit", expected: "/quit"},
+		{input: "", expected: ""},
+		{input: ":new", expected: "/new"},
 	}
 
 	for _, tt := range tests {
@@ -139,4 +140,154 @@ func TestNormalizeCommandName(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestHandleInitCommand(t *testing.T) {
+	// Setup a temporary directory for the test
+	tmpDir := t.TempDir()
+	originalWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+	defer func() {
+		err := os.Chdir(originalWd)
+		if err != nil {
+			t.Logf("Failed to change back to original directory: %v", err)
+		}
+	}()
+
+	// Create a dummy conf.toml.example
+	exampleContent := "[llm]\nprovider = \"mock\"\n"
+	err = os.WriteFile("conf.toml.example", []byte(exampleContent), 0644)
+	require.NoError(t, err)
+
+	// Setup a mock model
+	mockTUI := &TUIModel{
+		session: &Session{},
+	}
+
+	t.Run("Clean directory", func(t *testing.T) {
+		cmd := handleInitCommand(mockTUI, []string{})
+		msg := cmd()
+
+		// Check that the message is an initializeProjectMsg
+		initMsg, ok := msg.(initializeProjectMsg)
+		require.True(t, ok, "Expected initializeProjectMsg")
+		require.NotEmpty(t, initMsg.prompt)
+
+		// Check that .agents/asimi.toml was created
+		projectConfigPath := ".agents/asimi.toml"
+		_, err := os.Stat(projectConfigPath)
+		require.NoError(t, err, "Project config file should be created")
+
+		// Check that the content matches the example
+		content, err := os.ReadFile(projectConfigPath)
+		require.NoError(t, err)
+		require.Equal(t, exampleContent, string(content))
+
+		// Clean up for the next test
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+
+	t.Run("Some files exist", func(t *testing.T) {
+		// Create a dummy Justfile
+		err := os.WriteFile("Justfile", []byte("default:\n\techo 'hello'"), 0644)
+		require.NoError(t, err)
+
+		cmd := handleInitCommand(mockTUI, []string{})
+		msg := cmd()
+
+		// Check that the message is an initializeProjectMsg
+		initMsg, ok := msg.(initializeProjectMsg)
+		require.True(t, ok, "Expected initializeProjectMsg")
+		require.NotEmpty(t, initMsg.prompt)
+
+		// Check that .agents/asimi.toml was created
+		projectConfigPath := ".agents/asimi.toml"
+		_, err = os.Stat(projectConfigPath)
+		require.NoError(t, err, "Project config file should be created")
+
+		// Clean up for the next test
+		err = os.Remove("Justfile")
+		require.NoError(t, err)
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+
+	t.Run("All files exist", func(t *testing.T) {
+		// Create all the files
+		err := os.MkdirAll(".agents/sandbox", 0755)
+		require.NoError(t, err)
+		files := []string{
+			"AGENTS.md",
+			"Justfile",
+			".agents/asimi.toml",
+			".agents/sandbox/Dockerfile",
+			".agents/sandbox/bashrc",
+		}
+		for _, file := range files {
+			err := os.WriteFile(file, []byte("dummy content"), 0644)
+			require.NoError(t, err)
+		}
+
+		cmd := handleInitCommand(mockTUI, []string{})
+		msg := cmd()
+
+		// Check that the message is a showContextMsg
+		contextMsg, ok := msg.(showContextMsg)
+		require.True(t, ok, "Expected showContextMsg")
+		require.Contains(t, contextMsg.content, "All infrastructure files already exist")
+
+		// Clean up for the next test
+		for _, file := range files {
+			err := os.Remove(file)
+			require.NoError(t, err)
+		}
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+
+	t.Run("Force mode", func(t *testing.T) {
+		// Create all the files
+		err := os.MkdirAll(".agents/sandbox", 0755)
+		require.NoError(t, err)
+		files := []string{
+			"AGENTS.md",
+			"Justfile",
+			".agents/asimi.toml",
+			".agents/sandbox/Dockerfile",
+			".agents/sandbox/bashrc",
+		}
+		originalContent := "original content"
+		for _, file := range files {
+			err := os.WriteFile(file, []byte(originalContent), 0644)
+			require.NoError(t, err)
+		}
+
+		cmd := handleInitCommand(mockTUI, []string{"force"})
+		msg := cmd()
+
+		// Check that the message is an initializeProjectMsg
+		initMsg, ok := msg.(initializeProjectMsg)
+		require.True(t, ok, "Expected initializeProjectMsg")
+		require.Contains(t, initMsg.prompt, "Force mode enabled")
+
+		// Check that .agents/asimi.toml was overwritten
+		projectConfigPath := ".agents/asimi.toml"
+		content, err := os.ReadFile(projectConfigPath)
+		require.NoError(t, err)
+		require.Equal(t, exampleContent, string(content))
+
+		// Clean up for the next test
+		for _, file := range files {
+			if file == ".agents/asimi.toml" {
+				continue
+			}
+			err := os.Remove(file)
+			require.NoError(t, err)
+		}
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
 }

@@ -1,8 +1,6 @@
 package llms
 
 import (
-	"log"
-
 	"github.com/pkoukk/tiktoken-go"
 )
 
@@ -76,7 +74,6 @@ func CountTokens(model, text string) int {
 	if err != nil {
 		e, err = tiktoken.GetEncoding("gpt2")
 		if err != nil {
-			log.Printf("[WARN] Failed to calculate number of tokens for model, falling back to approximate count")
 			return len([]rune(text)) / _tokenApproximation
 		}
 	}

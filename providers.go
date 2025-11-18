@@ -276,6 +276,14 @@ func ProvideSessionHistory(db *storage.DB, config *Config, repoInfo RepoInfo, lo
 	return store, nil
 }
 
+// ProvideGuardrails creates and returns the guardrails service
+// Note: Session will be nil initially and must be set later when available
+func ProvideGuardrails(config *Config, logger *slog.Logger) *GuardrailsService {
+	logger.Info("initializing guardrails service")
+	// Session will be set later when it becomes available
+	return NewGuardrailsService(nil, config, logger)
+}
+
 // TUIModelParams holds parameters for TUI model creation
 type TUIModelParams struct {
 	fx.In
@@ -285,12 +293,13 @@ type TUIModelParams struct {
 	CommandHistory *CommandHistory `name:"command"`
 	SessionStore   *SessionStore
 	DB             *storage.DB
+	Guardrails     *GuardrailsService
 	Logger         *slog.Logger
 }
 
 // ProvideTUIModel creates and returns the TUI model
 func ProvideTUIModel(params TUIModelParams) *TUIModel {
-	return NewTUIModel(params.Config, &params.RepoInfo, params.PromptHistory, params.CommandHistory, params.SessionStore, params.DB)
+	return NewTUIModel(params.Config, &params.RepoInfo, params.PromptHistory, params.CommandHistory, params.SessionStore, params.DB, params.Guardrails)
 }
 
 // TUIProgramParams holds parameters for TUI program initialization

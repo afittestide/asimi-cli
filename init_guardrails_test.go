@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -103,8 +106,30 @@ func TestRunInitGuardrails(t *testing.T) {
 	_, err = exec.Command("git", "add", "new.txt").CombinedOutput()
 	require.NoError(t, err)
 
+	// Create a spy function to capture update messages
+	var updateMessages []string
+	updateSpy := func(msg string) {
+		updateMessages = append(updateMessages, msg)
+	}
+
+	// Create guardrails service (without session for this test)
+	config := &Config{}
+	logger := slog.Default()
+	guardrails := NewGuardrailsService(nil, config, logger)
+
 	// Now, run the guardrails within this controlled environment
-	report := runInitGuardrails()
+	report := runInitGuardrails(guardrails, updateSpy)
+
+	// Verify update messages were called
+	require.NotEmpty(t, updateMessages, "Update function should have been called")
+
+	// Check that progress messages were sent
+	allUpdates := strings.Join(updateMessages, "")
+	require.Contains(t, allUpdates, "Running initialization guardrails", "Should show initialization message")
+	require.Contains(t, allUpdates, "Step 1/4: Linting", "Should show linting step")
+	require.Contains(t, allUpdates, "Step 2/4: Testing", "Should show testing step")
+	require.Contains(t, allUpdates, "Step 3/4: Building and testing sandbox", "Should show sandbox step")
+	require.Contains(t, allUpdates, "Step 4/4: Ensuring git purity", "Should show git purity step")
 
 	// Assert that the report indicates success from our dummy commands
 	require.Contains(t, report, "✅ Linting passed", "Report should show linting passed")
@@ -121,4 +146,55 @@ func TestInitGuardrailsCompleteMsg(t *testing.T) {
 	}
 
 	require.Equal(t, "Test report", msg.report)
+}
+
+func TestGuardrailsService(t *testing.T) {
+	config := &Config{}
+	logger := slog.Default()
+	service := NewGuardrailsService(nil, config, logger)
+
+	require.NotNil(t, service)
+	require.NotNil(t, service.checks)
+	require.Contains(t, service.checks, "lint")
+	require.Contains(t, service.checks, "test")
+	require.Contains(t, service.checks, "sandbox")
+	require.Contains(t, service.checks, "git-purity")
+}
+
+func TestGuardrailRun(t *testing.T) {
+	// Create a temporary directory
+	tempDir := t.TempDir()
+	originalWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		os.Chdir(originalWd)
+	})
+
+	// Initialize git
+	_, err = exec.Command("git", "init").CombinedOutput()
+	require.NoError(t, err)
+	_, err = exec.Command("git", "config", "user.email", "test@example.com").CombinedOutput()
+	require.NoError(t, err)
+	_, err = exec.Command("git", "config", "user.name", "Test User").CombinedOutput()
+	require.NoError(t, err)
+
+	config := &Config{}
+	logger := slog.Default()
+	service := NewGuardrailsService(nil, config, logger)
+
+	ctx := context.Background()
+	updateSpy := func(msg string) {}
+
+	// Test git-purity guardrail
+	result, err := service.Run(ctx, "git-purity", updateSpy)
+	require.NoError(t, err)
+	require.Equal(t, "git-purity", result.Name)
+	require.True(t, result.Passed)
+
+	// Test non-existent guardrail
+	_, err = service.Run(ctx, "non-existent", updateSpy)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
 }

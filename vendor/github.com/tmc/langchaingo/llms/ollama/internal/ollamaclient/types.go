@@ -57,12 +57,13 @@ type Message struct {
 	Content   string      `json:"content"`
 	Images    []ImageData `json:"images,omitempty"`
 	ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
+	ToolName  string      `json:"tool_name,omitempty"`
 }
 
 // Tool represents a tool that can be used by the model.
 type Tool struct {
-	Type     string           `json:"type"`
-	Function FunctionTool     `json:"function"`
+	Type     string       `json:"type"`
+	Function FunctionTool `json:"function"`
 }
 
 // FunctionTool represents a function tool definition.

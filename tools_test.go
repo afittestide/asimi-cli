@@ -1,15 +1,63 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type hostShellRunner struct{}
+
+func (hostShellRunner) Restart(ctx context.Context) error {
+	// Host shell runner doesn't maintain state, nothing to restart
+	return nil
+}
+
+func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
+	var output RunInShellOutput
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", params.Command)
+	} else {
+		cmd = exec.CommandContext(ctx, "bash", "-c", params.Command)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+
+	// Populate stdout and stderr separately
+	output.Stdout = stdout.String()
+	output.Stderr = stderr.String()
+
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			output.ExitCode = fmt.Sprintf("%d", exitErr.ExitCode())
+		} else {
+			output.ExitCode = "-1"
+		}
+	} else {
+		if cmd.ProcessState != nil {
+			output.ExitCode = fmt.Sprintf("%d", cmd.ProcessState.ExitCode())
+		} else {
+			output.ExitCode = "0"
+		}
+	}
+
+	return output, nil
+}
 
 func TestRunInShell(t *testing.T) {
 	restore := setShellRunnerForTesting(hostShellRunner{})
