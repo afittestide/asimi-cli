@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/` is just a slash. Use `:` to enter command mode
 
 ### Fixed
+- OAuth token now automatically refreshes during chat sessions to prevent 401 errors when token expires mid-conversation
 - Context validation error when interrupting tool execution (issue #37)
 - Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
 - Command timeout is now returned as command output (with exit code 124) instead of harness error

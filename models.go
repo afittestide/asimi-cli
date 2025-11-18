@@ -69,8 +69,9 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 	if config.LLM.AuthToken != "" {
 		// Use OAuth authentication
 		client.Transport = &anthropicOAuthTransport{
-			token: config.LLM.AuthToken,
-			base:  http.DefaultTransport,
+			token:  config.LLM.AuthToken,
+			config: config,
+			base:   http.DefaultTransport,
 		}
 	} else {
 		// Use API key authentication
