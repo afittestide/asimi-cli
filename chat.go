@@ -92,6 +92,11 @@ func (c *ChatComponent) SetWidth(width int) {
 	// Only create renderer if it doesn't exist yet and markdown is enabled
 	// Glamour renderer creation is expensive (~5s on first WindowSizeMsg)
 	// so we reuse the existing renderer and just update the content
+	// 
+	// Note: The markdown renderer's word wrap width cannot be updated after creation
+	// because glamour.TermRenderer.ansiOptions is a private field with no public API.
+	// This means markdown content won't re-wrap on terminal resize, but this is an
+	// acceptable limitation given the performance cost of recreating the renderer.
 	if c.markdownEnabled && c.markdownRenderer == nil {
 		renderer, err := glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),

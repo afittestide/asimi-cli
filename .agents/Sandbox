@@ -34,7 +34,9 @@ __asimi_run() {
   return $exit_code
 }
 alias ll="ls -l"
+alias grep=rg
 EOF
+
 ENV BASH_ENV="/root/.bashrc"
 
 CMD ["/bin/bash"]
