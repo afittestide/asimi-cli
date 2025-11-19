@@ -174,105 +174,71 @@ func processAnthropicResponse(result *anthropicclient.MessageResponsePayload) (*
 		return nil, ErrEmptyResponse
 	}
 
-	// Consolidate all content into a single choice to match OpenAI's behavior
-	// This fixes streaming tool calls by ensuring everything is in Choices[0]
-	var textContent strings.Builder
+	// Collect everything in single pass
+	var allText string
 	var toolCalls []llms.ToolCall
-	var allThinkingContent strings.Builder
-	var thinkingSignature string
+	var allThinking []string
+	var signature string
 
 	for _, content := range result.Content {
-		switch content.GetType() {
-		case "text":
-			if tc, ok := content.(*anthropicclient.TextContent); ok {
-				// Extract thinking content from the response text
-				thinkingContent, outputContent := extractThinkingFromText(tc.Text)
+		switch c := content.(type) {
+		case *anthropicclient.TextContent:
+			allText += c.Text
 
-				// Accumulate thinking content if present
-				if thinkingContent != "" {
-					if allThinkingContent.Len() > 0 {
-						allThinkingContent.WriteString("\n\n")
-					}
-					allThinkingContent.WriteString(thinkingContent)
-				}
-
-				// Use outputContent if thinking was extracted, otherwise use full text
-				contentToAdd := tc.Text
-				if outputContent != "" {
-					contentToAdd = outputContent
-				}
-
-				// Accumulate text content
-				if textContent.Len() > 0 && contentToAdd != "" {
-					textContent.WriteString("\n")
-				}
-				textContent.WriteString(contentToAdd)
-			} else {
-				return nil, fmt.Errorf("anthropic: %w for text message", ErrInvalidContentType)
+		case *anthropicclient.ToolUseContent:
+			args, err := json.Marshal(c.Input)
+			if err != nil {
+				return nil, fmt.Errorf("anthropic: failed to marshal tool use arguments: %w", err)
 			}
-		case "tool_use":
-			if toolUseContent, ok := content.(*anthropicclient.ToolUseContent); ok {
-				argumentsJSON, err := json.Marshal(toolUseContent.Input)
-				if err != nil {
-					return nil, fmt.Errorf("anthropic: failed to marshal tool use arguments: %w", err)
-				}
-				toolCalls = append(toolCalls, llms.ToolCall{
-					ID:   toolUseContent.ID,
-					Type: "function",
-					FunctionCall: &llms.FunctionCall{
-						Name:      toolUseContent.Name,
-						Arguments: string(argumentsJSON),
-					},
-				})
-			} else {
-				return nil, fmt.Errorf("anthropic: %w for tool use message %T", ErrInvalidContentType, content)
-			}
-		case "thinking":
-			if tc, ok := content.(*anthropicclient.ThinkingContent); ok {
-				// Accumulate thinking content from thinking blocks
-				if allThinkingContent.Len() > 0 {
-					allThinkingContent.WriteString("\n\n")
-				}
-				allThinkingContent.WriteString(tc.Thinking)
+			toolCalls = append(toolCalls, llms.ToolCall{
+				ID:   c.ID,
+				Type: "function",
+				FunctionCall: &llms.FunctionCall{
+					Name:      c.Name,
+					Arguments: string(args),
+				},
+			})
 
-				// Store signature if present
-				if tc.Signature != "" {
-					thinkingSignature = tc.Signature
-				}
-			} else {
-				return nil, fmt.Errorf("anthropic: %w for thinking message %T", ErrInvalidContentType, content)
+		case *anthropicclient.ThinkingContent:
+			allThinking = append(allThinking, c.Thinking)
+			if c.Signature != "" {
+				signature = c.Signature
 			}
+
 		default:
-			return nil, fmt.Errorf("anthropic: %w: %v", ErrUnsupportedContentType, content.GetType())
+			return nil, fmt.Errorf("anthropic: unknown content type: %T", content)
 		}
 	}
 
-	// Create consolidated generation info
-	generationInfo := map[string]any{
-		"InputTokens":              result.Usage.InputTokens,
-		"OutputTokens":             result.Usage.OutputTokens,
-		"CacheCreationInputTokens": result.Usage.CacheCreationInputTokens,
-		"CacheReadInputTokens":     result.Usage.CacheReadInputTokens,
+	// Extract embedded thinking and get clean output in one go
+	embeddedThinking, cleanOutput := extractThinkingFromText(allText)
+	if embeddedThinking != "" {
+		allThinking = append(allThinking, embeddedThinking)
 	}
 
-	// Add thinking content if present
-	if allThinkingContent.Len() > 0 {
-		generationInfo["ThinkingContent"] = allThinkingContent.String()
-		generationInfo["OutputContent"] = textContent.String()
-	}
-	if thinkingSignature != "" {
-		generationInfo["ThinkingSignature"] = thinkingSignature
-	}
+	thinkingContent := strings.Join(allThinking, "\n\n")
 
-	// Create single consolidated choice
+	// Build single choice
 	choice := &llms.ContentChoice{
-		Content:        textContent.String(),
-		ToolCalls:      toolCalls,
-		StopReason:     result.StopReason,
-		GenerationInfo: generationInfo,
+		Content:          allText, // Raw content as-is
+		ToolCalls:        toolCalls,
+		StopReason:       result.StopReason,
+		ReasoningContent: thinkingContent,
+		GenerationInfo: map[string]any{
+			"InputTokens":              result.Usage.InputTokens,
+			"OutputTokens":             result.Usage.OutputTokens,
+			"CacheCreationInputTokens": result.Usage.CacheCreationInputTokens,
+			"CacheReadInputTokens":     result.Usage.CacheReadInputTokens,
+			"ThinkingContent":          thinkingContent,
+			"OutputContent":            cleanOutput,
+		},
 	}
 
-	// Set legacy FuncCall for backwards compatibility
+	if signature != "" {
+		choice.GenerationInfo["ThinkingSignature"] = signature
+	}
+
+	// Backwards compatibility
 	if len(toolCalls) > 0 {
 		choice.FuncCall = toolCalls[0].FunctionCall
 	}
@@ -586,32 +552,26 @@ func extractThinkingOptions(o *LLM, opts *llms.CallOptions) ([]string, *anthropi
 // extractThinkingFromText extracts thinking content from Anthropic responses
 // Anthropic models often embed thinking in <thinking> tags
 func extractThinkingFromText(fullText string) (thinkingContent, outputContent string) {
-	// Look for <thinking> tags in the text
-	if strings.Contains(fullText, "<thinking>") {
-		start := strings.Index(fullText, "<thinking>")
-		end := strings.Index(fullText, "</thinking>")
-		if start >= 0 && end > start {
-			// Extract thinking content between tags
-			thinkingContent = fullText[start+10 : end] // +10 for "<thinking>"
+	const (
+		openTag  = "<thinking>"
+		closeTag = "</thinking>"
+	)
 
-			// Extract output content (everything before and after thinking tags)
-			beforeThinking := strings.TrimSpace(fullText[:start])
-			afterThinking := ""
-			if end+12 < len(fullText) { // +12 for "</thinking>"
-				afterThinking = strings.TrimSpace(fullText[end+12:])
-			}
+	start := strings.Index(fullText, openTag)
+	end := strings.Index(fullText, closeTag)
+	if start >= 0 && end > start {
+		thinkingContent = fullText[start+len(openTag) : end]
 
-			// Combine non-thinking content
-			if beforeThinking != "" && afterThinking != "" {
-				outputContent = beforeThinking + "\n\n" + afterThinking
-			} else if beforeThinking != "" {
-				outputContent = beforeThinking
-			} else {
-				outputContent = afterThinking
-			}
-
-			return strings.TrimSpace(thinkingContent), strings.TrimSpace(outputContent)
+		beforeThinking := fullText[:start]
+		afterThinking := ""
+		closeEnd := end + len(closeTag)
+		if closeEnd < len(fullText) {
+			afterThinking = fullText[closeEnd:]
 		}
+
+		outputContent = beforeThinking + afterThinking
+
+		return strings.TrimSpace(thinkingContent), outputContent
 	}
 
 	// If no thinking tags found, treat entire text as output

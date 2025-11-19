@@ -173,11 +173,9 @@ func (m *TUIModel) initHistory() {
 			// Convert persistent entries to in-memory format
 			// Note: SessionSnapshot and ChatSnapshot are set to 0 for loaded entries
 			// as they're only meaningful for the current session
-			// Database returns entries in DESC order (newest first), but we need
-			// them in chronological order (oldest first) for navigation to work correctly
-			for i := len(entries) - 1; i >= 0; i-- {
+			for _, entry := range entries {
 				m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
-					Prompt:          entries[i].Content,
+					Prompt:          entry.Content,
 					SessionSnapshot: 0,
 					ChatSnapshot:    0,
 				})
@@ -1223,7 +1221,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamErrorMsg:
 		m.content.GetChat().AddToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
 		slog.Error("streamErrorMsg", "error", msg.err)
-		m.content.GetChat().AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
+		m.commandLine.AddToast(fmt.Sprintf("Model Error: %v", msg.err), "error", time.Second*5)
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
