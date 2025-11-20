@@ -92,7 +92,7 @@ func (c *ChatComponent) SetWidth(width int) {
 	// Only create renderer if it doesn't exist yet and markdown is enabled
 	// Glamour renderer creation is expensive (~5s on first WindowSizeMsg)
 	// so we reuse the existing renderer and just update the content
-	// 
+	//
 	// Note: The markdown renderer's word wrap width cannot be updated after creation
 	// because glamour.TermRenderer.ansiOptions is a private field with no public API.
 	// This means markdown content won't re-wrap on terminal resize, but this is an
@@ -149,8 +149,8 @@ func (c *ChatComponent) AddShellCommandInput(command string) {
 
 // AddShellCommandResult formats and displays the result of an inline shell command
 func (c *ChatComponent) AddShellCommandResult(msg shellCommandResultMsg) {
-	c.AddToRawHistory("SHELL_RESULT", fmt.Sprintf("Command: %s\nExit Code: %s\nStdout: %s\nStderr: %s",
-		msg.command, msg.exitCode, msg.output, msg.stderr))
+	c.AddToRawHistory("SHELL_RESULT", fmt.Sprintf("Command: %s\nExit Code: %s\nOutput: %s\n",
+		msg.command, msg.exitCode, msg.output))
 
 	if msg.err != nil {
 		c.AddMessage(renderShellLines([]string{fmt.Sprintf("bash: Error executing command: %v", msg.err)}))
@@ -161,15 +161,6 @@ func (c *ChatComponent) AddShellCommandResult(msg shellCommandResultMsg) {
 
 	if msg.output != "" {
 		lines = append(lines, splitShellLines(msg.output)...)
-	}
-
-	if msg.stderr != "" {
-		// Style stderr lines in yellow using theme color
-		stderrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(globalTheme.Warning))
-		stderrLines := splitShellLines(msg.stderr)
-		for _, line := range stderrLines {
-			lines = append(lines, stderrStyle.Render(line))
-		}
 	}
 
 	if len(lines) == 0 {

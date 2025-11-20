@@ -114,11 +114,11 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 		// If unmarshalling fails, assume the input is a raw path
 		params.Path = input
 	}
-	
+
 	// Workaround for Claude Code CLI bug: numeric params come as strings
 	// If offset/limit are zero but the input contains them, try flexible parsing
 	if (params.Offset == 0 && strings.Contains(input, `"offset"`)) ||
-	   (params.Limit == 0 && strings.Contains(input, `"limit"`)) {
+		(params.Limit == 0 && strings.Contains(input, `"limit"`)) {
 		var rawParams readFileInputRaw
 		if json.Unmarshal([]byte(input), &rawParams) == nil {
 			params.Path = rawParams.Path
@@ -514,8 +514,7 @@ type RunInShellInput struct {
 
 // RunInShellOutput is the output of the RunInShell tool
 type RunInShellOutput struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	Output   string `json:"stdout"`
 	ExitCode string `json:"exitCode"`
 }
 
@@ -735,8 +734,7 @@ func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInSh
 	runErr := cmd.Run()
 
 	// Populate stdout and stderr separately
-	output.Stdout = stdout.String()
-	output.Stderr = stderr.String()
+	output.Output = stdout.String() + "\n" + stderr.String()
 
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {

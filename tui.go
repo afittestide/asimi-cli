@@ -90,7 +90,6 @@ type waitingTickMsg struct{}
 type shellCommandResultMsg struct {
 	command  string
 	output   string
-	stderr   string
 	exitCode string
 	err      error
 }
@@ -1102,7 +1101,6 @@ func (m TUIModel) handleShellCommand(command string) (tea.Model, tea.Cmd) {
 			return shellCommandResultMsg{
 				command:  shellCmd,
 				output:   "",
-				stderr:   "",
 				exitCode: "-1",
 				err:      err,
 			}
@@ -1114,7 +1112,6 @@ func (m TUIModel) handleShellCommand(command string) (tea.Model, tea.Cmd) {
 			return shellCommandResultMsg{
 				command:  shellCmd,
 				output:   result,
-				stderr:   "",
 				exitCode: "0",
 				err:      nil,
 			}
@@ -1122,8 +1119,7 @@ func (m TUIModel) handleShellCommand(command string) (tea.Model, tea.Cmd) {
 
 		return shellCommandResultMsg{
 			command:  shellCmd,
-			output:   output.Stdout,
-			stderr:   output.Stderr,
+			output:   output.Output,
 			exitCode: output.ExitCode,
 			err:      nil,
 		}
@@ -1522,6 +1518,10 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			timeStr := formatRelativeTime(msg.session.LastUpdated)
 			m.commandLine.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
 		}
+		return m, nil
+
+	case sessionScrollInfoMsg:
+		m.commandLine.AddToast(msg.info, "info", 2000)
 		return m, nil
 
 	case sessionResumeErrorMsg:
