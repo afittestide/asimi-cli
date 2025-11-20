@@ -133,12 +133,12 @@ func (h *HistoryStore) LoadPromptHistory(host, org, project, branch string, limi
 		return []HistoryEntry{}, nil // No branch means no history
 	}
 
-	// Query prompts
+	// Query prompts in chronological order (oldest first)
 	query := `
 		SELECT prompt, timestamp
 		FROM prompt_history
 		WHERE branch_id = ?
-		ORDER BY timestamp DESC`
+		ORDER BY timestamp ASC, id ASC`
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
@@ -192,12 +192,12 @@ func (h *HistoryStore) LoadCommandHistory(host, org, project, branch string, lim
 		return []HistoryEntry{}, nil // No branch means no history
 	}
 
-	// Query commands
+	// Query commands in chronological order (oldest first)
 	query := `
 		SELECT command, timestamp
 		FROM command_history
 		WHERE branch_id = ?
-		ORDER BY timestamp DESC`
+		ORDER BY timestamp ASC, id ASC`
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)

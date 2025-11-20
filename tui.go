@@ -1227,7 +1227,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamErrorMsg:
 		m.content.GetChat().AddToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
 		slog.Error("streamErrorMsg", "error", msg.err)
-		m.content.GetChat().AddMessage(fmt.Sprintf("LLM Error: %v", msg.err))
+		m.commandLine.AddToast(fmt.Sprintf("Model Error: %v", msg.err), "error", time.Second*5)
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {

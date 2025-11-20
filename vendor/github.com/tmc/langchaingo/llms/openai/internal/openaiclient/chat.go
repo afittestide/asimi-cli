@@ -174,6 +174,7 @@ type ToolCall struct {
 	ID       string       `json:"id,omitempty"`
 	Type     ToolType     `json:"type"`
 	Function ToolFunction `json:"function,omitempty"`
+	Index    int          `json:"index"`
 }
 
 type ResponseFormatJSONSchemaProperty struct {
@@ -634,29 +635,33 @@ func combineStreamingChatResponse(
 			continue
 		}
 		choice := streamResponse.Choices[0]
-		chunk := []byte(choice.Delta.Content)
-		reasoningChunk := []byte(choice.Delta.ReasoningContent) // TODO: not sure if there will be any reasoning related to function call later, so just pass it here
+		contentChunk := []byte(choice.Delta.Content)
+		reasoningChunk := []byte(choice.Delta.ReasoningContent)
 		response.Choices[0].Message.Content += choice.Delta.Content
 		response.Choices[0].FinishReason = choice.FinishReason
 		response.Choices[0].Message.ReasoningContent += choice.Delta.ReasoningContent
 
+		// Update function calls and tool calls, but don't pass them to StreamingFunc
+		// Tool calls are handled separately through the response.Choices[0].Message.ToolCalls field
 		if choice.Delta.FunctionCall != nil {
-			chunk = updateFunctionCall(response.Choices[0].Message, choice.Delta.FunctionCall)
+			updateFunctionCall(response.Choices[0].Message, choice.Delta.FunctionCall)
 		}
 
 		if len(choice.Delta.ToolCalls) > 0 {
-			chunk, response.Choices[0].Message.ToolCalls = updateToolCalls(response.Choices[0].Message.ToolCalls,
+			response.Choices[0].Message.ToolCalls = updateToolCalls(response.Choices[0].Message.ToolCalls,
 				choice.Delta.ToolCalls)
 		}
 
-		if payload.StreamingFunc != nil {
-			err := payload.StreamingFunc(ctx, chunk)
+		// Only call StreamingFunc for actual content deltas, not for tool calls
+		// This prevents JSON-marshaled tool call data from being displayed in the chat
+		if payload.StreamingFunc != nil && len(contentChunk) > 0 {
+			err := payload.StreamingFunc(ctx, contentChunk)
 			if err != nil {
 				return nil, fmt.Errorf("streaming func returned an error: %w", err)
 			}
 		}
-		if payload.StreamingReasoningFunc != nil {
-			err := payload.StreamingReasoningFunc(ctx, reasoningChunk, chunk)
+		if payload.StreamingReasoningFunc != nil && (len(reasoningChunk) > 0 || len(contentChunk) > 0) {
+			err := payload.StreamingReasoningFunc(ctx, reasoningChunk, contentChunk)
 			if err != nil {
 				return nil, fmt.Errorf("streaming reasoning func returned an error: %w", err)
 			}
@@ -665,63 +670,44 @@ func combineStreamingChatResponse(
 	return &response, nil
 }
 
-func updateFunctionCall(message ChatMessage, functionCall *FunctionCall) []byte {
+func updateFunctionCall(message ChatMessage, functionCall *FunctionCall) {
 	if message.FunctionCall == nil {
 		message.FunctionCall = functionCall
 	} else {
 		message.FunctionCall.Arguments += functionCall.Arguments
 	}
-	chunk, _ := json.Marshal(message.FunctionCall) // nolint:errchkjson
-	return chunk
 }
 
-func updateToolCalls(tools []ToolCall, delta []*ToolCall) ([]byte, []ToolCall) {
+func updateToolCalls(tools []ToolCall, delta []*ToolCall) []ToolCall {
 	if len(delta) == 0 {
-		return []byte{}, tools
+		return tools
 	}
 	for _, t := range delta {
-		// if we have arguments append to the last Tool call
-		if t.Type == `` && t.Function.Arguments != `` {
-			lindex := len(tools) - 1
-			if lindex < 0 {
-				continue
+		// OpenAI uses the Index field to identify which tool call this delta belongs to
+		// If ID is present, this is a new tool call
+		if t.ID != "" {
+			// Ensure we have enough space in the tools slice
+			for len(tools) <= t.Index {
+				tools = append(tools, ToolCall{})
 			}
-
-			tools[lindex].Function.Arguments += t.Function.Arguments
+			// Initialize the tool call at the specified index
+			tools[t.Index] = *t
 			continue
 		}
 
-		// Otherwise, this is a new tool call, append that to the stack
-		tools = append(tools, *t)
+		// If ID is empty, this is a continuation of an existing tool call
+		// Append arguments to the tool call at the specified index
+		if t.Index < len(tools) && t.Function.Arguments != "" {
+			tools[t.Index].Function.Arguments += t.Function.Arguments
+		}
 	}
 
-	chunk, _ := json.Marshal(delta) // nolint:errchkjson
-
-	return chunk, tools
+	return tools
 }
 
 // StreamingChatResponseTools is a helper function to append tool calls to the stack.
+// Deprecated: This function previously returned a JSON-marshaled chunk which caused
+// tool call JSON to be displayed in streaming output. Use updateToolCalls instead.
 func StreamingChatResponseTools(tools []ToolCall, delta []*ToolCall) ([]byte, []ToolCall) {
-	if len(delta) == 0 {
-		return []byte{}, tools
-	}
-	for _, t := range delta {
-		// if we have arguments append to the last Tool call
-		if t.Type == `` && t.Function.Arguments != `` {
-			lindex := len(tools) - 1
-			if lindex < 0 {
-				continue
-			}
-
-			tools[lindex].Function.Arguments += t.Function.Arguments
-			continue
-		}
-
-		// Otherwise, this is a new tool call, append that to the stack
-		tools = append(tools, *t)
-	}
-
-	chunk, _ := json.Marshal(delta) // nolint:errchkjson
-
-	return chunk, tools
+	return []byte{}, updateToolCalls(tools, delta)
 }
