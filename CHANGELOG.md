@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :init - analyzes the project and creates a `.agents/asimi.conf`, `
 - Each branch has its own prompt & command history
 - `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
+- Warning logging when commands run on host instead of sandbox (partial implementation of #68)
 
 ### Changed
 
