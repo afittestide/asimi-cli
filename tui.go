@@ -477,7 +477,8 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle regular key input (when in insert mode)
 	switch keyStr {
 	case "ctrl+o":
-		return m.handleToggleRawMode()
+		m.rawMode = !m.rawMode
+		return m, nil
 	case "enter":
 		return m.handleEnterKey()
 	case ":":
@@ -513,12 +514,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-}
-
-// handleToggleRawMode toggles between chat and raw session view
-func (m TUIModel) handleToggleRawMode() (tea.Model, tea.Cmd) {
-	m.rawMode = !m.rawMode
-	return m, nil
 }
 
 // handleViNormalMode handles key presses when in vi normal or visual mode
@@ -1520,10 +1515,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case sessionScrollInfoMsg:
-		m.commandLine.AddToast(msg.info, "info", 2000)
-		return m, nil
-
 	case sessionResumeErrorMsg:
 		m.commandLine.AddToast(fmt.Sprintf("Failed to resume session: %v", msg.err), "error", 4000)
 		return m, m.content.ShowChat()
@@ -1773,7 +1764,6 @@ func (m *TUIModel) updateComponentDimensions() {
 
 	commandLineHeight := 1
 	statusHeight := 1
-	emptyLineHeight := 1
 	width := m.width - 2
 
 	// Set screen height for prompt to calculate max height (50%)
@@ -1786,9 +1776,9 @@ func (m *TUIModel) updateComponentDimensions() {
 	promptWithBorder := promptHeight + 2
 
 	// Calculate chat height
-	chatHeight := m.height - commandLineHeight - statusHeight - promptWithBorder - emptyLineHeight
-	if chatHeight < 0 {
-		chatHeight = 0
+	contentHeight := m.height - commandLineHeight - statusHeight - promptWithBorder + 1
+	if contentHeight < 0 {
+		contentHeight = 0
 	}
 
 	// Update component widths
@@ -1796,7 +1786,7 @@ func (m *TUIModel) updateComponentDimensions() {
 	m.commandLine.SetWidth(width + 2)
 
 	// Full width layout - content handles chat and other views
-	m.content.SetSize(width, chatHeight)
+	m.content.SetSize(width, contentHeight)
 
 	m.prompt.SetWidth(width)
 	m.prompt.SetHeight(promptHeight)
@@ -1807,6 +1797,7 @@ func (m *TUIModel) updateComponentDimensions() {
 	} else {
 		m.status.SetProvider(m.config.LLM.Provider, m.config.LLM.Model, false)
 	}
+	slog.Debug("Updated dimensions", "m.height", m.height, "prompt height", promptHeight, "content height", contentHeight)
 }
 
 // View implements bubbletea.Model
@@ -1865,6 +1856,7 @@ func (m TUIModel) renderMainContent(modalHeight int) string {
 
 func (m TUIModel) composeBaseView(mainContent, promptView, commandLineView string) string {
 	// If help modal is active, insert it above the prompt
+	// TODO: we can probably remove this as there are no more modals
 	if m.modal != nil {
 		modalRender := m.modal.Render()
 		statusView := m.status.View()
@@ -1884,11 +1876,9 @@ func (m TUIModel) composeBaseView(mainContent, promptView, commandLineView strin
 
 	statusView := m.status.View()
 	// Vi-like layout: Chat -> Empty line -> Prompt -> Status -> Command line
-	emptyLine := ""
 	result := lipgloss.JoinVertical(
 		lipgloss.Left,
 		mainContent,
-		emptyLine,
 		promptView,
 		statusView,
 		commandLineView,

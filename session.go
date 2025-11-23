@@ -39,6 +39,7 @@ type Session struct {
 
 	Messages     []llms.MessageContent `json:"messages"`
 	ContextFiles map[string]string     `json:"context_files"`
+	MessageCount int                   `json:"message_count,omitempty"` // For list views, avoids loading full messages
 
 	llm                     llms.Model              `json:"-"`
 	toolCatalog             map[string]lctools.Tool `json:"-"`

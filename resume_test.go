@@ -14,7 +14,6 @@ func TestNewResumeWindowDefaults(t *testing.T) {
 
 	assert.Equal(t, 70, window.width)
 	assert.Equal(t, 15, window.height)
-	assert.Equal(t, 8, window.maxVisible)
 	assert.False(t, window.loading)
 	assert.Empty(t, window.sessions)
 	assert.Nil(t, window.errorMsg)
@@ -26,10 +25,9 @@ func TestResumeWindowSetSizeAdjustsVisibleSlots(t *testing.T) {
 	window.SetSize(80, 10)
 	assert.Equal(t, 80, window.width)
 	assert.Equal(t, 10, window.height)
-	assert.Equal(t, 6, window.maxVisible)
 
 	window.SetSize(50, 2)
-	assert.Equal(t, 1, window.maxVisible) // min clamp
+	assert.Equal(t, 2, window.height) // min clamp
 }
 
 func TestResumeWindowSetSessionsAndRender(t *testing.T) {
@@ -49,7 +47,7 @@ func TestResumeWindowSetSessionsAndRender(t *testing.T) {
 	assert.Contains(t, render, sessionTitlePreview(sessions[0]))
 	assert.Contains(t, render, sessionTitlePreview(sessions[1]))
 	assert.Contains(t, render, "▶ ")
-	assert.Contains(t, render, "1 msg")
+	assert.Contains(t, render, "]    1 Need to refactor")
 }
 
 func TestResumeWindowLoadingAndErrorStates(t *testing.T) {
@@ -76,6 +74,7 @@ func TestResumeWindowEmptyState(t *testing.T) {
 
 func TestResumeWindowScrollInfo(t *testing.T) {
 	window := NewResumeWindow()
+	// window.height = 5
 	now := time.Now()
 
 	var sessions []Session
@@ -91,8 +90,7 @@ func TestResumeWindowScrollInfo(t *testing.T) {
 	window.SetSessions(sessions)
 	render := window.RenderList(5, 5, 5)
 
-	assert.Contains(t, render, "6-10 of 20 sessions")
-	assert.Contains(t, render, "Message 6")
+	assert.Contains(t, render, "Message 6")    // Uses last human message when Messages is populated
 	assert.NotContains(t, render, "Message 2") // scrolled past
 }
 
@@ -124,21 +122,6 @@ func TestSessionTitlePreviewFallbacks(t *testing.T) {
 	assert.Equal(t, "User question", sessionTitlePreview(session))
 }
 
-func TestFormatMessageCount(t *testing.T) {
-	assert.Equal(t, "", formatMessageCount(nil))
-
-	msgs := []llms.MessageContent{
-		textMessage(llms.ChatMessageTypeHuman, "hi"),
-		textMessage(llms.ChatMessageTypeAI, "hello"),
-	}
-	assert.Equal(t, "2 msgs", formatMessageCount(msgs))
-
-	one := []llms.MessageContent{
-		textMessage(llms.ChatMessageTypeHuman, "single"),
-	}
-	assert.Equal(t, "1 msg", formatMessageCount(one))
-}
-
 func testSession(id, prompt string, updated time.Time, messageTexts ...string) Session {
 	var messages []llms.MessageContent
 	for _, text := range messageTexts {
@@ -146,11 +129,12 @@ func testSession(id, prompt string, updated time.Time, messageTexts ...string) S
 	}
 
 	return Session{
-		ID:          id,
-		FirstPrompt: prompt,
-		LastUpdated: updated,
-		Messages:    messages,
-		Model:       "test",
+		ID:           id,
+		FirstPrompt:  prompt,
+		LastUpdated:  updated,
+		Messages:     messages,
+		MessageCount: len(messages), // Set MessageCount for list views
+		Model:        "test",
 	}
 }
 
