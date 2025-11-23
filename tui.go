@@ -453,6 +453,11 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
+	// ESC in Normal mode -> Insert mode (issue #70)
+	if keyStr == "esc" && m.prompt.IsViNormalMode() {
+		m.prompt.EnterViInsertMode()
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
+	}
 
 	// Handle escape key after modals have had a chance to process it
 	if keyStr == "esc" {
