@@ -992,6 +992,31 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		}
 		m.content.GetChat().AddMessage(fmt.Sprintf("You: %s", content))
 		if m.session != nil {
+			// Check if we need to auto-compact before sending the prompt (#54)
+			info := m.session.GetContextInfo()
+			// Auto-compact if free tokens are less than 10% of total
+			autoCompactThreshold := float64(info.TotalTokens) * 0.10
+			if float64(info.FreeTokens) < autoCompactThreshold && len(m.session.Messages) > 2 {
+				slog.Info("auto-compacting conversation", "free_tokens", info.FreeTokens, "threshold", autoCompactThreshold)
+				m.content.GetChat().AddMessage("🗜️  Auto-compacting conversation history (low on context)...")
+				
+				// Perform compaction synchronously before sending the prompt
+				ctx := context.Background()
+				summary, err := m.session.CompactHistory(ctx, compactPrompt)
+				if err != nil {
+					slog.Warn("auto-compaction failed", "error", err)
+					m.content.GetChat().AddMessage(fmt.Sprintf("⚠️  Auto-compaction failed: %v", err))
+				} else {
+					// Get updated context info
+					newInfo := m.session.GetContextInfo()
+					m.content.GetChat().AddMessage(fmt.Sprintf("✅ Conversation compacted! Context usage: %s/%s tokens (%.1f%%)",
+						formatTokenCount(newInfo.UsedTokens),
+						formatTokenCount(newInfo.TotalTokens),
+						percentage(newInfo.UsedTokens, newInfo.TotalTokens)))
+					slog.Info("auto-compaction completed", "old_used", info.UsedTokens, "new_used", newInfo.UsedTokens, "saved", info.UsedTokens-newInfo.UsedTokens)
+				}
+			}
+			
 			m.sessionActive = true
 			m.prompt.SetValue("")
 			// In vi mode, stay in insert mode for continued conversation
