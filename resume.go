@@ -50,8 +50,8 @@ func NewResumeWindow() ResumeWindow {
 func (r *ResumeWindow) SetSize(width, height int) {
 	r.width = width
 	r.height = height
-	// Adjust maxVisible based on height
-	r.maxVisible = height - 4 // Account for title, footer, instructions
+	// Adjust maxVisible based on trial & error
+	r.maxVisible = height - 3
 	if r.maxVisible < 1 {
 		r.maxVisible = 1
 	}
@@ -93,10 +93,12 @@ func (r *ResumeWindow) GetSelectedSession(index int) *Session {
 }
 
 func sessionTitlePreview(session Session) string {
-	snippet := lastHumanMessage(session.Messages)
-	if snippet == "" {
-		snippet = session.FirstPrompt
+
+	snippet := session.FirstPrompt
+	if len(session.Messages) > 0 {
+		snippet = lastHumanMessage(session.Messages)
 	}
+
 	snippet = cleanSnippet(snippet)
 	if snippet == "" {
 		return "Recent activity"
@@ -162,23 +164,6 @@ func truncateSnippet(text string, limit int) string {
 	return string(runes[:limit-3]) + "..."
 }
 
-func formatMessageCount(messages []llms.MessageContent) string {
-	count := 0
-	for _, msg := range messages {
-		if msg.Role == llms.ChatMessageTypeHuman || msg.Role == llms.ChatMessageTypeAI {
-			count++
-		}
-	}
-
-	if count == 0 {
-		return ""
-	}
-	if count == 1 {
-		return "1 msg"
-	}
-	return fmt.Sprintf("%d msgs", count)
-}
-
 // RenderList renders the session list with the given selection
 func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int) string {
 	var content strings.Builder
@@ -206,6 +191,16 @@ func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int)
 	}
 
 	totalItems := len(r.sessions)
+	if scrollOffset < 0 {
+		scrollOffset = 0
+	}
+	maxOffset := totalItems - visibleSlots
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if scrollOffset > maxOffset {
+		scrollOffset = maxOffset
+	}
 	start := scrollOffset
 	end := scrollOffset + visibleSlots
 	if end > totalItems {
@@ -223,15 +218,10 @@ func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int)
 
 		timeStr := formatRelativeTime(session.LastUpdated)
 		title := sessionTitlePreview(session)
-		messageCount := formatMessageCount(session.Messages)
 
 		var line strings.Builder
 		line.WriteString(prefix)
-		line.WriteString(fmt.Sprintf("[%s] %s", timeStr, title))
-
-		if messageCount != "" {
-			line.WriteString(fmt.Sprintf(" (%s)", messageCount))
-		}
+		line.WriteString(fmt.Sprintf("[%s] %4d %s", timeStr, session.MessageCount, title))
 
 		lineStyle := lipgloss.NewStyle()
 		if isSelected {
@@ -240,12 +230,6 @@ func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int)
 
 		content.WriteString(lineStyle.Render(line.String()))
 		content.WriteString("\n")
-	}
-
-	if totalItems > visibleSlots {
-		scrollInfo := fmt.Sprintf("\n%d-%d of %d sessions", start+1, end, totalItems)
-		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
-		content.WriteString(scrollStyle.Render(scrollInfo))
 	}
 
 	return content.String()

@@ -73,7 +73,7 @@ func TestRunInShell(t *testing.T) {
 	err = json.Unmarshal([]byte(result), &output)
 	assert.NoError(t, err)
 
-	assert.Contains(t, output.Stdout, "hello world")
+	assert.Contains(t, output.Output, "hello world")
 	assert.Equal(t, "0", output.ExitCode)
 }
 
@@ -157,7 +157,7 @@ func TestRunInShellExitCodeWithMarkerInOutput(t *testing.T) {
 	// But with podman runner's fragile marker parsing (lines 274-289 in podman_runner.go),
 	// it might incorrectly parse 42 as the exit code from the output string
 	assert.Equal(t, "0", output.ExitCode, "Exit code should be 0, not parsed from output")
-	assert.Contains(t, output.Stdout, "**Exit Code**: 42")
+	assert.Contains(t, output.Output, "**Exit Code**: 42")
 }
 
 // TestComposeShellCommand removed - composeShellCommand is deprecated
@@ -230,8 +230,7 @@ func TestPodmanShellRunner(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Contains(t, output.Stdout, "hello")
-	assert.Empty(t, output.Stderr)
+	assert.Contains(t, output.Output, "hello")
 	assert.Equal(t, "0", output.ExitCode)
 }
 
@@ -254,8 +253,7 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 		Command: "echo first",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output1.Stdout, "first")
-	assert.Empty(t, output1.Stderr)
+	assert.Contains(t, output1.Output, "first")
 	assert.Equal(t, "0", output1.ExitCode)
 
 	// Second command in the same session
@@ -263,8 +261,7 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 		Command: "echo second",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output2.Stdout, "second")
-	assert.Empty(t, output2.Stderr)
+	assert.Contains(t, output2.Output, "second")
 	assert.Equal(t, "0", output2.ExitCode)
 }
 
@@ -277,8 +274,8 @@ func TestPodmanShellRunnerWithStderr(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Contains(t, output.Stdout, "stdout msg")
-	assert.Contains(t, output.Stderr, "stderr msg")
+	assert.Contains(t, output.Output, "stdout msg")
+	assert.Contains(t, output.Output, "stderr msg")
 	assert.Equal(t, "0", output.ExitCode)
 }
 

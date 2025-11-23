@@ -236,18 +236,9 @@ func (s *SessionStore) ListSessions(host, org, project, branch string, limit int
 		session.CreatedAt = time.Unix(createdAt, 0)
 		session.LastUpdated = time.Unix(lastUpdated, 0)
 		session.ProjectSlug = fmt.Sprintf("%s/%s/%s", host, org, project)
-
-		// Load message metadata (just count, not full content)
-		// We create placeholder messages with alternating roles to represent the count
-		session.Messages = make([]llms.MessageContent, messageCount)
-		for i := 0; i < messageCount; i++ {
-			// Alternate between Human and AI roles
-			if i%2 == 0 {
-				session.Messages[i].Role = llms.ChatMessageTypeHuman
-			} else {
-				session.Messages[i].Role = llms.ChatMessageTypeAI
-			}
-		}
+		session.MessageCount = messageCount
+		session.Messages = []llms.MessageContent{} // Empty for list view
+		session.ContextFiles = make(map[string]string)
 
 		sessions = append(sessions, session)
 	}
@@ -310,18 +301,9 @@ func (s *SessionStore) ListAllSessions(limit int) ([]SessionData, error) {
 		session.CreatedAt = time.Unix(createdAt, 0)
 		session.LastUpdated = time.Unix(lastUpdated, 0)
 		session.ProjectSlug = fmt.Sprintf("%s/%s/%s", host, org, project)
-
-		// Load message metadata (just count, not full content)
-		// We create placeholder messages with alternating roles to represent the count
-		session.Messages = make([]llms.MessageContent, messageCount)
-		for i := 0; i < messageCount; i++ {
-			// Alternate between Human and AI roles
-			if i%2 == 0 {
-				session.Messages[i].Role = llms.ChatMessageTypeHuman
-			} else {
-				session.Messages[i].Role = llms.ChatMessageTypeAI
-			}
-		}
+		session.MessageCount = messageCount
+		session.Messages = []llms.MessageContent{} // Empty for list view
+		session.ContextFiles = make(map[string]string)
 
 		sessions = append(sessions, session)
 	}

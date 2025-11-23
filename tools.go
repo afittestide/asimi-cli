@@ -514,8 +514,7 @@ type RunInShellInput struct {
 
 // RunInShellOutput is the output of the RunInShell tool
 type RunInShellOutput struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	Output   string `json:"stdout"`
 	ExitCode string `json:"exitCode"`
 }
 
@@ -673,42 +672,26 @@ func (t RunInShell) Format(input, result string, err error) string {
 	var params RunInShellInput
 	json.Unmarshal([]byte(input), &params)
 
-	paramStr := ""
-	if params.Command != "" {
-		cmd := params.Command
-		// Truncate long commands
-		if len(cmd) > 50 {
-			cmd = cmd[:47] + "..."
-		}
-		paramStr = fmt.Sprintf("(%s)", cmd)
-	}
-
-	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("Run In Shell%s", paramStr)
-
-	// Second line: result summary
-	var secondLine string
+	var ret strings.Builder
+	ret.WriteString(params.Description + "\n")
+	ret.WriteString(fmt.Sprintf("  %1s $ %s\n", shellOutputMidPrefix, params.Command))
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		ret.WriteString(fmt.Sprintf("  %1s  Error: %v\n", shellOutputFinalPrefix, err))
 	} else {
-		// Parse JSON output to get exit code
-		var output map[string]interface{}
-		if json.Unmarshal([]byte(result), &output) == nil {
-			if exitCode, ok := output["exitCode"].(float64); ok {
-				if exitCode == 0 {
-					secondLine = "  ⎿  Command completed successfully"
-				} else {
-					secondLine = fmt.Sprintf("  ⎿  Command failed (exit code %d)", int(exitCode))
-				}
-			} else {
-				secondLine = "  ⎿  Command executed"
-			}
+		if result == "" {
+			ret.WriteString(fmt.Sprintf("  %1s  Working...", shellOutputFinalPrefix))
 		} else {
-			secondLine = "  ⎿  Command executed"
+			// Parse JSON output to get exit code
+			var output map[string]interface{}
+			err := json.Unmarshal([]byte(result), &output)
+			if err == nil {
+				ret.WriteString(fmt.Sprintf("  %1s %s\n", shellOutputFinalPrefix, output["exitCode"].(string)))
+			} else {
+				ret.WriteString(fmt.Sprintf("  %1s ERROR: %s\n", shellOutputFinalPrefix, err))
+			}
 		}
 	}
-
-	return firstLine + "\n" + secondLine
+	return ret.String()
 }
 
 func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
@@ -728,8 +711,7 @@ func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, err
 	runErr := cmd.Run()
 
 	// Populate stdout and stderr separately
-	output.Stdout = stdout.String()
-	output.Stderr = stderr.String()
+	output.Output = stdout.String() + "\n" + stderr.String()
 
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
