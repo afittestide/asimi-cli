@@ -21,6 +21,8 @@ import (
 	lctools "github.com/tmc/langchaingo/tools"
 )
 
+const sandboxOS = "debian"
+
 // NotifyFunc is a function that handles notifications
 type NotifyFunc func(any)
 
@@ -829,51 +831,31 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
 func sessBuildEnvBlock(repoInfo RepoInfo) string {
+	var env strings.Builder
+
+	env.WriteString(fmt.Sprintf("- **OS:** %s\n", sandboxOS))
 	cwd, _ := os.Getwd()
-	if cwd == "" {
-		cwd = "(unknown)"
-	}
-
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		home = "(unknown)"
-	}
-
-	root := repoInfo.ProjectRoot
-	if root == "" {
-		root = "(unknown)"
+	if cwd != "" {
+		env.WriteString(fmt.Sprintf("- **Working copy path** %s\n", cwd))
 	}
 
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "bash"
 	}
+	env.WriteString(fmt.Sprintf("- **Shell:** %s\n", shell))
 
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf(`- **OS:** debian
-- **Shell:** %s
-- **Paths:**
-  - **cwd:** %s
-  - **project root:** %s
-  - **home:** %s`,
-		shell,
-		cwd,
-		root,
-		home))
-
-	// Add branch information if available
 	if repoInfo.Branch != "" {
-		result.WriteString(fmt.Sprintf("\n- **Branch:** %s", repoInfo.Branch))
+		env.WriteString(fmt.Sprintf("- **Branch:** %s\n", repoInfo.Branch))
 	}
 
-	// Add worktree information if we're in a worktree
-	if repoInfo.IsWorktree && repoInfo.Branch != "" {
-		result.WriteString(fmt.Sprintf("\n\n**IMPORTANT:** We're working on worktree '%s' at '%s'. Changes will be squashed before merging so commit frequently.",
-			repoInfo.Branch,
-			cwd))
+	if repoInfo.IsWorktree && repoInfo.Branch != "dev" {
+		env.WriteString(
+			fmt.Sprintf(`\n\n**IMPORTANT:** Working on worktree so commits will be quashed.
+Feel free to commit whenever you can summarize the changes in a meaningful commit message.`))
 	}
 
-	return result.String()
+	return env.String()
 }
 
 func asimiVersion() string {
