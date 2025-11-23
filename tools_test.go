@@ -39,8 +39,7 @@ func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInSh
 	runErr := cmd.Run()
 
 	// Populate stdout and stderr separately
-	output.Stdout = stdout.String()
-	output.Stderr = stderr.String()
+	output.Output = stdout.String() + stderr.String()
 
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {

@@ -118,7 +118,6 @@ func runInteractiveMode() error {
 			ProvidePromptHistory,
 			ProvideCommandHistory,
 			ProvideSessionHistory,
-			ProvideGuardrails,
 			ProvideTUIModel,
 			StartTUI,
 		),

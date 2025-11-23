@@ -54,7 +54,7 @@ func containsMessage(messages []string, substring string) bool {
 
 // TestTUIModelInit tests the initialization of the TUI model
 func TestTUIModelInit(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	cmd := model.Init()
 
 	// Init should return nil as there's no initial command
@@ -63,7 +63,7 @@ func TestTUIModelInit(t *testing.T) {
 
 // TestTUIModelWindowSizeMsg tests handling of window size messages
 func TestTUIModelWindowSizeMsg(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 	// Send a window size message
 	newModel, cmd := model.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -78,7 +78,7 @@ func TestTUIModelWindowSizeMsg(t *testing.T) {
 // newTestModel creates a new TUIModel for testing purposes.
 func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 	llm := fake.NewFakeLLM([]string{})
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	// Disable persistent history to keep tests hermetic.
 	model.persistentPromptHistory = nil
 	model.initHistory()
@@ -90,7 +90,7 @@ func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 }
 
 func TestCommandCompletionOrderDefaultsToHelp(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	model.prompt.SetValue(":")
 	model.completionMode = "command"
 	model.updateCommandCompletions()
@@ -122,7 +122,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+			model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 			// Send a quit key message
 			newModel, cmd := model.Update(tc.key)
@@ -148,7 +148,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 }
 
 func TestDoubleCtrlCToQuit(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 	// First CTRL-C should not quit
 	newModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -304,7 +304,7 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 
 // TestTUIModelView tests the view rendering
 func TestTUIModelView(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 	// Test view rendering with zero dimensions (should show initializing)
 	view := model.View()
@@ -681,7 +681,7 @@ func TestTUIModelUpdateFileCompletions(t *testing.T) {
 
 // TestRenderHomeView tests the home view rendering
 func TestRenderHomeView(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	model.width = 80
 	model.height = 24
 
@@ -741,7 +741,7 @@ func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
 }
 
 func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	require.Equal(t, ViewChat, model.content.GetActiveView())
 
 	newModel, _ := model.handleCustomMessages(showHelpMsg{topic: "modes"})
@@ -1345,7 +1345,7 @@ func TestHistoryNavigation_RapidNavigation(t *testing.T) {
 func TestFileCompletion(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config, nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
@@ -1410,7 +1410,7 @@ func TestFileCompletion(t *testing.T) {
 func TestColonCommandCompletionE2E(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config, nil, nil, nil, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})

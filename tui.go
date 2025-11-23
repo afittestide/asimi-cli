@@ -59,7 +59,6 @@ type TUIModel struct {
 	session      *Session
 	sessionStore *SessionStore
 	db           *storage.DB
-	guardrails   *GuardrailsService
 
 	// Prompt history and rollback management
 	// sessionPromptHistory stores prompts with snapshots for current session rollback
@@ -97,7 +96,7 @@ type shellCommandResultMsg struct {
 
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
-func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistory, commandHistory *CommandHistory, sessionStore *SessionStore, db *storage.DB, guardrails *GuardrailsService) *TUIModel {
+func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistory, commandHistory *CommandHistory, sessionStore *SessionStore, db *storage.DB) *TUIModel {
 
 	registry := NewCommandRegistry()
 	theme := NewTheme()
@@ -143,7 +142,6 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 		session:                  nil,
 		sessionStore:             sessionStore,
 		db:                       db,
-		guardrails:               guardrails,
 		waitingForResponse:       false,
 		persistentPromptHistory:  promptHistory,
 		persistentCommandHistory: commandHistory,
@@ -202,9 +200,6 @@ func (m *TUIModel) initHistory() {
 func (m *TUIModel) SetSession(session *Session) {
 	m.session = session
 	m.status.SetSession(session) // Pass session to status component
-	if m.guardrails != nil {
-		m.guardrails.session = session // Update guardrails with session
-	}
 	if session != nil {
 		m.status.SetProvider(m.config.LLM.Provider, m.config.LLM.Model, true)
 	} else {
@@ -1199,7 +1194,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.projectInitializing && m.session != nil {
 			m.projectInitializing = false
 			// Run guardrails after init completes
-			return m, runInitGuardrailsAsync(m.guardrails, m.content.GetChat().AddMessage)
 		}
 		m.saveSession()
 		refreshGitInfo()
@@ -1614,17 +1608,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("compaction failed", "error", msg.err)
 		m.content.GetChat().AddMessage(fmt.Sprintf("❌ Failed to compact conversation: %v\n\nYour conversation context was left unchanged.", msg.err))
 		m.commandLine.AddToast("Compaction failed - context unchanged", "error", 3000)
-
-	case initGuardrailsCompleteMsg:
-		// Init guardrails completed
-		slog.Debug("init guardrails completed")
-		m.content.GetChat().AddMessage(msg.report)
-		// Clear session history after guardrails complete
-		if m.session != nil {
-			m.session.ClearHistory()
-		}
-		m.saveSession()
-		refreshGitInfo()
 
 	case shellCommandResultMsg:
 		// Shell command execution completed

@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
 
 ### Changed
+- `RunInShellOutput` field access updated from `Stdout`/`Stderr` to `Output` in `tools_test.go`
+- `NewTUIModel` calls in `tui_test.go` and `vi_mode_test.go` updated to match new 6-argument signature
 
 
 
