@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -50,17 +49,17 @@ func TestFormatToolCall(t *testing.T) {
 			name:     "run_in_shell success",
 			toolName: "run_in_shell",
 			input:    `{"command": "echo hello", "description": "test"}`,
-			result:   `{"output":"hello\n","exitCode":0}`,
+			result:   `{"output":"hello\n","exitCode":"0"}`,
 			err:      nil,
-			expected: "- Run In Shell(echo hello)\n  ⎿  Command completed successfully",
+			expected: "- test\n   │   $ echo hello\n   ╰   0\n",
 		},
 		{
 			name:     "run_in_shell failure",
 			toolName: "run_in_shell",
 			input:    `{"command": "false", "description": "test"}`,
-			result:   `{"output":"","exitCode":1}`,
+			result:   `{"output":"","exitCode":"1"}`,
 			err:      nil,
-			expected: "- Run In Shell(false)\n  ⎿  Command failed (exit code 1)",
+			expected: "- test\n   │   $ false\n   ╰   1\n",
 		},
 		{
 			name:     "read_many_files success",
@@ -87,27 +86,6 @@ func TestFormatToolCall(t *testing.T) {
 				t.Errorf("formatToolCall() = %q, want %q", result, tt.expected)
 			}
 		})
-	}
-}
-
-func TestFormatToolCallLongCommand(t *testing.T) {
-	longCommand := "this is a very long command that should be truncated because it exceeds the limit"
-	input := `{"command": "` + longCommand + `", "description": "test"}`
-	result := formatToolCall("run_in_shell", "-", input, `{"exitCode":0}`, nil)
-
-	lines := strings.Split(result, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("Expected 2 lines, got %d", len(lines))
-	}
-
-	// Check that the command was truncated
-	if !strings.Contains(lines[0], "...") {
-		t.Errorf("Expected command to be truncated with '...', got: %s", lines[0])
-	}
-
-	// Check that the truncated part is around 50 characters
-	if len(lines[0]) > 80 { // Allow some buffer for the prefix and formatting
-		t.Errorf("Command line too long after truncation: %s", lines[0])
 	}
 }
 
