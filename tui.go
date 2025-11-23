@@ -1217,6 +1217,21 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Debug("appended_to_last_message", "total_messages", len(m.content.GetChat().Messages))
 		}
 
+	case streamReasoningChunkMsg:
+		// Handle reasoning/thinking chunks from models like Claude with extended thinking (#38)
+		m.content.GetChat().AddToRawHistory("STREAM_REASONING_CHUNK", string(msg))
+		slog.Debug("streamReasoningChunkMsg", "chunk_length", len(msg))
+		
+		// Display reasoning in a special format
+		reasoningText := string(msg)
+		if len(m.content.GetChat().Messages) == 0 || !strings.HasPrefix(m.content.GetChat().Messages[len(m.content.GetChat().Messages)-1], "💭 Thinking:") {
+			// Start a new thinking message
+			m.content.GetChat().AddMessage(fmt.Sprintf("💭 Thinking: %s", reasoningText))
+		} else {
+			// Append to existing thinking message
+			m.content.GetChat().AppendToLastMessage(reasoningText)
+		}
+
 	case streamCompleteMsg:
 		m.content.GetChat().AddToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
 		slog.Debug("streamCompleteMsg", "messages_count", len(m.content.GetChat().Messages))

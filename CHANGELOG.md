@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ESC in NORMAL mode now switches to INSERT mode (#70)
 - Prompt placeholder now shows helpful navigation hints in RESUME & MODEL modes (#69)
 - Conversation history is now automatically compacted when context usage exceeds 90% (#54)
+- Model thinking/reasoning messages are now displayed in the chat (e.g., Claude extended thinking) (#38)
 
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication

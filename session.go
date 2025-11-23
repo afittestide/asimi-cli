@@ -100,6 +100,7 @@ func (s *Session) getStreamBuffer(reset bool) string {
 
 // notification messages
 type streamChunkMsg string
+type streamReasoningChunkMsg string
 type streamStartMsg struct{}
 type streamCompleteMsg struct{}
 type streamInterruptedMsg struct{ partialContent string }
@@ -418,15 +419,28 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	// Add streaming option if requested
 	if streamingFunc != nil {
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
+		
+		// Add reasoning callback for models that support it (#38)
+		reasoningFunc := func(ctx context.Context, reasoningChunk, chunk []byte) error {
+			// Check for cancellation
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			
+			// Send reasoning chunk to UI
+			if len(reasoningChunk) > 0 && s.notify != nil {
+				s.notify(streamReasoningChunkMsg(string(reasoningChunk)))
+			}
+			return nil
+		}
+		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingReasoningFunc(reasoningFunc))
 	}
 
 	// Remove any unmatched tool calls from context before sending to API
 	s.sanitizeMessages()
 
-	/* TODO: Add to options so we can get the reasoning displayed
-	**       onReasoning should be a member pointing to a function set by the creator
-	llms.WithStreamingReasoningFunc(s.onReasoning)
-	*/
 	// Attempt with explicit tool choice first.
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {
