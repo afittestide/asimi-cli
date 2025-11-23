@@ -1958,18 +1958,18 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		Align(lipgloss.Center).
 		Width(width)
 
-	subtitle := subtitleStyle.Render("🎂  vi 50th Birthday 🎂")
+	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to visual mode  🎂")
 
 	// Create a list of helpful commands
 	commands := []string{
-		"▶ Asimi starts in INSERT mode",
+		"▶ We start in INSERT mode",
 		"▶ Press `Esc` to switch models",
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Type `:init` to setup the project",
 		"▶ Press `!` in COMMAND to run command in the sandbox",
 		"▶ Type `:q` to quit",
 		"",
-		"e.g. ⌨️  ESC:!uname -aENTER ⌨️",
+		"     ⌨️  ESC:!uname -aENTER ⌨️",
 	}
 
 	// Style for commands
