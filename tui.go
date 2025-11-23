@@ -1365,6 +1365,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status.SetMode(m.Mode)
 		if m.Mode == "resume" || m.Mode == "models" {
 			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
+			// Update prompt placeholder for these modes (#69)
+			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
+		} else if m.Mode == "insert" {
+			// Restore default placeholder when returning to insert mode
+			m.prompt.TextArea.Placeholder = PlaceholderDefault
 		}
 
 		return m, nil

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Harness errors (connection failures) now trigger automatic container restart and command retry
 - Enter now submits prompts directly from vi normal mode when the prompt is non-empty (#32)
 - ESC in NORMAL mode now switches to INSERT mode (#70)
+- Prompt placeholder now shows helpful navigation hints in RESUME & MODEL modes (#69)
 
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
