@@ -357,7 +357,7 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	s.Env = map[string]string{"TERM": "dumb"}
 
 	// Set up bash to read from stdin
-	s.Command = []string{"bash", "-s"}
+	s.Command = []string{"bash", "-i"}
 	stdinOpen := true
 	s.Stdin = &stdinOpen
 

@@ -419,7 +419,7 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	// Add streaming option if requested
 	if streamingFunc != nil {
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
-		
+
 		// Add reasoning callback for models that support it (#38)
 		reasoningFunc := func(ctx context.Context, reasoningChunk, chunk []byte) error {
 			// Check for cancellation
@@ -428,7 +428,7 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 				return ctx.Err()
 			default:
 			}
-			
+
 			// Send reasoning chunk to UI
 			if len(reasoningChunk) > 0 && s.notify != nil {
 				s.notify(streamReasoningChunkMsg(string(reasoningChunk)))

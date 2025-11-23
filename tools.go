@@ -617,7 +617,7 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	if t.shouldRunOnHost(params.Command) {
 		// Log warning about host command execution (#68)
 		slog.Warn("Executing command on HOST (not in sandbox)", "command", params.Command)
-		
+
 		// TODO #68: Implement user confirmation for host commands
 		// Approach:
 		// 1. Before executing, send ToolCallWaitingForApprovalMsg through notify callback
@@ -631,7 +631,7 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 		// - Creating ConfirmationModal component in TUI
 		// - Handling approval/denial messages in TUI
 		// - Making tool execution wait for approval
-		
+
 		// Run directly on host
 		output, runErr = hostShellRunner{}.Run(ctx, params)
 	} else {

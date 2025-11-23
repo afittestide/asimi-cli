@@ -999,10 +999,12 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			if float64(info.FreeTokens) < autoCompactThreshold && len(m.session.Messages) > 2 {
 				slog.Info("auto-compacting conversation", "free_tokens", info.FreeTokens, "threshold", autoCompactThreshold)
 				m.content.GetChat().AddMessage("🗜️  Auto-compacting conversation history (low on context)...")
-				
+
 				// Perform compaction synchronously before sending the prompt
 				ctx := context.Background()
-				summary, err := m.session.CompactHistory(ctx, compactPrompt)
+				// not using summary as this is an automatic workflow and
+				// there's no reason to notfiy the user
+				_, err := m.session.CompactHistory(ctx, compactPrompt)
 				if err != nil {
 					slog.Warn("auto-compaction failed", "error", err)
 					m.content.GetChat().AddMessage(fmt.Sprintf("⚠️  Auto-compaction failed: %v", err))
@@ -1016,7 +1018,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 					slog.Info("auto-compaction completed", "old_used", info.UsedTokens, "new_used", newInfo.UsedTokens, "saved", info.UsedTokens-newInfo.UsedTokens)
 				}
 			}
-			
+
 			m.sessionActive = true
 			m.prompt.SetValue("")
 			// In vi mode, stay in insert mode for continued conversation
@@ -1221,7 +1223,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle reasoning/thinking chunks from models like Claude with extended thinking (#38)
 		m.content.GetChat().AddToRawHistory("STREAM_REASONING_CHUNK", string(msg))
 		slog.Debug("streamReasoningChunkMsg", "chunk_length", len(msg))
-		
+
 		// Display reasoning in a special format
 		reasoningText := string(msg)
 		if len(m.content.GetChat().Messages) == 0 || !strings.HasPrefix(m.content.GetChat().Messages[len(m.content.GetChat().Messages)-1], "💭 Thinking:") {
