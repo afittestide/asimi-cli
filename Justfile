@@ -1,8 +1,8 @@
-# listing all the recipes
-list-recipes:
+# List all available recipes
+default:
     @just --list
 
-# Install dependencies
+# Install dependencies and build
 install: modules
     go install .
 
@@ -10,7 +10,7 @@ install: modules
 modules:
     go mod vendor
 
-# Run the application
+# Run the application with debug logging
 run:
     go run . --debug
 
@@ -40,8 +40,9 @@ clean:
     rm -f asimi
     rm -f coverage.out coverage.html
     rm -rf profiles/
+    rm -rf test_tmp/
 
-# Install development tools
+# Install system dependencies (golangci-lint, podman)
 bootstrap:
     @echo "Installing golangci-lint..."
     @curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
@@ -67,27 +68,29 @@ bootstrap:
         fi; \
     fi
 
-# Build the development container
-infrabuild:
+# Build the sandbox container
+sandbox-build:
     @mkdir -p infra
     @podman machine init --disk-size 30 2>/dev/null || true
     @podman machine start 2>/dev/null || true
-    @echo "Stopping and removing containers using asimi-dev image..."
-    @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman stop 2>/dev/null || true
-    @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman rm 2>/dev/null || true
-    @echo "Building new asimi-dev image..."
-    podman build -t asimi-shell:latest -f .agents/sandboxi/Dockefile .
+    podman build -t asimi-shell:latest -f .agents/sandbox/Dockerfile .
+
+# Clean up the development infrastructure
+sandbox-clear:
+    # podman machine stop
+    # podman machine rm
+    podman system prune --all --volumes --force
+
+# Build the development infrastructure (alias for sandbox-build)
+infrabuild: sandbox-build
+
+# Clean up the development infrastructure (alias for sandbox-clear)
+infraclean: sandbox-clear 
 
 # Build production container
 build-container:
     @mkdir -p infra
-    podman build -t asimi:latest -f .asimi/Dockerfile .
-
-# Clean up container resources
-infraclean:
-    # podman machine stop
-    # podman machine rm
-    podman system prune --all --volumes --force 
+    podman build -t asimi:latest -f infra/Dockerfile .
 
 # Install delve debugger
 dlv:
