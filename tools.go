@@ -685,29 +685,35 @@ func (t RunInShell) ParameterSchema() map[string]any {
 
 // String formats a run_in_shell tool call for display
 func (t RunInShell) Format(input, result string, err error) string {
-	// Parse input JSON to extract command
 	var params RunInShellInput
+	var ec string
 	json.Unmarshal([]byte(input), &params)
+	line3 := ""
+
+	if err != nil {
+		line3 = fmt.Sprintf("%1s ERROR: %v\n", shellOutputFinalPrefix, err)
+	} else if result != "" {
+		var output map[string]interface{}
+		err := json.Unmarshal([]byte(result), &output)
+		if err == nil {
+			ec = output["exitCode"].(string)
+			if ec != "0" {
+				// TODO: Format with warning color
+				line3 = fmt.Sprintf("%1s %s\n", shellOutputFinalPrefix, ec)
+			}
+		} else {
+			line3 = fmt.Sprintf("%1s ERROR: %s\n", shellOutputFinalPrefix, err)
+		}
+	}
 
 	var ret strings.Builder
 	ret.WriteString(params.Description + "\n")
-	ret.WriteString(fmt.Sprintf("  %1s $ %s\n", shellOutputMidPrefix, params.Command))
-	if err != nil {
-		ret.WriteString(fmt.Sprintf("  %1s  Error: %v\n", shellOutputFinalPrefix, err))
+	if line3 == "" {
+		ret.WriteString(fmt.Sprintf("%1s $ %s\n", shellOutputFinalPrefix, params.Command))
 	} else {
-		if result == "" {
-			ret.WriteString(fmt.Sprintf("  %1s  Working...", shellOutputFinalPrefix))
-		} else {
-			// Parse JSON output to get exit code
-			var output map[string]interface{}
-			err := json.Unmarshal([]byte(result), &output)
-			if err == nil {
-				ret.WriteString(fmt.Sprintf("  %1s %s\n", shellOutputFinalPrefix, output["exitCode"].(string)))
-			} else {
-				ret.WriteString(fmt.Sprintf("  %1s ERROR: %s\n", shellOutputFinalPrefix, err))
-			}
-		}
+		ret.WriteString(fmt.Sprintf("%1s $ %s\n", shellOutputMidPrefix, params.Command))
 	}
+	ret.WriteString(line3)
 	return ret.String()
 }
 

@@ -51,7 +51,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"command": "echo hello", "description": "test"}`,
 			result:   `{"output":"hello\n","exitCode":"0"}`,
 			err:      nil,
-			expected: "- test\n   │   $ echo hello\n   ╰   0\n",
+			expected: "- test\n ╰   $ echo hello\n",
 		},
 		{
 			name:     "run_in_shell failure",
@@ -59,7 +59,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"command": "false", "description": "test"}`,
 			result:   `{"output":"","exitCode":"1"}`,
 			err:      nil,
-			expected: "- test\n   │   $ false\n   ╰   1\n",
+			expected: "- test\n │   $ false\n ╰   1\n",
 		},
 		{
 			name:     "read_many_files success",

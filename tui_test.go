@@ -110,7 +110,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 			name:          "Quit with 'q'",
 			key:           tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")},
 			expectQuit:    false,
-			expectCommand: false,
+			expectCommand: true, // Textarea returns a command for text input
 		},
 		{
 			name:          "First 'ctrl+c' does not quit",
@@ -138,6 +138,11 @@ func TestTUIModelKeyMsg(t *testing.T) {
 				result := cmd()
 				_, ok := result.(tea.QuitMsg)
 				require.True(t, ok)
+			} else if cmd != nil {
+				// If we got a command but don't expect quit, verify it's NOT a quit command
+				result := cmd()
+				_, ok := result.(tea.QuitMsg)
+				require.False(t, ok, "Should not be a quit command")
 			}
 
 			// Model should be unchanged
@@ -687,7 +692,7 @@ func TestRenderHomeView(t *testing.T) {
 
 	view := model.renderHomeView(80, 24)
 	require.NotEmpty(t, view)
-	require.Contains(t, view, "vi")
+	require.Contains(t, view, "INSERT")
 	require.Contains(t, view, "Asimi")
 }
 
@@ -1017,7 +1022,6 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	chatLenBefore := len(chat.Messages)
 	sessionLenBefore := len(model.session.Messages)
 
-	// The handleEnterKey function should detect historySaved and roll back
 	// We'll test the rollback logic directly
 	if model.historySaved && model.historyCursor < len(model.sessionPromptHistory) {
 		entry := model.sessionPromptHistory[model.historyCursor]

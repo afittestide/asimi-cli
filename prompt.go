@@ -14,7 +14,6 @@ import (
 const (
 	ViModeInsert      = "insert"
 	ViModeNormal      = "normal"
-	ViModeVisual      = "visual"
 	ViModeCommandLine = "command"
 	ViModeLearning    = "learning"
 )
@@ -33,10 +32,15 @@ type PromptComponent struct {
 	MaxHeight      int // Maximum height (50% of screen height)
 	ScreenHeight   int // Total screen height
 	Style          lipgloss.Style
-	ViCurrentMode  string // Current vi mode: insert, normal, visual, or command
+	ViCurrentMode  string // Current vi mode: insert, normal, or command
 	viPendingOp    string // Track pending operation (e.g., "d" or "c")
 	viNormalKeyMap textarea.KeyMap
 	viInsertKeyMap textarea.KeyMap
+}
+
+// SubmitPromptMsg is a message sent when the user submits a prompt
+type SubmitPromptMsg struct {
+	Prompt string
 }
 
 // NewPromptComponent creates a new prompt component
@@ -201,15 +205,6 @@ func (p *PromptComponent) EnterViNormalMode() {
 	p.updateViModeStyle()
 }
 
-// EnterViVisualMode switches to vi visual mode (for text selection)
-func (p *PromptComponent) EnterViVisualMode() {
-	p.ViCurrentMode = ViModeVisual
-	p.viPendingOp = ""
-	p.TextArea.KeyMap = p.viNormalKeyMap // Visual mode uses similar navigation
-	p.TextArea.Placeholder = "Visual mode - select text"
-	p.updateViModeStyle()
-}
-
 // EnterViInsertMode switches to vi insert mode
 func (p *PromptComponent) EnterViInsertMode() {
 	p.ViCurrentMode = ViModeInsert
@@ -232,11 +227,6 @@ func (p *PromptComponent) EnterViCommandLineMode() {
 // IsViNormalMode returns true if in vi normal mode
 func (p PromptComponent) IsViNormalMode() bool {
 	return p.ViCurrentMode == ViModeNormal
-}
-
-// IsViVisualMode returns true if in vi visual mode
-func (p PromptComponent) IsViVisualMode() bool {
-	return p.ViCurrentMode == ViModeVisual
 }
 
 // IsViInsertMode returns true if in vi insert mode
@@ -278,9 +268,6 @@ func (p *PromptComponent) updateViModeStyle() {
 	case ViModeNormal:
 		// Normal mode: yellow border
 		p.Style = p.Style.BorderForeground(lipgloss.Color("#F4DB53")) // Terminal7 warning/chat border (yellow)
-	case ViModeVisual:
-		// Visual mode: blue border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#01FAFA")) // Terminal7 text color (cyan)
 	case ViModeCommandLine:
 		// Command-line mode: magenta border
 		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
@@ -506,9 +493,20 @@ func (p *PromptComponent) deleteWordForward() (bool, tea.Cmd) {
 func (p PromptComponent) Update(msg interface{}) (PromptComponent, tea.Cmd) {
 	var cmd tea.Cmd
 
-	// In vi normal or visual mode, handle special vi commands
-	if p.IsViNormalMode() || p.IsViVisualMode() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if p.IsViInsertMode() || p.IsViNormalMode() {
+			if keyMsg.Type == tea.KeyEnter && !keyMsg.Alt {
+				promptContent := strings.TrimSpace(p.TextArea.Value())
+				if promptContent != "" {
+					p.TextArea.SetValue("")
+					p.TextArea.SetCursor(0)
+					return p, func() tea.Msg { return SubmitPromptMsg{Prompt: promptContent} }
+				}
+				// If prompt is empty, consume the Enter key
+				return p, nil
+			}
+		}
+		if p.IsViNormalMode() {
 			keyStr := keyMsg.String()
 
 			// Always allow arrow keys and navigation keys, regardless of mode
@@ -530,7 +528,7 @@ func (p PromptComponent) Update(msg interface{}) (PromptComponent, tea.Cmd) {
 				return p, viCmd
 			}
 
-			// Allow only specific navigation and command keys in normal/visual mode
+			// Allow only specific navigation and command keys in normal mode
 			allowedKeys := map[string]bool{
 				// Navigation (vi keys)
 				"h": true, "j": true, "k": true, "l": true,
@@ -545,13 +543,12 @@ func (p PromptComponent) Update(msg interface{}) (PromptComponent, tea.Cmd) {
 				"p": true,                                                        // paste
 				":": true,                                                        // command mode (handled in tui.go)
 				"i": true, "I": true, "a": true, "A": true, "o": true, "O": true, // insert mode triggers
-				"v": true, "V": true, // visual mode triggers
 			}
 
 			// If it's not an allowed key and it's a single character (potential text input),
-			// ignore it to prevent text insertion in normal/visual mode
+			// ignore it to prevent text insertion in normal mode
 			if !allowedKeys[keyStr] && len(keyStr) == 1 && p.viPendingOp == "" {
-				// Ignore this key in normal/visual mode
+				// Ignore this key in normal mode
 				return p, nil
 			}
 		}

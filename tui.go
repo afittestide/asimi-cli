@@ -419,18 +419,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
-	// ESC in Visual mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViVisualMode() {
-		m.prompt.EnterViNormalMode()
-		// Also clear completion dialog and modal if present
-		m.modal = nil
-		if m.showCompletionDialog {
-			m.showCompletionDialog = false
-			m.completions.Hide()
-			m.completionMode = ""
-		}
-		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
-	}
 	// ESC in Command-line mode -> Normal mode
 	if keyStr == "esc" && m.prompt.IsViCommandLineMode() {
 		m.prompt.EnterViNormalMode()
@@ -469,8 +457,8 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCompletionDialog(msg)
 	}
 
-	// Handle vi mode key bindings when in normal or visual mode
-	if m.prompt.IsViNormalMode() || m.prompt.IsViVisualMode() {
+	// Handle vi mode key bindings when in normal mode
+	if m.prompt.IsViNormalMode() {
 		return m.handleViNormalMode(msg)
 	}
 
@@ -484,16 +472,15 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+o":
 		m.rawMode = !m.rawMode
 		return m, nil
-	case "enter":
-		return m.handleEnterKey()
 	case ":":
 		// Only enter command mode if at the beginning of input
 		if m.prompt.Value() == "" {
 			return m.handleColonKey(msg)
 		}
 		// Otherwise, just insert the colon character
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	case "@":
 		return m.handleAtKey(msg)
 	case "up":
@@ -503,8 +490,9 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, historyCmd
 			}
 		}
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	case "down":
 		// Only handle history navigation if we're on the last line
 		if m.prompt.TextArea.Line() == m.prompt.TextArea.LineCount()-1 {
@@ -512,16 +500,18 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, historyCmd
 			}
 		}
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	default:
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	}
 
 }
 
-// handleViNormalMode handles key presses when in vi normal or visual mode
+// handleViNormalMode handles key presses when in vi normal mode
 func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -535,8 +525,9 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// If not handled by history, pass to textarea for navigation
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	case "down", "j":
 		// Only handle history navigation if we're on the last line
 		if m.prompt.TextArea.Line() == m.prompt.TextArea.LineCount()-1 {
@@ -545,17 +536,9 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// If not handled by history, pass to textarea for navigation
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
-	case "enter":
-		// Only submit from actual normal mode to avoid interfering with visual selections
-		if !m.prompt.IsViNormalMode() {
-			break
-		}
-		if m.prompt.Value() == "" {
-			return m, nil
-		}
-		return m.handleEnterKey()
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	}
 
 	// Handle mode switching keys
@@ -592,14 +575,6 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.TextArea.CursorUp()
 		m.prompt.EnterViInsertMode()
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
-	case "v":
-		// Enter visual mode (character-wise)
-		m.prompt.EnterViVisualMode()
-		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "visual"} }
-	case "V":
-		// Enter visual line mode (for now, same as visual mode)
-		m.prompt.EnterViVisualMode()
-		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "visual"} }
 	case ":":
 		// Enter command mode in the command line (bottom of screen)
 		enterCmd := m.commandLine.EnterCommandMode("")
@@ -617,8 +592,6 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		helpText += "  A       - Insert mode at line end\n"
 		helpText += "  o       - Open new line below\n"
 		helpText += "  O       - Open new line above\n"
-		helpText += "  v       - Enter visual mode\n"
-		helpText += "  V       - Enter visual line mode\n"
 		helpText += "  ?       - Show this help\n\n"
 		m.modal = NewBaseModal("Shortcuts Help", helpText, 80, 30)
 		return m, nil
@@ -629,8 +602,9 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "learning"} }
 	default:
 		// Pass other keys to the textarea for navigation
-		m.prompt, _ = m.prompt.Update(msg)
-		return m, nil
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
+		return m, cmd
 	}
 }
 
@@ -680,12 +654,13 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	default:
 		// Pass other keys to the textarea for editing the command
-		m.prompt, _ = m.prompt.Update(msg)
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
 		// Update completion dialog if it's shown
 		if m.showCompletionDialog && m.completionMode == "command" {
 			m.updateCommandCompletions()
 		}
-		return m, nil
+		return m, cmd
 	}
 }
 
@@ -730,7 +705,8 @@ func (m TUIModel) handleCompletionDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	default:
 		// Any other key press updates the completion list
-		m.prompt, _ = m.prompt.Update(msg)
+		var cmd tea.Cmd
+		m.prompt, cmd = m.prompt.Update(msg)
 		if m.completionMode == "file" {
 			files, err := getFileTree(".")
 			if err == nil {
@@ -739,7 +715,7 @@ func (m TUIModel) handleCompletionDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.completionMode == "command" {
 			m.updateCommandCompletions()
 		}
-		return m, nil
+		return m, cmd
 	}
 }
 
@@ -1165,6 +1141,84 @@ func (m TUIModel) handleWindowSizeMsg(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd
 // handleCustomMessages handles all custom message types
 func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case SubmitPromptMsg:
+		var cmds []tea.Cmd
+		content := msg.Prompt
+
+		// This logic is adapted from handleEnterKey
+		m.commandLine.ClearToasts()
+		refreshGitInfo()
+
+		if m.historySaved && m.historyCursor < len(m.sessionPromptHistory) {
+			entry := m.sessionPromptHistory[m.historyCursor]
+			m.cancelStreaming()
+			m.stopStreaming()
+			if m.session != nil {
+				m.session.RollbackTo(entry.SessionSnapshot)
+			}
+			m.content.GetChat().TruncateTo(entry.ChatSnapshot)
+			m.content.GetChat().ClearToolCallMessageIndex()
+			m.historySaved = false
+		}
+
+		m.content.GetChat().AddToRawHistory("USER", content)
+		chatSnapshot := len(m.content.GetChat().Messages)
+		var sessionSnapshot int
+		if m.session != nil {
+			sessionSnapshot = m.session.GetMessageSnapshot()
+		}
+		if m.historyCursor < len(m.sessionPromptHistory) {
+			m.sessionPromptHistory = m.sessionPromptHistory[:m.historyCursor]
+		}
+		m.content.GetChat().AddMessage(fmt.Sprintf("You: %s", content))
+		if m.session != nil {
+			info := m.session.GetContextInfo()
+			autoCompactThreshold := float64(info.TotalTokens) * 0.10
+			if float64(info.FreeTokens) < autoCompactThreshold && len(m.session.Messages) > 2 {
+				slog.Info("auto-compacting conversation", "free_tokens", info.FreeTokens, "threshold", autoCompactThreshold)
+				m.content.GetChat().AddMessage("🗜️  Auto-compacting conversation history (low on context)...")
+				ctx := context.Background()
+				_, err := m.session.CompactHistory(ctx, compactPrompt)
+				if err != nil {
+					slog.Warn("auto-compaction failed", "error", err)
+					m.content.GetChat().AddMessage(fmt.Sprintf("⚠️  Auto-compaction failed: %v", err))
+				} else {
+					newInfo := m.session.GetContextInfo()
+					m.content.GetChat().AddMessage(fmt.Sprintf("✅ Conversation compacted! Context usage: %s/%s tokens (%.1f%%)",
+						formatTokenCount(newInfo.UsedTokens),
+						formatTokenCount(newInfo.TotalTokens),
+						percentage(newInfo.UsedTokens, newInfo.TotalTokens)))
+					slog.Info("auto-compaction completed", "old_used", info.UsedTokens, "new_used", newInfo.UsedTokens, "saved", info.UsedTokens-newInfo.UsedTokens)
+				}
+			}
+
+			m.sessionActive = true
+			if waitCmd := m.startWaitingForResponse(); waitCmd != nil {
+				cmds = append(cmds, waitCmd)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			m.streamingCancel = cancel
+			m.session.AskStream(ctx, content)
+		} else {
+			m.commandLine.AddToast("No LLM configured. Please use :login to configure an API key.", "error", time.Second*5)
+		}
+		m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
+			Prompt:          content,
+			SessionSnapshot: sessionSnapshot,
+			ChatSnapshot:    chatSnapshot,
+		})
+		m.historyCursor = len(m.sessionPromptHistory)
+		m.historySaved = false
+		m.historyPendingPrompt = ""
+
+		if m.persistentPromptHistory != nil {
+			if err := m.persistentPromptHistory.Append(content); err != nil {
+				slog.Warn("failed to save prompt to history", "error", err)
+			}
+		}
+
+		return m, tea.Batch(cmds...)
+
 	case responseMsg:
 		m.content.GetChat().AddToRawHistory("AI_RESPONSE", string(msg))
 		m.stopStreaming()
@@ -2010,7 +2064,7 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		Align(lipgloss.Center).
 		Width(width)
 
-	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to visual mode  🎂")
+	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to vi  🎂")
 
 	// Create a list of helpful commands
 	commands := []string{
