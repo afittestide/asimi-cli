@@ -585,7 +585,7 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 
 		// Update status line
 		m.status.SetAgent(provider + " (" + m.config.LLM.Model + ")")
-		m.content.GetChat().AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
+		m.content.Chat.AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
 		m.commandLine.AddToast("Authentication saved", "info", 2500)
 		m.sessionActive = true
 		return nil
@@ -599,7 +599,7 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Exchange code for tokens
 		m.commandLine.AddToast("Exchanging authorization code for tokens...", "success", 3000)
-		m.content.GetChat().AddMessage("")
+		m.content.Chat.AddMessage("")
 		tokens, err := auth.exchange(authCode, verifier)
 		if err != nil {
 			return showOauthFailed{fmt.Sprintf("failed to exchange authorization code: %v", err)}

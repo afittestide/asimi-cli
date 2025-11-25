@@ -46,7 +46,7 @@ const (
 )
 
 // NewChatComponent creates a new chat component
-func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
+func NewChatComponent(width, height int, markdownEnabled bool) *ChatComponent {
 	vp := viewport.New(width, height)
 	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
 
@@ -62,7 +62,7 @@ func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
 		slog.Debug("[TIMING] Markdown renderer initialized", "load time", time.Since(rendererStart), "err", err)
 	}
 
-	return ChatComponent{
+	ret := ChatComponent{
 		Viewport:             vp,
 		Messages:             []string{"Welcome to Asimi CLI! Send a message to start chatting."},
 		Width:                width,
@@ -81,6 +81,7 @@ func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
 			Width(width).
 			Height(height),
 	}
+	return &ret
 }
 
 // SetWidth updates the width of the chat component

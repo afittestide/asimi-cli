@@ -655,4 +655,3 @@ func summarizeStatus(status gogit.Status) string {
 }
 
 // getProviderStatusIcon returns an icon for the provider status
-

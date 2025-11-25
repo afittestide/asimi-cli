@@ -226,7 +226,7 @@ func TestViNormalModeEnterSubmitsPrompt(t *testing.T) {
 	fm, _ := finalModel.(TUIModel)
 
 	// Check that the chat message was added
-	chat := fm.content.GetChat()
+	chat := fm.content.Chat
 	assert.NotEmpty(t, chat.Messages)
 	assert.Equal(t, "You: ship it", chat.Messages[len(chat.Messages)-1])
 }

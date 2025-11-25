@@ -35,7 +35,7 @@ type ContentComponent struct {
 	height     int
 
 	// Sub-components (now simplified - no navigation logic)
-	chat   ChatComponent
+	Chat   *ChatComponent
 	help   HelpWindow
 	models ModelsWindow
 	resume ResumeWindow
@@ -57,7 +57,7 @@ func NewContentComponent(width, height int, markdownEnabled bool) ContentCompone
 		activeView:     ViewChat,
 		width:          width,
 		height:         height,
-		chat:           NewChatComponent(width, height, markdownEnabled),
+		Chat:           NewChatComponent(width, height, markdownEnabled),
 		help:           NewHelpWindow(),
 		models:         NewModelsWindow(),
 		resume:         NewResumeWindow(),
@@ -77,8 +77,8 @@ func (c *ContentComponent) SetSize(width, height int) {
 	c.viewport.Width = width
 	c.viewport.Height = height
 	//TODO refactor to chat.SetSize
-	c.chat.SetWidth(width)
-	c.chat.SetHeight(height)
+	c.Chat.SetWidth(width)
+	c.Chat.SetHeight(height)
 	c.help.SetSize(width, height)
 	c.models.SetSize(width, height)
 	c.resume.SetSize(width, height)
@@ -159,7 +159,8 @@ func (c *ContentComponent) Update(msg tea.Msg) (ContentComponent, tea.Cmd) {
 	switch c.activeView {
 	case ViewChat:
 		var cmd tea.Cmd
-		c.chat, cmd = c.chat.Update(msg)
+		newChat, cmd := c.Chat.Update(msg)
+		c.Chat = &newChat
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -369,7 +370,7 @@ func (c *ContentComponent) getScrollInfoCmd() tea.Cmd {
 func (c *ContentComponent) View() string {
 	switch c.activeView {
 	case ViewChat:
-		return c.chat.View()
+		return c.Chat.View()
 	case ViewHelp:
 		return c.renderHelpView()
 	case ViewModels:
@@ -448,9 +449,4 @@ func (c *ContentComponent) renderResumeView() string {
 			title,
 			content,
 		))
-}
-
-// GetChat returns the chat component (for direct manipulation)
-func (c *ContentComponent) GetChat() *ChatComponent {
-	return &c.chat
 }

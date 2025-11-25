@@ -126,7 +126,7 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 			r.mu.Lock()
 			r.containerStarted = true
 			r.mu.Unlock()
-			
+
 			// Notify user that container was launched
 			if program != nil {
 				program.Send(containerLaunchMsg{message: "🐳 Container launched"})

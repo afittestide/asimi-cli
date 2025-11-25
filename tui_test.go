@@ -202,7 +202,7 @@ func TestTUIModelSubmit(t *testing.T) {
 				require.Nil(t, cmd)
 			}
 
-			chat := model.content.GetChat()
+			chat := model.content.Chat
 			require.Equal(t, tc.expectedMessageCount, len(chat.Messages))
 			require.Contains(t, chat.Messages[len(chat.Messages)-1], tc.expectedLastMessage, "prompt", tc.name)
 		})
@@ -974,7 +974,7 @@ func TestWaitingTickMsg_NotWaiting(t *testing.T) {
 // TestHistoryRollback_OnSubmit tests that submitting a historical prompt rolls back state
 func TestHistoryRollback_OnSubmit(t *testing.T) {
 	model, _ := newTestModel(t)
-	chat := model.content.GetChat()
+	chat := model.content.Chat
 
 	// Clear the welcome message for cleaner testing
 	chat.Messages = []string{}
@@ -1122,7 +1122,7 @@ func TestCancelActiveStreaming_NotActive(t *testing.T) {
 func TestSaveHistoryPresentState(t *testing.T) {
 	model, _ := newTestModel(t)
 	model.prompt.SetValue("current prompt")
-	chat := model.content.GetChat()
+	chat := model.content.Chat
 	chat.AddMessage("message 1")
 	chat.AddMessage("message 2")
 
@@ -1393,7 +1393,7 @@ func TestFileCompletion(t *testing.T) {
 	require.Contains(t, contextFiles["main.go"], "package main")
 
 	// Assert that the prompt was not sent and the editor is still focused
-	chat := tuiModel.content.GetChat()
+	chat := tuiModel.content.Chat
 	require.NotEmpty(t, chat.Messages)
 	require.True(t, containsMessage(chat.Messages, "Loaded file: main.go"),
 		"messages", chat.Messages)
