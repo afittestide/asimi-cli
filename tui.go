@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	ctrlCDebounceTime        = 200 * time.Millisecond  // Debounce duplicate ctrl-c events
-	ctrlCWindowTime          = 2000 * time.Millisecond // Window for double ctrl-c to quit
+	ctrlCDebounceTime = 200 * time.Millisecond  // Debounce duplicate ctrl-c events
+	ctrlCWindowTime   = 2000 * time.Millisecond // Window for double ctrl-c to quit
 )
 
 // TUIModel represents the bubbletea model for the TUI
@@ -148,7 +148,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 	}
 
 	// Set the GetStatus callback for the chat component
-	model.content.GetChat().GetStatus = func() string { return model.Mode }
+	model.content.Chat.GetStatus = func() string { return model.Mode }
 
 	// Set initial status info - show disconnected state initially
 	model.status.SetProvider(config.LLM.Provider, config.LLM.Model, false)
@@ -554,7 +554,7 @@ func (m TUIModel) enterScrollMode() (tea.Model, tea.Cmd) {
 	if m.Mode == "scroll" || m.content.GetActiveView() != ViewChat {
 		return m, nil
 	}
-	chat := m.content.GetChat()
+	chat := m.content.Chat
 	chat.SetScrollLock(true)
 	if chat.Viewport.AtBottom() {
 		chat.ScrollHalfPageUp()
@@ -576,7 +576,7 @@ func (m *TUIModel) disableScrollMode() {
 	}
 	m.Mode = "insert"
 	m.status.SetMode(m.Mode)
-	m.content.GetChat().SetScrollLock(false)
+	m.content.Chat.SetScrollLock(false)
 }
 
 func (m TUIModel) exitScrollModeToInsert() (tea.Model, tea.Cmd) {
@@ -598,7 +598,7 @@ func (m TUIModel) handleScrollModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool)
 	if m.Mode != "scroll" {
 		return m, nil, false
 	}
-	chat := m.content.GetChat()
+	chat := m.content.Chat
 
 	switch msg.String() {
 	case "ctrl+f":
@@ -1398,13 +1398,13 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		chat := m.content.GetChat()
+		chat := m.content.Chat
 		if len(chat.Messages) == 0 || !strings.HasPrefix(chat.Messages[len(chat.Messages)-1], "Asimi:") {
 			chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
-			slog.Debug("added_new_message", "total_messages", len(m.content.GetChat().Messages))
+			slog.Debug("added_new_message", "total_messages", len(m.content.Chat.Messages))
 		} else {
 			chat.AppendToLastMessage(string(msg))
-			slog.Debug("appended_to_last_message", "total_messages", len(m.content.GetChat().Messages))
+			slog.Debug("appended_to_last_message", "total_messages", len(m.content.Chat.Messages))
 		}
 
 	case streamReasoningChunkMsg:
@@ -1595,9 +1595,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Mode = msg.NewMode
 		isScroll := m.Mode == "scroll"
 		if wasScroll && !isScroll {
-			m.content.GetChat().SetScrollLock(false)
+			m.content.Chat.SetScrollLock(false)
 		} else if !wasScroll && isScroll {
-			m.content.GetChat().SetScrollLock(true)
+			m.content.Chat.SetScrollLock(true)
 		}
 		m.status.SetMode(m.Mode)
 		if m.Mode == "resume" || m.Mode == "models" {
@@ -1733,8 +1733,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.config != nil {
 				markdownEnabled = m.config.UI.MarkdownEnabled
 			}
-			chat := m.content.GetChat()
-			*chat = NewChatComponentWithStatus(chat.Width, chat.Height, markdownEnabled, func() string { return m.Mode })
+			m.content.Chat = NewChatComponentWithStatus(m.content.Chat.Width, m.content.Chat.Height, markdownEnabled, func() string { return m.Mode })
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {

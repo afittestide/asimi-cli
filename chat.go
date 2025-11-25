@@ -20,9 +20,9 @@ type ChatComponent struct {
 	Width        int
 	Height       int
 	Style        lipgloss.Style
-	AutoScroll   bool // Track if auto-scrolling is enabled
-	UserScrolled bool // Track if user has manually scrolled
-	ScrollLocked bool // Prevent auto-scroll when user is in scroll mode
+	AutoScroll   bool          // Track if auto-scrolling is enabled
+	UserScrolled bool          // Track if user has manually scrolled
+	ScrollLocked bool          // Prevent auto-scroll when user is in scroll mode
 	GetStatus    func() string // Callback to get current status/mode from caller
 
 	// Touch gesture support
@@ -77,7 +77,7 @@ func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStat
 		AutoScroll:           true,  // Enable auto-scroll by default
 		UserScrolled:         false, // User hasn't scrolled yet
 		GetStatus:            getStatus,
-		TouchStartY:          0,     // Initialize touch tracking
+		TouchStartY:          0, // Initialize touch tracking
 		TouchDragging:        false,
 		TouchScrollSpeed:     3,        // Lines to scroll per touch movement unit
 		markdownRenderer:     renderer, // Only set when markdown rendering is enabled

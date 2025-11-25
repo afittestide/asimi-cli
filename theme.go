@@ -54,8 +54,8 @@ func NewTheme() *Theme {
 	darkBorder := lipgloss.Color("#373702")
 
 	// Prompt focus indicators
-	promptOnBorder := lipgloss.Color("#F4DB53")   // Yellow - focus on prompt (INSERT/other)
-	promptOffBorder := lipgloss.Color("#373702")  // Dark - focus away from prompt (NORMAL/VISUAL)
+	promptOnBorder := lipgloss.Color("#F4DB53")  // Yellow - focus on prompt (INSERT/other)
+	promptOffBorder := lipgloss.Color("#373702") // Dark - focus away from prompt (NORMAL/VISUAL)
 
 	theme := &Theme{
 		// Terminal7 colors

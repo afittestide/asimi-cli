@@ -401,6 +401,6 @@ func handleScrollTopCommand(model *TUIModel, args []string) tea.Cmd {
 	if model == nil || model.content.GetActiveView() != ViewChat {
 		return nil
 	}
-	model.content.GetChat().ScrollToTop()
+	model.content.Chat.ScrollToTop()
 	return nil
 }
