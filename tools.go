@@ -548,7 +548,7 @@ func initShellRunner(config *Config) {
 
 	// Initialize podman shell runner with config
 	repoInfo := GetRepoInfo()
-	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config, repoInfo)
+	currentShellRunner = newPodmanShellRunner(config.RunInShell.AllowHostFallback, config, repoInfo)
 }
 
 func getShellRunner() shellRunner {

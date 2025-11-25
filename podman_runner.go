@@ -53,7 +53,7 @@ type commandOutput struct {
 func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
 	noCleanup := false
-	if config != nil && config.LLM.PodmanNoCleanup {
+	if config != nil && config.RunInShell.NoCleanup {
 		noCleanup = true
 	}
 	return &PodmanShellRunner{

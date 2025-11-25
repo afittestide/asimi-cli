@@ -18,17 +18,6 @@ import (
 // mockConfig returns a mock configuration for testing
 func mockConfig() *Config {
 	return &Config{
-		Server: ServerConfig{
-			Host: "localhost",
-			Port: 3000,
-		},
-		Database: DatabaseConfig{
-			Host:     "localhost",
-			Port:     5432,
-			User:     "asimi",
-			Password: "asimi",
-			Name:     "asimi_dev",
-		},
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "text",

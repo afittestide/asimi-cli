@@ -24,34 +24,14 @@ type oauthProviderConfig struct {
 
 // Config represents the application configuration structure
 type Config struct {
-	Server     ServerConfig     `koanf:"server"`
-	Database   DatabaseConfig   `koanf:"database"`
 	Storage    StorageConfig    `koanf:"storage"`
 	Logging    LoggingConfig    `koanf:"logging"`
 	UI         UIConfig         `koanf:"ui"`
 	LLM        LLMConfig        `koanf:"llm"`
 	History    HistoryConfig    `koanf:"history"`
-	Permission PermissionConfig `koanf:"permission"`
-	Hooks      HooksConfig      `koanf:"hooks"`
-	StatusLine StatusLineConfig `koanf:"statusline"`
 	Session    SessionConfig    `koanf:"session"`
 	Container  ContainerConfig  `koanf:"container"`
 	RunInShell RunInShellConfig `koanf:"run_in_shell"`
-}
-
-// ServerConfig holds server configuration
-type ServerConfig struct {
-	Host string `koanf:"host"`
-	Port int    `koanf:"port"`
-}
-
-// DatabaseConfig holds database configuration
-type DatabaseConfig struct {
-	Host     string `koanf:"host"`
-	Port     int    `koanf:"port"`
-	User     string `koanf:"user"`
-	Password string `koanf:"password"`
-	Name     string `koanf:"name"`
 }
 
 // StorageConfig holds storage configuration
@@ -67,63 +47,15 @@ type LoggingConfig struct {
 
 // LLMConfig holds LLM configuration
 type LLMConfig struct {
-	Provider                      string            `koanf:"provider"`
-	Model                         string            `koanf:"model"`
-	APIKey                        string            `koanf:"api_key"`
-	BaseURL                       string            `koanf:"base_url"`
-	APIKeyHelper                  string            `koanf:"api_key_helper"`
-	CleanupPeriodDays             int               `koanf:"cleanup_period_days"`
-	Env                           map[string]string `koanf:"env"`
-	IncludeCoAuthoredBy           bool              `koanf:"include_coauthored_by"`
-	ForceLoginMethod              string            `koanf:"force_login_method"`
-	EnableAllProjectMcpServers    bool              `koanf:"enable_all_project_mcp_servers"`
-	EnabledMcpjsonServers         []string          `koanf:"enabled_mcpjson_servers"`
-	DisabledMcpjsonServers        []string          `koanf:"disabled_mcpjson_servers"`
-	AwsAuthRefresh                string            `koanf:"aws_auth_refresh"`
-	AwsCredentialExport           string            `koanf:"aws_credential_export"`
-	AutoUpdates                   bool              `koanf:"auto_updates"`
-	PreferredNotifChannel         string            `koanf:"preferred_notif_channel"`
-	Theme                         string            `koanf:"theme"`
-	Verbose                       bool              `koanf:"verbose"`
-	AnthropicAPIKey               string            `koanf:"anthropic_api_key"`
-	AnthropicAuthToken            string            `koanf:"anthropic_auth_token"`
-	AnthropicCustomHeaders        string            `koanf:"anthropic_custom_headers"`
-	AnthropicSmallFastModel       string            `koanf:"anthropic_small_fast_model"`
-	AnthropicSmallFastModelRegion string            `koanf:"anthropic_small_fast_model_aws_region"`
-	AwsBearerTokenBedrock         string            `koanf:"aws_bearer_token_bedrock"`
-	BashDefaultTimeoutMs          int               `koanf:"bash_default_timeout_ms"`
-	BashMaxTimeoutMs              int               `koanf:"bash_max_timeout_ms"`
-	BashMaxOutputLength           int               `koanf:"bash_max_output_length"`
-	BashMaintainProjectWorkingDir bool              `koanf:"bash_maintain_project_working_dir"`
-	PodmanAllowHostFallback       bool              `koanf:"sheel_command_fallback_to_host"`
-	PodmanNoCleanup               bool              `koanf:"podman_no_cleanup"`
-	ApiKeyHelperTtlMs             int               `koanf:"api_key_helper_ttl_ms"`
-	SkipAutoInstall               bool              `koanf:"skip_auto_install"`
-	MaxOutputTokens               int               `koanf:"max_output_tokens"`
-	UseBedrock                    bool              `koanf:"use_bedrock"`
-	UseVertex                     bool              `koanf:"use_vertex"`
-	SkipBedrockAuth               bool              `koanf:"skip_bedrock_auth"`
-	SkipVertexAuth                bool              `koanf:"skip_vertex_auth"`
-	DisableNonesentialTraffic     bool              `koanf:"disable_nonesential_traffic"`
-	DisableTerminalTitle          bool              `koanf:"disable_terminal_title"`
-	DisableAutoUpdater            bool              `koanf:"disable_auto_updater"`
-	DisableBugCommand             bool              `koanf:"disable_bug_command"`
-	DisableCostWarnings           bool              `koanf:"disable_cost_warnings"`
-	DisableErrorReporting         bool              `koanf:"disable_error_reporting"`
-	DisableNonEssentialModelCalls bool              `koanf:"disable_non_essential_model_calls"`
-	DisableTelemetry              bool              `koanf:"disable_telemetry"`
-	HttpProxy                     string            `koanf:"http_proxy"`
-	HttpsProxy                    string            `koanf:"https_proxy"`
-	MaxThinkingTokens             int               `koanf:"max_thinking_tokens"`
-	McpTimeout                    int               `koanf:"mcp_timeout"`
-	McpToolTimeout                int               `koanf:"mcp_tool_timeout"`
-	MaxMcpOutputTokens            int               `koanf:"max_mcp_output_tokens"`
-	UseBuiltinRipgrep             bool              `koanf:"use_builtin_ripgrep"`
-	MaxTurns                      int               `koanf:"max_turns"`
-	DisableContextSanitization    bool              `koanf:"disable_sanitization"`
-	// OAuth tokens (optional) when authenticating via OAuth2
-	AuthToken    string `koanf:"auth_token"`
-	RefreshToken string `koanf:"refresh_token"`
+	Provider                   string `koanf:"provider"`
+	Model                      string `koanf:"model"`
+	APIKey                     string `koanf:"api_key"`
+	BaseURL                    string `koanf:"base_url"`
+	MaxThinkingTokens          int    `koanf:"max_thinking_tokens"`
+	MaxTurns                   int    `koanf:"max_turns"`
+	DisableContextSanitization bool   `koanf:"disable_sanitization"`
+	AuthToken                  string `koanf:"auth_token"`
+	RefreshToken               string `koanf:"refresh_token"`
 }
 
 // HistoryConfig holds persistent session history configuration
@@ -175,29 +107,6 @@ func defaultConfig() Config {
 	}
 }
 
-// PermissionConfig holds permission configuration
-// TODO: Ensure we're not using it and remove
-type PermissionConfig struct {
-	Allow                        []string `koanf:"allow"`
-	Ask                          []string `koanf:"ask"`
-	Deny                         []string `koanf:"deny"`
-	AdditionalDirectories        []string `koanf:"additional_directories"`
-	DefaultMode                  string   `koanf:"default_mode"`
-	DisableBypassPermissionsMode string   `koanf:"disable_bypass_permissions_mode"`
-}
-
-// HooksConfig holds hooks configuration
-type HooksConfig struct {
-	PreTool  []string `koanf:"pre_tool"`
-	PostTool []string `koanf:"post_tool"`
-}
-
-// StatusLineConfig holds status line configuration
-type StatusLineConfig struct {
-	Enabled  bool   `koanf:"enabled"`
-	Template string `koanf:"template"`
-}
-
 // SessionConfig holds session persistence configuration
 type SessionConfig struct {
 	Enabled      bool `koanf:"enabled"`
@@ -225,7 +134,9 @@ type RunInShellConfig struct {
 	// instead of in the container
 	RunOnHost []string `koanf:"run_on_host"`
 	// TimeoutMinutes is the timeout for shell commands in minutes (default: 10)
-	TimeoutMinutes int `koanf:"timeout_minutes"`
+	TimeoutMinutes    int  `koanf:"timeout_minutes"`
+	AllowHostFallback bool `koanf:"allow_host_fallback"`
+	NoCleanup         bool `koanf:"no_cleanup"`
 }
 
 // LoadConfig loads configuration from multiple sources
