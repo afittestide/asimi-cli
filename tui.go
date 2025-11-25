@@ -1251,6 +1251,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.GetChat().AddToRawHistory("STREAM_START", "AI streaming response started")
 		slog.Debug("streamStartMsg", "starting_stream", true)
 		m.streamingActive = true
+		m.status.ClearError() // Clear any previous error state
 
 	case streamChunkMsg:
 		// For the first chunk, add a new AI message. For subsequent chunks, append to the last message.
@@ -1314,6 +1315,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.GetChat().AddToRawHistory("STREAM_ERROR", fmt.Sprintf("AI streaming error: %v", msg.err))
 		slog.Error("streamErrorMsg", "error", msg.err)
 		m.commandLine.AddToast(fmt.Sprintf("Model Error: %v", msg.err), "error", time.Second*5)
+		m.status.SetError() // Update status icon to show error
 		m.stopStreaming()
 		if m.projectInitializing {
 			if m.session != nil {
@@ -1714,6 +1716,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("compaction failed", "error", msg.err)
 		m.content.GetChat().AddMessage(fmt.Sprintf("❌ Failed to compact conversation: %v\n\nYour conversation context was left unchanged.", msg.err))
 		m.commandLine.AddToast("Compaction failed - context unchanged", "error", 3000)
+
+	case containerLaunchMsg:
+		// Container launch notification
+		m.commandLine.AddToast(msg.message, "info", 3*time.Second)
+		return m, nil
 
 	case shellCommandResultMsg:
 		// Shell command execution completed

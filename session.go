@@ -107,6 +107,7 @@ type streamInterruptedMsg struct{ partialContent string }
 type streamErrorMsg struct{ err error }
 type streamMaxTurnsExceededMsg struct{ maxTurns int }
 type streamMaxTokensReachedMsg struct{ content string }
+type containerLaunchMsg struct{ message string }
 
 // Local copies of prompt partials and template used by the session, to decouple from agent.go.
 var sessPromptPartials = map[string]any{

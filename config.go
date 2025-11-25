@@ -708,7 +708,7 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 		if provider == "googleai" {
 			providerName = "GOOGLE"
 		}
-		return p, fmt.Errorf("OAuth not configured. Set %s_CLIENT_ID, %s_CLIENT_SECRET, %s_AUTH_URL, and %s_TOKEN_URL", 
+		return p, fmt.Errorf("OAuth not configured. Set %s_CLIENT_ID, %s_CLIENT_SECRET, %s_AUTH_URL, and %s_TOKEN_URL",
 			providerName, providerName, providerName, providerName)
 	}
 	return p, nil
