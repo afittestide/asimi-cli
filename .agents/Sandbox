@@ -17,24 +17,21 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash 
 # Install golangci-lint
 RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b /usr/local/bin
 
-# Define the asimi shell helper for non-interactive bash sessions
+# bashrc file
 RUN cat <<'EOF' >/root/.bashrc
 __asimi_run() {
   local id="$1"
   local cmd="$2"
   # Output start markers directly before any redirects can affect them
-  echo "__ASIMI_STDOUT_START:$id"
-  echo "__ASIMI_STDERR_START:$id" >&2
-  # Run the command in a subshell to isolate its redirects
+  printf "__ASIMI_STDOUT_START:%s\n" "$id"
+  # Execute the command in a subshell to isolate its redirects
   (eval "$cmd")
   local exit_code=$?
   # Output end markers after command completes, directly to original streams
-  echo "__ASIMI_STDOUT_END:$id:$exit_code"
-  echo "__ASIMI_STDERR_END:$id:$exit_code" >&2
+  printf "__ASIMI_STDOUT_END:%s:%s\n" "$id" "$exit_code"
   return $exit_code
 }
 alias ll="ls -l"
 EOF
-ENV BASH_ENV="/root/.bashrc"
 
-CMD ["/bin/bash"]
+ENV BASH_ENV="/root/.bashrc"

@@ -192,11 +192,15 @@ func (s *SessionStore) LoadSession(sessionID string) (*SessionData, string, stri
 func (s *SessionStore) ListSessions(host, org, project, branch string, limit int) ([]SessionData, error) {
 	query := `
 		SELECT s.id, s.created_at, s.last_updated, s.first_prompt,
-		       s.provider, s.model, s.working_dir
+		       s.provider, s.model, s.working_dir,
+		       COUNT(m.id) as message_count
 		FROM sessions s
 		JOIN branches b ON s.branch_id = b.id
 		JOIN repositories r ON b.repository_id = r.id
+		LEFT JOIN messages m ON s.id = m.session_id
 		WHERE r.host = ? AND r.org = ? AND r.project = ? AND b.name = ?
+		GROUP BY s.id, s.created_at, s.last_updated, s.first_prompt,
+		         s.provider, s.model, s.working_dir
 		ORDER BY s.last_updated DESC`
 
 	if limit > 0 {
@@ -213,6 +217,7 @@ func (s *SessionStore) ListSessions(host, org, project, branch string, limit int
 	for rows.Next() {
 		var session SessionData
 		var createdAt, lastUpdated int64
+		var messageCount int
 
 		err := rows.Scan(
 			&session.ID,
@@ -222,6 +227,7 @@ func (s *SessionStore) ListSessions(host, org, project, branch string, limit int
 			&session.Provider,
 			&session.Model,
 			&session.WorkingDir,
+			&messageCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan session: %w", err)
@@ -230,6 +236,9 @@ func (s *SessionStore) ListSessions(host, org, project, branch string, limit int
 		session.CreatedAt = time.Unix(createdAt, 0)
 		session.LastUpdated = time.Unix(lastUpdated, 0)
 		session.ProjectSlug = fmt.Sprintf("%s/%s/%s", host, org, project)
+		session.MessageCount = messageCount
+		session.Messages = []llms.MessageContent{} // Empty for list view
+		session.ContextFiles = make(map[string]string)
 
 		sessions = append(sessions, session)
 	}
@@ -245,10 +254,14 @@ func (s *SessionStore) ListSessions(host, org, project, branch string, limit int
 func (s *SessionStore) ListAllSessions(limit int) ([]SessionData, error) {
 	query := `
 		SELECT s.id, s.created_at, s.last_updated, s.first_prompt,
-		       s.provider, s.model, s.working_dir, r.host, r.org, r.project
+		       s.provider, s.model, s.working_dir, r.host, r.org, r.project,
+		       COUNT(m.id) as message_count
 		FROM sessions s
 		JOIN branches b ON s.branch_id = b.id
 		JOIN repositories r ON b.repository_id = r.id
+		LEFT JOIN messages m ON s.id = m.session_id
+		GROUP BY s.id, s.created_at, s.last_updated, s.first_prompt,
+		         s.provider, s.model, s.working_dir, r.host, r.org, r.project
 		ORDER BY s.last_updated DESC`
 
 	if limit > 0 {
@@ -266,6 +279,7 @@ func (s *SessionStore) ListAllSessions(limit int) ([]SessionData, error) {
 		var session SessionData
 		var createdAt, lastUpdated int64
 		var host, org, project string
+		var messageCount int
 
 		err := rows.Scan(
 			&session.ID,
@@ -278,6 +292,7 @@ func (s *SessionStore) ListAllSessions(limit int) ([]SessionData, error) {
 			&host,
 			&org,
 			&project,
+			&messageCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan session: %w", err)
@@ -286,6 +301,9 @@ func (s *SessionStore) ListAllSessions(limit int) ([]SessionData, error) {
 		session.CreatedAt = time.Unix(createdAt, 0)
 		session.LastUpdated = time.Unix(lastUpdated, 0)
 		session.ProjectSlug = fmt.Sprintf("%s/%s/%s", host, org, project)
+		session.MessageCount = messageCount
+		session.Messages = []llms.MessageContent{} // Empty for list view
+		session.ContextFiles = make(map[string]string)
 
 		sessions = append(sessions, session)
 	}

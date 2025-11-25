@@ -13,11 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/` is just a slash. Use `:` to enter command mode
 
 ### Fixed
+- OAuth token now automatically refreshes during chat sessions to prevent 401 errors when token expires mid-conversation
 - Context validation error when interrupting tool execution (issue #37)
 - Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
 - Command timeout is now returned as command output (with exit code 124) instead of harness error
 - Harness errors (connection failures) now trigger automatic container restart and command retry
 - Enter now submits prompts directly from vi normal mode when the prompt is non-empty (#32)
+- ESC in NORMAL mode now switches to INSERT mode (#70)
+- Prompt placeholder now shows helpful navigation hints in RESUME & MODEL modes (#69)
+- Conversation history is now automatically compacted when context usage exceeds 90% (#54)
+- Model thinking/reasoning messages are now displayed in the chat (e.g., Claude extended thinking) (#38)
+- Status line now shows error emoji (❌) when model errors occur mid-conversation (#65)
+- Current prompt text is now preserved when navigating history with up/down arrows (#71)
 
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
@@ -31,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each branch has its own prompt & command history
 - `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
 - Ctrl-B SCROLL mode for the chat viewport with vi-style paging and `:1` to jump to the first message without re-pinning
+- Warning logging when commands run on host instead of sandbox (partial implementation of #68)
+- Toast notification when container is launched (#77)
 
 ### Changed
 

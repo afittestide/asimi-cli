@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -34,7 +35,7 @@ type ContentComponent struct {
 	height     int
 
 	// Sub-components (now simplified - no navigation logic)
-	chat   ChatComponent
+	Chat   *ChatComponent
 	help   HelpWindow
 	models ModelsWindow
 	resume ResumeWindow
@@ -56,7 +57,7 @@ func NewContentComponent(width, height int, markdownEnabled bool) ContentCompone
 		activeView:     ViewChat,
 		width:          width,
 		height:         height,
-		chat:           NewChatComponent(width, height, markdownEnabled),
+		Chat:           NewChatComponent(width, height, markdownEnabled),
 		help:           NewHelpWindow(),
 		models:         NewModelsWindow(),
 		resume:         NewResumeWindow(),
@@ -75,8 +76,9 @@ func (c *ContentComponent) SetSize(width, height int) {
 	c.height = height
 	c.viewport.Width = width
 	c.viewport.Height = height
-	c.chat.SetWidth(width)
-	c.chat.SetHeight(height)
+	//TODO refactor to chat.SetSize
+	c.Chat.SetWidth(width)
+	c.Chat.SetHeight(height)
 	c.help.SetSize(width, height)
 	c.models.SetSize(width, height)
 	c.resume.SetSize(width, height)
@@ -132,9 +134,11 @@ func (c *ContentComponent) ShowResume(sessions []Session) tea.Cmd {
 	c.selectedItem = 0
 	c.scrollOffset = 0
 
-	return func() tea.Msg {
+	changeModeCmd := func() tea.Msg {
 		return ChangeModeMsg{NewMode: "resume"}
 	}
+
+	return changeModeCmd
 }
 
 // SetModelsLoading shows loading state for models
@@ -155,7 +159,8 @@ func (c *ContentComponent) Update(msg tea.Msg) (ContentComponent, tea.Cmd) {
 	switch c.activeView {
 	case ViewChat:
 		var cmd tea.Cmd
-		c.chat, cmd = c.chat.Update(msg)
+		newChat, cmd := c.Chat.Update(msg)
+		c.Chat = &newChat
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -272,6 +277,8 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	var scrollInfoCmd tea.Cmd
+
 	switch msg.String() {
 	case "j", "down":
 		if c.selectedItem < itemCount-1 {
@@ -280,6 +287,7 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 			if c.selectedItem >= c.scrollOffset+visibleSlots {
 				c.scrollOffset = c.selectedItem - visibleSlots + 1
 			}
+			scrollInfoCmd = c.getScrollInfoCmd()
 		}
 	case "k", "up":
 		if c.selectedItem > 0 {
@@ -288,6 +296,7 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 			if c.selectedItem < c.scrollOffset {
 				c.scrollOffset = c.selectedItem
 			}
+			scrollInfoCmd = c.getScrollInfoCmd()
 		}
 	case "ctrl+d": // Half page down
 		move := visibleSlots / 2
@@ -302,6 +311,7 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 		if c.selectedItem >= c.scrollOffset+visibleSlots {
 			c.scrollOffset = c.selectedItem - visibleSlots + 1
 		}
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "ctrl+u": // Half page up
 		move := visibleSlots / 2
 		if move < 1 {
@@ -315,14 +325,17 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 		if c.selectedItem < c.scrollOffset {
 			c.scrollOffset = c.selectedItem
 		}
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "g", "home":
 		c.selectedItem = 0
 		c.scrollOffset = 0
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "G", "end":
 		c.selectedItem = itemCount - 1
 		if c.selectedItem >= visibleSlots {
 			c.scrollOffset = c.selectedItem - visibleSlots + 1
 		}
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "enter":
 		// Handle selection
 		switch c.activeView {
@@ -345,6 +358,11 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	return scrollInfoCmd
+}
+
+// getScrollInfoCmd returns a command that sends scroll info as a message
+func (c *ContentComponent) getScrollInfoCmd() tea.Cmd {
 	return nil
 }
 
@@ -352,7 +370,7 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 func (c *ContentComponent) View() string {
 	switch c.activeView {
 	case ViewChat:
-		return c.chat.View()
+		return c.Chat.View()
 	case ViewHelp:
 		return c.renderHelpView()
 	case ViewModels:
@@ -418,23 +436,17 @@ func (c *ContentComponent) renderResumeView() string {
 		Background(lipgloss.Color("#000000")).
 		Padding(0, 1)
 
-	title := titleStyle.Render(" Resume Session ")
+	l := len(c.resume.sessions)
+
+	title := titleStyle.Render(fmt.Sprintf("Choose a session to resume [%3d/%3d]:", c.selectedItem+1, l))
+	slog.Debug("Rendering resume", "visible slots", c.resume.GetVisibleSlots())
 
 	content := c.resume.RenderList(c.selectedItem, c.scrollOffset, c.resume.GetVisibleSlots())
 
-	combined := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		content,
-	)
-
-	// Ensure the view fills the full height
 	return lipgloss.NewStyle().
-		Height(c.height).
-		Render(combined)
-}
-
-// GetChat returns the chat component (for direct manipulation)
-func (c *ContentComponent) GetChat() *ChatComponent {
-	return &c.chat
+		Render(lipgloss.JoinVertical(
+			lipgloss.Left,
+			title,
+			content,
+		))
 }

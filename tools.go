@@ -114,11 +114,11 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 		// If unmarshalling fails, assume the input is a raw path
 		params.Path = input
 	}
-	
+
 	// Workaround for Claude Code CLI bug: numeric params come as strings
 	// If offset/limit are zero but the input contains them, try flexible parsing
 	if (params.Offset == 0 && strings.Contains(input, `"offset"`)) ||
-	   (params.Limit == 0 && strings.Contains(input, `"limit"`)) {
+		(params.Limit == 0 && strings.Contains(input, `"limit"`)) {
 		var rawParams readFileInputRaw
 		if json.Unmarshal([]byte(input), &rawParams) == nil {
 			params.Path = rawParams.Path
@@ -514,8 +514,7 @@ type RunInShellInput struct {
 
 // RunInShellOutput is the output of the RunInShell tool
 type RunInShellOutput struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	Output   string `json:"stdout"`
 	ExitCode string `json:"exitCode"`
 }
 
@@ -549,7 +548,7 @@ func initShellRunner(config *Config) {
 
 	// Initialize podman shell runner with config
 	repoInfo := GetRepoInfo()
-	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config, repoInfo)
+	currentShellRunner = newPodmanShellRunner(config.RunInShell.AllowHostFallback, config, repoInfo)
 }
 
 func getShellRunner() shellRunner {
@@ -616,6 +615,23 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 
 	// Check if command should run on host based on config patterns
 	if t.shouldRunOnHost(params.Command) {
+		// Log warning about host command execution (#68)
+		slog.Warn("Executing command on HOST (not in sandbox)", "command", params.Command)
+
+		// TODO #68: Implement user confirmation for host commands
+		// Approach:
+		// 1. Before executing, send ToolCallWaitingForApprovalMsg through notify callback
+		// 2. Create a confirmation modal in TUI (similar to providerModal/codeInputModal)
+		// 3. Wait for user response (approve/deny) via a channel
+		// 4. Proceed with execution only if approved
+		// 5. Return error if denied
+		//
+		// This requires:
+		// - Adding approval channel to ToolCall struct
+		// - Creating ConfirmationModal component in TUI
+		// - Handling approval/denial messages in TUI
+		// - Making tool execution wait for approval
+
 		// Run directly on host
 		output, runErr = hostShellRunner{}.Run(ctx, params)
 	} else {
@@ -669,46 +685,36 @@ func (t RunInShell) ParameterSchema() map[string]any {
 
 // String formats a run_in_shell tool call for display
 func (t RunInShell) Format(input, result string, err error) string {
-	// Parse input JSON to extract command
 	var params RunInShellInput
+	var ec string
 	json.Unmarshal([]byte(input), &params)
+	line3 := ""
 
-	paramStr := ""
-	if params.Command != "" {
-		cmd := params.Command
-		// Truncate long commands
-		if len(cmd) > 50 {
-			cmd = cmd[:47] + "..."
-		}
-		paramStr = fmt.Sprintf("(%s)", cmd)
-	}
-
-	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("Run In Shell%s", paramStr)
-
-	// Second line: result summary
-	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
-	} else {
-		// Parse JSON output to get exit code
+		line3 = fmt.Sprintf("%1s ERROR: %v\n", shellOutputFinalPrefix, err)
+	} else if result != "" {
 		var output map[string]interface{}
-		if json.Unmarshal([]byte(result), &output) == nil {
-			if exitCode, ok := output["exitCode"].(float64); ok {
-				if exitCode == 0 {
-					secondLine = "  ⎿  Command completed successfully"
-				} else {
-					secondLine = fmt.Sprintf("  ⎿  Command failed (exit code %d)", int(exitCode))
-				}
-			} else {
-				secondLine = "  ⎿  Command executed"
+		err := json.Unmarshal([]byte(result), &output)
+		if err == nil {
+			ec = output["exitCode"].(string)
+			if ec != "0" {
+				// TODO: Format with warning color
+				line3 = fmt.Sprintf("%1s %s\n", shellOutputFinalPrefix, ec)
 			}
 		} else {
-			secondLine = "  ⎿  Command executed"
+			line3 = fmt.Sprintf("%1s ERROR: %s\n", shellOutputFinalPrefix, err)
 		}
 	}
 
-	return firstLine + "\n" + secondLine
+	var ret strings.Builder
+	ret.WriteString(params.Description + "\n")
+	if line3 == "" {
+		ret.WriteString(fmt.Sprintf("%1s $ %s\n", shellOutputFinalPrefix, params.Command))
+	} else {
+		ret.WriteString(fmt.Sprintf("%1s $ %s\n", shellOutputMidPrefix, params.Command))
+	}
+	ret.WriteString(line3)
+	return ret.String()
 }
 
 type hostShellRunner struct{}
@@ -735,8 +741,7 @@ func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInSh
 	runErr := cmd.Run()
 
 	// Populate stdout and stderr separately
-	output.Stdout = stdout.String()
-	output.Stderr = stderr.String()
+	output.Output = stdout.String() + "\n" + stderr.String()
 
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {

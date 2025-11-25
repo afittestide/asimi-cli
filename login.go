@@ -502,6 +502,42 @@ func (a *AuthAnthropic) refreshToken(refreshToken string) (*AnthropicOAuthTokens
 	return &tokens, nil
 }
 
+// refreshOAuthToken checks if the Anthropic OAuth token is expired
+// and refreshes it if needed. Returns true if token was refreshed.
+func refreshOAuthToken(config *Config) bool {
+	if config.LLM.Provider != "anthropic" {
+		return false
+	}
+
+	tokenData, err := GetOauthToken("anthropic")
+	if err != nil || tokenData == nil {
+		return false
+	}
+
+	// Check if token is expired
+	if !IsTokenExpired(tokenData) {
+		return false
+	}
+
+	// Token expired - refresh it
+	auth := &AuthAnthropic{}
+	newAccessToken, refreshErr := auth.access()
+	if refreshErr == nil {
+		// Successfully refreshed - update config with new token
+		config.LLM.AuthToken = newAccessToken
+		// Get updated token data from keyring (auth.access() should have saved it)
+		token2, err := GetOauthToken("anthropic")
+		if err == nil && token2 != nil {
+			config.LLM.RefreshToken = token2.RefreshToken
+		}
+		slog.Debug("Refreshed OAuth token")
+		return true
+	}
+
+	slog.Warn("Failed to refresh OAuth token", "error", refreshErr)
+	return false
+}
+
 // Login command handler
 func handleLoginCommand(model *TUIModel, args []string) tea.Cmd {
 	// Show provider selection modal
@@ -549,7 +585,7 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 
 		// Update status line
 		m.status.SetAgent(provider + " (" + m.config.LLM.Model + ")")
-		m.content.GetChat().AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
+		m.content.Chat.AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
 		m.commandLine.AddToast("Authentication saved", "info", 2500)
 		m.sessionActive = true
 		return nil
@@ -563,7 +599,7 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Exchange code for tokens
 		m.commandLine.AddToast("Exchanging authorization code for tokens...", "success", 3000)
-		m.content.GetChat().AddMessage("")
+		m.content.Chat.AddMessage("")
 		tokens, err := auth.exchange(authCode, verifier)
 		if err != nil {
 			return showOauthFailed{fmt.Sprintf("failed to exchange authorization code: %v", err)}

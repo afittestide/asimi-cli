@@ -21,6 +21,8 @@ import (
 	lctools "github.com/tmc/langchaingo/tools"
 )
 
+const sandboxOS = "debian"
+
 // NotifyFunc is a function that handles notifications
 type NotifyFunc func(any)
 
@@ -39,6 +41,7 @@ type Session struct {
 
 	Messages     []llms.MessageContent `json:"messages"`
 	ContextFiles map[string]string     `json:"context_files"`
+	MessageCount int                   `json:"message_count,omitempty"` // For list views, avoids loading full messages
 
 	llm                     llms.Model              `json:"-"`
 	toolCatalog             map[string]lctools.Tool `json:"-"`
@@ -97,12 +100,14 @@ func (s *Session) getStreamBuffer(reset bool) string {
 
 // notification messages
 type streamChunkMsg string
+type streamReasoningChunkMsg string
 type streamStartMsg struct{}
 type streamCompleteMsg struct{}
 type streamInterruptedMsg struct{ partialContent string }
 type streamErrorMsg struct{ err error }
 type streamMaxTurnsExceededMsg struct{ maxTurns int }
 type streamMaxTokensReachedMsg struct{ content string }
+type containerLaunchMsg struct{ message string }
 
 // Local copies of prompt partials and template used by the session, to decouple from agent.go.
 var sessPromptPartials = map[string]any{
@@ -415,15 +420,28 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	// Add streaming option if requested
 	if streamingFunc != nil {
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
+
+		// Add reasoning callback for models that support it (#38)
+		reasoningFunc := func(ctx context.Context, reasoningChunk, chunk []byte) error {
+			// Check for cancellation
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			// Send reasoning chunk to UI
+			if len(reasoningChunk) > 0 && s.notify != nil {
+				s.notify(streamReasoningChunkMsg(string(reasoningChunk)))
+			}
+			return nil
+		}
+		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingReasoningFunc(reasoningFunc))
 	}
 
 	// Remove any unmatched tool calls from context before sending to API
 	s.sanitizeMessages()
 
-	/* TODO: Add to options so we can get the reasoning displayed
-	**       onReasoning should be a member pointing to a function set by the creator
-	llms.WithStreamingReasoningFunc(s.onReasoning)
-	*/
 	// Attempt with explicit tool choice first.
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {
@@ -828,51 +846,31 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
 func sessBuildEnvBlock(repoInfo RepoInfo) string {
+	var env strings.Builder
+
+	env.WriteString(fmt.Sprintf("- **OS:** %s\n", sandboxOS))
 	cwd, _ := os.Getwd()
-	if cwd == "" {
-		cwd = "(unknown)"
-	}
-
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		home = "(unknown)"
-	}
-
-	root := repoInfo.ProjectRoot
-	if root == "" {
-		root = "(unknown)"
+	if cwd != "" {
+		env.WriteString(fmt.Sprintf("- **Working copy path** %s\n", cwd))
 	}
 
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "bash"
 	}
+	env.WriteString(fmt.Sprintf("- **Shell:** %s\n", shell))
 
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf(`- **OS:** debian
-- **Shell:** %s
-- **Paths:**
-  - **cwd:** %s
-  - **project root:** %s
-  - **home:** %s`,
-		shell,
-		cwd,
-		root,
-		home))
-
-	// Add branch information if available
 	if repoInfo.Branch != "" {
-		result.WriteString(fmt.Sprintf("\n- **Branch:** %s", repoInfo.Branch))
+		env.WriteString(fmt.Sprintf("- **Branch:** %s\n", repoInfo.Branch))
 	}
 
-	// Add worktree information if we're in a worktree
-	if repoInfo.IsWorktree && repoInfo.Branch != "" {
-		result.WriteString(fmt.Sprintf("\n\n**IMPORTANT:** We're working on worktree '%s' at '%s'. Changes will be squashed before merging so commit frequently.",
-			repoInfo.Branch,
-			cwd))
+	if repoInfo.IsWorktree && repoInfo.Branch != "dev" {
+		env.WriteString(
+			fmt.Sprintf(`\n\n**IMPORTANT:** Working on worktree so commits will be quashed.
+Feel free to commit whenever you can summarize the changes in a meaningful commit message.`))
 	}
 
-	return result.String()
+	return env.String()
 }
 
 func asimiVersion() string {

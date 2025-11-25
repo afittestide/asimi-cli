@@ -8,12 +8,36 @@ This document describes the architecture of the Terminal User Interface (TUI) fo
 2. [Component Architecture](#component-architecture)
 3. [Mode Management System](#mode-management-system)
 4. [Command Line Component](#command-line-component)
-5. [Message Flow Patterns](#message-flow-patterns)
-6. [Future Improvements](#future-improvements)
+5. [Mouse Event Handling](#mouse-event-handling)
+6. [Message Flow Patterns](#message-flow-patterns)
+7. [Future Improvements](#future-improvements)
 
 ---
 
 ## Overview
+
+### Screen Layout
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│         CONTENT AREA                    │  ← Mouse wheel works here
+│         (Chat/Help/Models/Resume)       │
+│                                         │
+│         Y = 0 to contentHeight          │
+│                                         │
+├─────────────────────────────────────────┤  ← contentHeight boundary
+│         EMPTY LINE                      │
+├─────────────────────────────────────────┤
+│  ┌───────────────────────────────────┐  │
+│  │    PROMPT AREA                    │  │  ← Mouse wheel ignored here
+│  └───────────────────────────────────┘  │
+├─────────────────────────────────────────┤
+│  STATUS LINE                            │
+├─────────────────────────────────────────┤
+│  COMMAND LINE                           │
+└─────────────────────────────────────────┘
+```
 
 The TUI follows the [Bubbletea](https://github.com/charmbracelet/bubbletea) architecture pattern:
 - **Model**: `TUIModel` holds application state
@@ -325,6 +349,152 @@ TUIModel.handleKeyMsg()
 ✅ **Better Encapsulation** - All command line logic in one place  
 ✅ **Easier Testing** - Component can be tested independently  
 ✅ **Maintainability** - Clear responsibilities  
+
+---
+
+## Mouse Event Handling
+
+### Problem
+
+Mouse wheel events were being processed twice, causing duplicate scrolling and potentially affecting areas outside the content window:
+
+1. **Duplicate Processing**: Events were handled by both `content.Update(msg)` and `handleMouseMsg()`
+2. **No Position Checking**: Events were processed regardless of mouse cursor position
+3. **Unintended Side Effects**: Mouse wheel could affect prompt history navigation
+
+### Solution: Position-Aware Single Processing
+
+The mouse event handling now follows these principles:
+
+1. **Position Checking**: Only process events within the content area
+2. **Single Handler**: Events are processed exactly once
+3. **Component Delegation**: Content component handles its own scrolling
+
+### Implementation
+
+**Position Checking** (`tui.go`):
+```go
+case tea.MouseMsg:
+    // Only handle mouse events if they're within the content area
+    // Content area is from top of screen to just above the prompt
+    contentHeight := m.height - 6 // Subtract prompt, status, command line, etc.
+    if msg.Y < contentHeight {
+        // Mouse is in content area - let content component handle it
+        var contentCmd tea.Cmd
+        m.content, contentCmd = m.content.Update(msg)
+        return m, contentCmd
+    }
+    // Mouse is outside content area - ignore it
+    return m, nil
+```
+
+**Content Height Calculation**:
+```go
+contentHeight := m.height - 6
+
+// Breakdown:
+// - Command line: 1 line
+// - Status line: 1 line
+// - Prompt (with borders): ~2-3 lines
+// - Empty line: 1 line
+// = 6 lines reserved for UI chrome
+```
+
+### Event Flow
+
+```
+Mouse Wheel Event (Y position)
+       ↓
+   TUI Update()
+       ↓
+   Check: msg.Y < contentHeight?
+       ↓
+       ├─→ YES (in content area)
+       │        ↓
+       │   content.Update(msg)
+       │        ↓
+       │   Chat.Update(msg)
+       │        ↓
+       │   Viewport.ScrollUp/Down()  ← Single scroll ✓
+       │
+       └─→ NO (outside content area)
+                ↓
+           Ignore event  ← No scrolling ✓
+```
+
+### Component Responsibilities
+
+**TUIModel** (`tui.go`):
+- Checks mouse event position
+- Routes events to content component only if in content area
+- Ignores events outside content area
+
+**ContentComponent** (`content.go`):
+- Receives mouse events from TUI
+- Delegates to active view (chat, help, models, resume)
+- Handles view-specific mouse behavior
+
+**ChatComponent** (`chat.go`):
+- Handles mouse wheel scrolling
+- Updates viewport position
+- Tracks user scrolling vs auto-scrolling
+- Supports touch gestures (drag scrolling)
+
+**PromptComponent** (`prompt.go`):
+- Does NOT handle mouse events
+- Only responds to keyboard input
+- History navigation via up/down arrow keys
+
+### Supported Mouse Events
+
+**In Content Area**:
+- `MouseWheelUp` - Scroll content up
+- `MouseWheelDown` - Scroll content down
+- `MouseLeft` + `MouseActionPress` - Start touch drag
+- `MouseMotion` - Touch drag scrolling
+- `MouseLeft` + `MouseActionRelease` - End touch drag
+
+**Outside Content Area**:
+- All mouse events are ignored
+
+### Benefits
+
+✅ **No Duplicate Scrolling** - Each mouse event processed exactly once  
+✅ **Position Awareness** - Events only affect area under cursor  
+✅ **Clean Separation** - Each component handles its own input  
+✅ **Predictable Behavior** - Users get expected scrolling  
+✅ **No Side Effects** - Prompt history navigation unaffected  
+✅ **Touch Support** - Drag scrolling works in content area  
+
+### Testing Scenarios
+
+**Scenario 1: Scroll in Chat Area**
+```
+User: Scrolls mouse wheel over chat messages
+Expected: Chat scrolls smoothly
+Result: ✓ Works correctly
+```
+
+**Scenario 2: Scroll over Prompt**
+```
+User: Scrolls mouse wheel over prompt input
+Expected: Nothing happens
+Result: ✓ Works correctly (event ignored)
+```
+
+**Scenario 3: Keyboard History Navigation**
+```
+User: Presses up/down arrows in prompt
+Expected: Navigate through prompt history
+Result: ✓ Works correctly (unaffected by mouse fix)
+```
+
+**Scenario 4: Touch Drag Scrolling**
+```
+User: Drags finger/mouse in chat area
+Expected: Chat scrolls based on drag distance
+Result: ✓ Works correctly (handled by chat component)
+```
 
 ---
 

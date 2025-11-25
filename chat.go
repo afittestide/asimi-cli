@@ -48,12 +48,12 @@ const (
 )
 
 // NewChatComponent creates a new chat component
-func NewChatComponent(width, height int, markdownEnabled bool) ChatComponent {
+func NewChatComponent(width, height int, markdownEnabled bool) *ChatComponent {
 	return NewChatComponentWithStatus(width, height, markdownEnabled, func() string { return "insert" })
 }
 
 // NewChatComponentWithStatus creates a new chat component with a status callback
-func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStatus func() string) ChatComponent {
+func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStatus func() string) *ChatComponent {
 	vp := viewport.New(width, height)
 	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
 
@@ -69,7 +69,7 @@ func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStat
 		slog.Debug("[TIMING] Markdown renderer initialized", "load time", time.Since(rendererStart), "err", err)
 	}
 
-	return ChatComponent{
+	ret := ChatComponent{
 		Viewport:             vp,
 		Messages:             []string{"Welcome to Asimi CLI! Send a message to start chatting."},
 		Width:                width,
@@ -89,6 +89,7 @@ func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStat
 			Width(width).
 			Height(height),
 	}
+	return &ret
 }
 
 // SetWidth updates the width of the chat component
@@ -100,6 +101,11 @@ func (c *ChatComponent) SetWidth(width int) {
 	// Only create renderer if it doesn't exist yet and markdown is enabled
 	// Glamour renderer creation is expensive (~5s on first WindowSizeMsg)
 	// so we reuse the existing renderer and just update the content
+	//
+	// Note: The markdown renderer's word wrap width cannot be updated after creation
+	// because glamour.TermRenderer.ansiOptions is a private field with no public API.
+	// This means markdown content won't re-wrap on terminal resize, but this is an
+	// acceptable limitation given the performance cost of recreating the renderer.
 	if c.markdownEnabled && c.markdownRenderer == nil {
 		renderer, err := glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
@@ -228,8 +234,8 @@ func (c *ChatComponent) AddShellCommandInput(command string) {
 
 // AddShellCommandResult formats and displays the result of an inline shell command
 func (c *ChatComponent) AddShellCommandResult(msg shellCommandResultMsg) {
-	c.AddToRawHistory("SHELL_RESULT", fmt.Sprintf("Command: %s\nExit Code: %s\nStdout: %s\nStderr: %s",
-		msg.command, msg.exitCode, msg.output, msg.stderr))
+	c.AddToRawHistory("SHELL_RESULT", fmt.Sprintf("Command: %s\nExit Code: %s\nOutput: %s\n",
+		msg.command, msg.exitCode, msg.output))
 
 	if msg.err != nil {
 		c.AddMessage(renderShellLines([]string{fmt.Sprintf("bash: Error executing command: %v", msg.err)}))
@@ -240,15 +246,6 @@ func (c *ChatComponent) AddShellCommandResult(msg shellCommandResultMsg) {
 
 	if msg.output != "" {
 		lines = append(lines, splitShellLines(msg.output)...)
-	}
-
-	if msg.stderr != "" {
-		// Style stderr lines in yellow using theme color
-		stderrStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(globalTheme.Warning))
-		stderrLines := splitShellLines(msg.stderr)
-		for _, line := range stderrLines {
-			lines = append(lines, stderrStyle.Render(line))
-		}
 	}
 
 	if len(lines) == 0 {

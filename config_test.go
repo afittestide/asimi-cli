@@ -114,12 +114,12 @@ func TestGetOAuthConfig(t *testing.T) {
 			name:     "googleai with defaults",
 			provider: "googleai",
 			setupEnv: func() {
-				os.Setenv("ASIMI_OAUTH_GOOGLE_CLIENT_ID", "test-client-id")
-				os.Setenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET", "test-secret")
+				os.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
+				os.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 			},
 			cleanupEnv: func() {
-				os.Unsetenv("ASIMI_OAUTH_GOOGLE_CLIENT_ID")
-				os.Unsetenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET")
+				os.Unsetenv("GOOGLE_CLIENT_ID")
+				os.Unsetenv("GOOGLE_CLIENT_SECRET")
 			},
 			expectError: false,
 			checkResult: func(t *testing.T, cfg oauthProviderConfig) {
@@ -134,14 +134,14 @@ func TestGetOAuthConfig(t *testing.T) {
 			name:     "googleai with custom scopes",
 			provider: "googleai",
 			setupEnv: func() {
-				os.Setenv("ASIMI_OAUTH_GOOGLE_CLIENT_ID", "test-client-id")
-				os.Setenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET", "test-secret")
-				os.Setenv("ASIMI_OAUTH_GOOGLE_SCOPES", "scope1,scope2")
+				os.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
+				os.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
+				os.Setenv("GOOGLE_OAUTH_SCOPES", "scope1,scope2")
 			},
 			cleanupEnv: func() {
-				os.Unsetenv("ASIMI_OAUTH_GOOGLE_CLIENT_ID")
-				os.Unsetenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET")
-				os.Unsetenv("ASIMI_OAUTH_GOOGLE_SCOPES")
+				os.Unsetenv("GOOGLE_CLIENT_ID")
+				os.Unsetenv("GOOGLE_CLIENT_SECRET")
+				os.Unsetenv("GOOGLE_OAUTH_SCOPES")
 			},
 			expectError: false,
 			checkResult: func(t *testing.T, cfg oauthProviderConfig) {
@@ -152,16 +152,16 @@ func TestGetOAuthConfig(t *testing.T) {
 			name:     "openai with configuration",
 			provider: "openai",
 			setupEnv: func() {
-				os.Setenv("ASIMI_OAUTH_OPENAI_AUTH_URL", "https://auth.openai.com")
-				os.Setenv("ASIMI_OAUTH_OPENAI_TOKEN_URL", "https://token.openai.com")
-				os.Setenv("ASIMI_OAUTH_OPENAI_CLIENT_ID", "openai-client")
-				os.Setenv("ASIMI_OAUTH_OPENAI_CLIENT_SECRET", "openai-secret")
+				os.Setenv("OPENAI_AUTH_URL", "https://auth.openai.com")
+				os.Setenv("OPENAI_TOKEN_URL", "https://token.openai.com")
+				os.Setenv("OPENAI_CLIENT_ID", "openai-client")
+				os.Setenv("OPENAI_CLIENT_SECRET", "openai-secret")
 			},
 			cleanupEnv: func() {
-				os.Unsetenv("ASIMI_OAUTH_OPENAI_AUTH_URL")
-				os.Unsetenv("ASIMI_OAUTH_OPENAI_TOKEN_URL")
-				os.Unsetenv("ASIMI_OAUTH_OPENAI_CLIENT_ID")
-				os.Unsetenv("ASIMI_OAUTH_OPENAI_CLIENT_SECRET")
+				os.Unsetenv("OPENAI_AUTH_URL")
+				os.Unsetenv("OPENAI_TOKEN_URL")
+				os.Unsetenv("OPENAI_CLIENT_ID")
+				os.Unsetenv("OPENAI_CLIENT_SECRET")
 			},
 			expectError: false,
 			checkResult: func(t *testing.T, cfg oauthProviderConfig) {
@@ -182,10 +182,10 @@ func TestGetOAuthConfig(t *testing.T) {
 			provider: "googleai",
 			setupEnv: func() {
 				// Don't set CLIENT_ID
-				os.Setenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET", "test-secret")
+				os.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 			},
 			cleanupEnv: func() {
-				os.Unsetenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET")
+				os.Unsetenv("GOOGLE_CLIENT_SECRET")
 			},
 			expectError: true,
 		},

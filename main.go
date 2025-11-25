@@ -44,7 +44,7 @@ var cli struct {
 }
 
 // Update the version as part of the version release process
-var version = "0.2.0-beta.4"
+var version = "0.2.0-beta.5"
 
 func initLogger() {
 	var logDir string
@@ -530,44 +530,16 @@ func getModelClient(config *Config) (llms.Model, error) {
 				// Token exists but expired - try to refresh it
 				slog.Info("Token expired, attempting refresh", "provider", config.LLM.Provider)
 
-				// Only attempt refresh for providers that support OAuth
-				if config.LLM.Provider == "anthropic" {
-					auth := &AuthAnthropic{}
-					newAccessToken, refreshErr := auth.access()
-					if refreshErr == nil {
-						// Successfully refreshed - update config with new token
-						slog.Info("Token refresh successful", "provider", config.LLM.Provider)
-						config.LLM.AuthToken = newAccessToken
-						// Get updated token data from keyring (auth.access() should have saved it)
-						token2, err := GetOauthToken(config.LLM.Provider)
-						if err == nil && token2 != nil {
-							config.LLM.RefreshToken = token2.RefreshToken
-							// Verify the tokens were actually saved by auth.access()
-							// If not, this is a critical issue that needs to be logged
-							if token2.AccessToken != newAccessToken {
-								slog.Warn("Token mismatch after refresh - keyring may not have been updated",
-									"provider", config.LLM.Provider)
-							}
-						} else {
-							// This shouldn't happen - auth.access() should have saved the tokens
-							slog.Warn("Failed to retrieve updated tokens from keyring after refresh",
-								"provider", config.LLM.Provider, "error", err)
-						}
-					} else {
-						// Refresh failed - log error and fall back to API key
-						slog.Warn("Token refresh failed, falling back to API key",
-							"provider", config.LLM.Provider, "error", refreshErr)
-						apiKey, err := GetAPIKeyFromKeyring(config.LLM.Provider)
-						if err == nil && apiKey != "" {
-							config.LLM.APIKey = apiKey
-						}
-					}
-				} else {
-					// For non-Anthropic providers, just fall back to API key when token expired
+				// Try to refresh the token
+				if !refreshOAuthToken(config) {
+					// Refresh failed - fall back to API key
+					slog.Warn("Token refresh failed, falling back to API key", "provider", config.LLM.Provider)
 					apiKey, err := GetAPIKeyFromKeyring(config.LLM.Provider)
 					if err == nil && apiKey != "" {
 						config.LLM.APIKey = apiKey
 					}
+				} else {
+					slog.Info("Token refresh successful", "provider", config.LLM.Provider)
 				}
 			}
 		} else {
@@ -631,8 +603,9 @@ func getModelClient(config *Config) (llms.Model, error) {
 			// Create custom HTTP client with OAuth transport
 			httpClient := &http.Client{
 				Transport: &anthropicOAuthTransport{
-					token: accessToken,
-					base:  http.DefaultTransport,
+					token:  accessToken,
+					config: config,
+					base:   http.DefaultTransport,
 				},
 			}
 			opts = append(opts, anthropic.WithHTTPClient(httpClient))
@@ -719,11 +692,18 @@ func ensureOllamaConfigured(rawBaseURL string) error {
 
 // anthropicOAuthTransport adds OAuth headers for Anthropic API
 type anthropicOAuthTransport struct {
-	token string
-	base  http.RoundTripper
+	token  string
+	config *Config
+	base   http.RoundTripper
 }
 
 func (t *anthropicOAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Check if token needs refresh before making the request
+	if t.config != nil && refreshOAuthToken(t.config) {
+		// Token was refreshed, update transport token
+		t.token = t.config.LLM.AuthToken
+	}
+
 	// Clone request to avoid mutating caller's request
 	r := req.Clone(req.Context())
 

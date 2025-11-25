@@ -56,6 +56,7 @@ type SessionData struct {
 	ProjectSlug  string
 	Messages     []llms.MessageContent
 	ContextFiles map[string]string
+	MessageCount int // Number of messages (for list views, avoids loading full messages)
 }
 
 // Repository represents a Git repository (host/org/project)

@@ -200,7 +200,7 @@ func formatToolCallWithResult(b *strings.Builder, toolCall llms.ToolCall, toolRe
 	if toolResp, ok := toolResults[toolCall.ID]; ok {
 		formatToolOutput(b, toolResp, fullMode)
 	}
-	
+
 	b.WriteString("\n")
 }
 
@@ -219,19 +219,19 @@ func formatToolOutput(b *strings.Builder, toolResp llms.ToolCallResponse, fullMo
 			if ec, ok := output["exitCode"].(string); ok {
 				exitCode = ec
 			}
-			
+
 			stdout := ""
 			if s, ok := output["stdout"].(string); ok {
 				stdout = s
 			}
-			
+
 			stderr := ""
 			if s, ok := output["stderr"].(string); ok {
 				stderr = s
 			}
-			
+
 			totalLength := len(stdout) + len(stderr)
-			
+
 			// Show full output if in full mode OR if output is short (≤128 chars)
 			if fullMode || totalLength <= 128 {
 				b.WriteString("\n```\n")
@@ -246,7 +246,7 @@ func formatToolOutput(b *strings.Builder, toolResp llms.ToolCallResponse, fullMo
 					b.WriteString("\nStderr:\n")
 					b.WriteString(stderr)
 				}
-				
+
 				b.WriteString("\n```")
 			} else {
 				// Conversation mode with long output: show only exit code and character count

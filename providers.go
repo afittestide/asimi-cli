@@ -73,17 +73,6 @@ func ProvideConfig(logger *slog.Logger) (*Config, error) {
 		logger.Debug("Warning: Using defaults due to config load failure", "error", err)
 		// Continue with default config
 		config = &Config{
-			Server: ServerConfig{
-				Host: "localhost",
-				Port: 3000,
-			},
-			Database: DatabaseConfig{
-				Host:     "localhost",
-				Port:     5432,
-				User:     "asimi",
-				Password: "asimi",
-				Name:     "asimi_dev",
-			},
 			Logging: LoggingConfig{
 				Level:  "info",
 				Format: "text",
@@ -98,7 +87,7 @@ func ProvideConfig(logger *slog.Logger) (*Config, error) {
 	}
 	// Override from CLI flag
 	if cli.NoCleanup {
-		config.LLM.PodmanNoCleanup = true
+		config.RunInShell.NoCleanup = true
 	}
 	logger.Info("configuration loaded")
 	return config, nil
@@ -159,7 +148,7 @@ func ProvideRepoInfo(config *Config, logger *slog.Logger) RepoInfo {
 // ProvideShellRunner creates and returns a shell runner
 func ProvideShellRunner(config *Config, repoInfo RepoInfo, logger *slog.Logger) shellRunner {
 	logger.Info("initializing shell runner")
-	return newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config, repoInfo)
+	return newPodmanShellRunner(config.RunInShell.AllowHostFallback, config, repoInfo)
 }
 
 // ModelClientParams holds parameters for async LLM client initialization

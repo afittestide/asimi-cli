@@ -26,7 +26,7 @@ just measure          # Measure run_in_shell performance
 
 ## Code Style
 
-**Write idiomatic Go** - Keep it simple, flat, and direct.
+**Write idiomatic Go** - Keep it simple, flat and dense.
 
 - **Naming**: Short and meaningful
 - **No wrappers**: Avoid unnecessary abstractions

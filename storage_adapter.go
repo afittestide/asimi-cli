@@ -372,6 +372,7 @@ func (s *SessionStore) ListSessions(limit int) ([]Session, error) {
 			ProjectSlug:  ss.ProjectSlug,
 			Messages:     ss.Messages,
 			ContextFiles: ss.ContextFiles,
+			MessageCount: ss.MessageCount,
 		}
 	}
 

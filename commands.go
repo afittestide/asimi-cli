@@ -154,12 +154,13 @@ func handleHelpCommand(model *TUIModel, args []string) tea.Cmd {
 func handleNewSessionCommand(model *TUIModel, args []string) tea.Cmd {
 	model.saveSession()
 	model.sessionActive = true
-	chat := model.content.GetChat()
+
 	markdownEnabled := false
 	if model != nil && model.config != nil {
 		markdownEnabled = model.config.UI.MarkdownEnabled
 	}
-	*chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
+	chat := model.content.Chat
+	model.content.Chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
 
 	// Reset prompt history and waiting state
 	model.initHistory()
