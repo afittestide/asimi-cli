@@ -650,12 +650,47 @@ Supported providers:
 
 ## Environment Variables
 
-EDITOR                    - Text editor for :export
-ASIMI_LAZYGIT_CMD        - Custom lazygit path
-ANTHROPIC_OAUTH_TOKEN    - Anthropic OAuth token
-ANTHROPIC_API_KEY        - Anthropic API key
-ANTHROPIC_BASE_URL       - Custom Anthropic endpoint
-ASIMI_LLM_VI_MODE        - Enable/disable vi mode
+### General Configuration
+All config options can be set via ASIMI_* environment variables.
+Examples:
+  ASIMI_LLM_PROVIDER=anthropic
+  ASIMI_LLM_MODEL=claude-sonnet-4-20250514
+  ASIMI_UI_MARKDOWN_ENABLED=true
+
+### System
+  EDITOR                    - Text editor for :export
+  SHELL                     - Shell for container sessions
+
+### API Keys & Authentication
+  ANTHROPIC_API_KEY         - Anthropic API key
+  ANTHROPIC_OAUTH_TOKEN     - Anthropic OAuth token (priority over keyring)
+  ANTHROPIC_BASE_URL        - Custom Anthropic endpoint
+  OPENAI_API_KEY            - OpenAI API key
+  GEMINI_API_KEY            - Google Gemini API key
+
+### OAuth Configuration (Advanced)
+  GOOGLE_CLIENT_ID          - Google OAuth client ID
+  GOOGLE_CLIENT_SECRET      - Google OAuth client secret
+  GOOGLE_AUTH_URL           - Google OAuth authorization URL (optional)
+  GOOGLE_TOKEN_URL          - Google OAuth token URL (optional)
+  GOOGLE_OAUTH_SCOPES       - Google OAuth scopes (optional)
+  
+  OPENAI_CLIENT_ID          - OpenAI OAuth client ID
+  OPENAI_CLIENT_SECRET      - OpenAI OAuth client secret
+  OPENAI_AUTH_URL           - OpenAI OAuth authorization URL
+  OPENAI_TOKEN_URL          - OpenAI OAuth token URL
+  OPENAI_OAUTH_SCOPES       - OpenAI OAuth scopes (optional)
+  
+  ANTHROPIC_CLIENT_ID       - Anthropic OAuth client ID
+  ANTHROPIC_CLIENT_SECRET   - Anthropic OAuth client secret
+  ANTHROPIC_AUTH_URL        - Anthropic OAuth authorization URL
+  ANTHROPIC_TOKEN_URL       - Anthropic OAuth token URL
+  ANTHROPIC_OAUTH_SCOPES    - Anthropic OAuth scopes (optional)
+
+### Development
+  ASIMI_KEYRING_SERVICE     - Override keyring service name
+  ASIMI_SKIP_GIT_STATUS     - Skip git status checks
+  ASIMI_VERSION             - Override version string
 
 ## Vi Mode
 

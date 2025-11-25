@@ -668,12 +668,12 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 	p := oauthProviderConfig{}
 	switch provider {
 	case "googleai":
-		// Defaults for Google accounts (Gemini)
-		p.AuthURL = getEnv(os.Getenv("ASIMI_OAUTH_GOOGLE_AUTH_URL"), "https://accounts.google.com/o/oauth2/v2/auth")
-		p.TokenURL = getEnv(os.Getenv("ASIMI_OAUTH_GOOGLE_TOKEN_URL"), "https://oauth2.googleapis.com/token")
-		p.ClientID = os.Getenv("ASIMI_OAUTH_GOOGLE_CLIENT_ID")
-		p.ClientSecret = os.Getenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET")
-		scopes := os.Getenv("ASIMI_OAUTH_GOOGLE_SCOPES")
+		// Use standard Google environment variable names
+		p.AuthURL = getEnv("GOOGLE_AUTH_URL", "https://accounts.google.com/o/oauth2/v2/auth")
+		p.TokenURL = getEnv("GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+		p.ClientID = os.Getenv("GOOGLE_CLIENT_ID")
+		p.ClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
+		scopes := os.Getenv("GOOGLE_OAUTH_SCOPES")
 		if scopes == "" {
 			// Default to the Generative Language scope
 			p.Scopes = []string{"https://www.googleapis.com/auth/generative-language"}
@@ -681,20 +681,22 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 			p.Scopes = strings.Split(scopes, ",")
 		}
 	case "openai":
-		p.AuthURL = os.Getenv("ASIMI_OAUTH_OPENAI_AUTH_URL")
-		p.TokenURL = os.Getenv("ASIMI_OAUTH_OPENAI_TOKEN_URL")
-		p.ClientID = os.Getenv("ASIMI_OAUTH_OPENAI_CLIENT_ID")
-		p.ClientSecret = os.Getenv("ASIMI_OAUTH_OPENAI_CLIENT_SECRET")
-		scopes := os.Getenv("ASIMI_OAUTH_OPENAI_SCOPES")
+		// Use standard OpenAI environment variable names
+		p.AuthURL = os.Getenv("OPENAI_AUTH_URL")
+		p.TokenURL = os.Getenv("OPENAI_TOKEN_URL")
+		p.ClientID = os.Getenv("OPENAI_CLIENT_ID")
+		p.ClientSecret = os.Getenv("OPENAI_CLIENT_SECRET")
+		scopes := os.Getenv("OPENAI_OAUTH_SCOPES")
 		if scopes != "" {
 			p.Scopes = strings.Split(scopes, ",")
 		}
 	case "anthropic":
-		p.AuthURL = os.Getenv("ASIMI_OAUTH_ANTHROPIC_AUTH_URL")
-		p.TokenURL = os.Getenv("ASIMI_OAUTH_ANTHROPIC_TOKEN_URL")
-		p.ClientID = os.Getenv("ASIMI_OAUTH_ANTHROPIC_CLIENT_ID")
-		p.ClientSecret = os.Getenv("ASIMI_OAUTH_ANTHROPIC_CLIENT_SECRET")
-		scopes := os.Getenv("ASIMI_OAUTH_ANTHROPIC_SCOPES")
+		// Use standard Anthropic environment variable names
+		p.AuthURL = os.Getenv("ANTHROPIC_AUTH_URL")
+		p.TokenURL = os.Getenv("ANTHROPIC_TOKEN_URL")
+		p.ClientID = os.Getenv("ANTHROPIC_CLIENT_ID")
+		p.ClientSecret = os.Getenv("ANTHROPIC_CLIENT_SECRET")
+		scopes := os.Getenv("ANTHROPIC_OAUTH_SCOPES")
 		if scopes != "" {
 			p.Scopes = strings.Split(scopes, ",")
 		}
@@ -702,7 +704,12 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 		return p, fmt.Errorf("unsupported provider for oauth: %s", provider)
 	}
 	if p.AuthURL == "" || p.TokenURL == "" || p.ClientID == "" {
-		return p, fmt.Errorf("OAuth not configured. Set ASIMI_OAUTH_* env vars for %s", provider)
+		providerName := strings.ToUpper(provider)
+		if provider == "googleai" {
+			providerName = "GOOGLE"
+		}
+		return p, fmt.Errorf("OAuth not configured. Set %s_CLIENT_ID, %s_CLIENT_SECRET, %s_AUTH_URL, and %s_TOKEN_URL", 
+			providerName, providerName, providerName, providerName)
 	}
 	return p, nil
 }
