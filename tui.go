@@ -1138,10 +1138,14 @@ func (m TUIModel) handleSlashKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Only show command completion if we're at the beginning of the input
 	if m.prompt.Value() == "" {
 		m.prompt, _ = m.prompt.Update(msg)
-		// Show completion dialog with commands
+		// Show completion dialog with commands (add / prefix for display)
 		m.showCompletionDialog = true
 		m.completionMode = "command"
-		m.completions.SetOptions(append([]string(nil), m.commandRegistry.order...))
+		var commandsWithPrefix []string
+		for _, cmd := range m.commandRegistry.order {
+			commandsWithPrefix = append(commandsWithPrefix, "/"+cmd)
+		}
+		m.completions.SetOptions(commandsWithPrefix)
 		m.completions.Show()
 	} else {
 		m.prompt, _ = m.prompt.Update(msg)
@@ -1563,18 +1567,18 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Centralized mode change handling
 		oldMode := m.Mode
 		newMode := msg.NewMode
-		
+
 		// Update mode
 		m.Mode = newMode
 		m.status.SetMode(newMode)
-		
+
 		// Handle scroll lock state changes
 		if oldMode == "scroll" && newMode != "scroll" {
 			m.content.Chat.SetScrollLock(false)
 		} else if oldMode != "scroll" && newMode == "scroll" {
 			m.content.Chat.SetScrollLock(true)
 		}
-		
+
 		// Update prompt component based on new mode
 		switch newMode {
 		case "insert":
@@ -1948,16 +1952,14 @@ func (m *TUIModel) updateCommandCompletions() {
 	// Get all command names and filter them
 	var filteredCommands []string
 	for _, name := range m.commandRegistry.order {
-		// name is stored with "/" prefix, so we need to check against the command part
-		cmdName := strings.TrimPrefix(name, "/")
-
+		// Commands are now stored without prefix
 		// Check if the command starts with the search query
-		if strings.HasPrefix(strings.ToLower(cmdName), searchQuery) {
+		if strings.HasPrefix(strings.ToLower(name), searchQuery) {
 			// Format the command with the appropriate prefix for display
 			if prefix == ":" {
-				filteredCommands = append(filteredCommands, ":"+cmdName)
+				filteredCommands = append(filteredCommands, ":"+name)
 			} else {
-				filteredCommands = append(filteredCommands, name)
+				filteredCommands = append(filteredCommands, "/"+name)
 			}
 		}
 	}
@@ -1973,13 +1975,11 @@ func (m *TUIModel) updateCommandLineCompletions() {
 	// Get all command names and filter them
 	var filteredCommands []string
 	for _, name := range m.commandRegistry.order {
-		// name is stored with "/" prefix, so we need to check against the command part
-		cmdName := strings.TrimPrefix(name, "/")
-
+		// Commands are now stored without prefix
 		// Check if the command starts with the search query
-		if strings.HasPrefix(strings.ToLower(cmdName), searchQuery) {
+		if strings.HasPrefix(strings.ToLower(name), searchQuery) {
 			// Format with : prefix for command line mode
-			filteredCommands = append(filteredCommands, ":"+cmdName)
+			filteredCommands = append(filteredCommands, ":"+name)
 		}
 	}
 
