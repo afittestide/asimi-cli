@@ -198,7 +198,12 @@ func handleContextCommand(model *TUIModel, args []string) tea.Cmd {
 }
 
 func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
-	return func() tea.Msg {
+	// Immediately show the resume view with loading state
+	showResumeCmd := model.content.ShowResume([]Session{})
+	model.content.resume.SetLoading(true)
+
+	// Load sessions in the background
+	loadCmd := func() tea.Msg {
 		if model == nil || model.config == nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("resume unavailable: missing configuration")}
 		}
@@ -251,6 +256,9 @@ func handleResumeCommand(model *TUIModel, args []string) tea.Cmd {
 
 		return sessionsLoadedMsg{sessions: sessions}
 	}
+
+	// Return both commands - show view immediately, then load data
+	return tea.Batch(showResumeCmd, loadCmd)
 }
 
 func handleExportCommand(model *TUIModel, args []string) tea.Cmd {

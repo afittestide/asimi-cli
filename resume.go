@@ -165,29 +165,38 @@ func truncateSnippet(text string, limit int) string {
 }
 
 // RenderList renders the session list with the given selection
+// Always renders exactly visibleSlots lines to maintain consistent height
 func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int) string {
-	var content strings.Builder
+	lr := lineRenderer{targetLines: visibleSlots}
 
 	if r.loading {
-		content.WriteString("Loading sessions...\n")
-		return content.String()
+		lr.writeLine("Loading sessions...")
+		lr.writeLine("")
+		lr.writeLine("⏳ Fetching your previous sessions...")
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	if r.loadingSession {
-		content.WriteString("Loading selected session...\n")
-		content.WriteString("Please wait...")
-		return content.String()
+		lr.writeLine("Loading selected session...")
+		lr.writeLine("Please wait...")
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	if r.errorMsg != nil {
-		content.WriteString(fmt.Sprintf("Error loading sessions: %v\n\n", r.errorMsg))
-		return content.String()
+		lr.writeLine(fmt.Sprintf("Error loading sessions: %v", r.errorMsg))
+		lr.writeLine("")
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	if len(r.sessions) == 0 {
-		content.WriteString("No previous sessions found.\n")
-		content.WriteString("Start chatting to create a new session!\n\n")
-		return content.String()
+		lr.writeLine("No previous sessions found.")
+		lr.writeLine("Start chatting to create a new session!")
+		lr.writeLine("")
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	totalItems := len(r.sessions)
@@ -228,11 +237,13 @@ func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int)
 			lineStyle = lineStyle.Foreground(lipgloss.Color("62")).Bold(true)
 		}
 
-		content.WriteString(lineStyle.Render(line.String()))
-		content.WriteString("\n")
+		lr.content.WriteString(lineStyle.Render(line.String()))
+		lr.content.WriteString("\n")
+		lr.linesWritten++
 	}
 
-	return content.String()
+	lr.padToTarget()
+	return lr.String()
 }
 
 // LoadSession loads a session by ID

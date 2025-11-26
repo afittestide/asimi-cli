@@ -1415,11 +1415,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.codeInputModal = nil
 		return m, m.completeAnthropicOAuth(msg.code, msg.verifier)
 
-	case showModelSelectionMsg:
-		m.content.SetModelsLoading()
-		// Fetch models in background
-		return m, m.fetchModelsCommand()
-
 	case modelSelectedMsg:
 		oldModel := m.config.LLM.Model
 		m.config.LLM.Model = msg.model.ID
