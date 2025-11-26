@@ -94,6 +94,19 @@ type shellCommandResultMsg struct {
 	err      error
 }
 
+// setCursorBarCmd is a tea.Cmd that changes the cursor to a blinking bar.
+var setCursorBarCmd = func() tea.Msg {
+	fmt.Print("\x1b[5 q")
+	return nil
+}
+
+// setCursorBlockCmd is a tea.Cmd that changes the cursor to a block.
+var setCursorBlockCmd = func() tea.Msg {
+	// 2 is for block cursor, which is the default.
+	fmt.Print("\x1b[2 q")
+	return nil
+}
+
 // NewTUIModel creates a new TUI model
 // NewTUIModelWithStores creates a new TUI model with provided stores (for fx injection)
 func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistory, commandHistory *CommandHistory, sessionStore *SessionStore, db *storage.DB) *TUIModel {
@@ -1456,16 +1469,23 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Centralized mode management - update Mode and status
 		m.Mode = msg.NewMode
 		m.status.SetMode(m.Mode)
-		if m.Mode == "resume" || m.Mode == "models" {
+
+		var cmds []tea.Cmd
+		switch m.Mode {
+		case "resume", "models":
 			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
 			// Update prompt placeholder for these modes (#69)
 			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
-		} else if m.Mode == "insert" {
-			// Restore default placeholder when returning to insert mode
+		case ViModeInsert:
+			// Restore default placeholder and set cursor to bar
 			m.prompt.TextArea.Placeholder = PlaceholderDefault
+			cmds = append(cmds, setCursorBarCmd)
+		case ViModeNormal:
+			// Set cursor to block
+			cmds = append(cmds, setCursorBlockCmd)
 		}
 
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case commandReadyMsg:
 		// Command ready from command line component
