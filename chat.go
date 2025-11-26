@@ -227,6 +227,25 @@ func (c *ChatComponent) ScrollToBottom() {
 	}
 }
 
+// ScrollUpOneLine scrolls up by one line
+func (c *ChatComponent) ScrollUpOneLine() {
+	c.Viewport.ScrollUp(1)
+	c.UserScrolled = true
+}
+
+// ScrollDownOneLine scrolls down by one line
+func (c *ChatComponent) ScrollDownOneLine() {
+	c.Viewport.ScrollDown(1)
+	if c.Viewport.AtBottom() {
+		c.UserScrolled = false
+		if !c.ScrollLocked {
+			c.AutoScroll = true
+		}
+	} else {
+		c.UserScrolled = true
+	}
+}
+
 // AddShellCommandInput adds the entered shell command at column 0
 func (c *ChatComponent) AddShellCommandInput(command string) {
 	c.AddMessage(fmt.Sprintf("%s %s", shellUserPrefix, command))

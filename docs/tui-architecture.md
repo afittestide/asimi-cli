@@ -121,7 +121,7 @@ This violated separation of concerns and created tight coupling.
 
 ```go
 type ChangeModeMsg struct {
-    NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume", "scroll"
+    NewMode string // "insert", "normal", "visual", "command", "help", "select", "scroll"
 }
 ```
 
@@ -129,46 +129,40 @@ type ChangeModeMsg struct {
 
 ```go
 case ChangeModeMsg:
-    // Centralized mode management - update Mode and status
+    wasScroll := m.Mode == "scroll"
     m.Mode = msg.NewMode
-    
-    // Update status component
-    viEnabled, _, viPending := m.prompt.ViModeStatus()
-    
-    // Map mode to display string
-    var displayMode string
-    switch msg.NewMode {
-    case "insert":
-        displayMode = ViModeInsert
-    case "normal":
-        displayMode = ViModeNormal
-    case "visual":
-        displayMode = ViModeVisual
-    case "command":
-        displayMode = "COMMAND"
-    case "help":
-        displayMode = "HELP"
-    case "models":
-        displayMode = "MODELS"
-    case "resume":
-        displayMode = "RESUME"
-    case "scroll":
-        displayMode = "SCROLL"
-    default:
-        displayMode = msg.NewMode
+    isScroll := m.Mode == "scroll"
+    if wasScroll && !isScroll {
+        m.content.Chat.SetScrollLock(false)
+    } else if !wasScroll && isScroll {
+        m.content.Chat.SetScrollLock(true)
     }
-    
-    m.status.SetViMode(viEnabled, displayMode, viPending)
+    m.status.SetMode(m.Mode)
+    if m.Mode == "select" {
+        m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
+        m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
+    } else if m.Mode == "insert" {
+        m.prompt.TextArea.Placeholder = PlaceholderDefault
+    }
     return m, nil
 ```
 
-- `scroll` is a dedicated chat-navigation mode entered with `Ctrl-B`. It locks the viewport in place (no auto-scroll) and provides vi-style paging:
+**Special Modes:**
+
+- `scroll` - Dedicated chat-navigation mode entered with `Ctrl-B`. It locks the viewport in place (no auto-scroll) and provides vi-style paging:
   - `Ctrl-F` / `Ctrl-B` - Page down/up
   - `Ctrl-D` / `Ctrl-U` - Half page down/up
   - `j` / `k` / `↓` / `↑` - Half page down/up (vi-style)
   - `G` - Jump to bottom
   - `:` - Enter command mode without snapping back
   - `Esc` / `i` - Return to insert mode
+
+- `select` - Unified list selection mode used for both models and resume views. Provides consistent navigation:
+  - `j` / `k` / `↓` / `↑` - Navigate up/down
+  - `Ctrl-D` / `Ctrl-U` - Half page down/up
+  - `g` / `G` - Jump to top/bottom
+  - `Enter` - Select item
+  - `:quit` / `Esc` - Return to chat
 
 ### Component Integration
 
@@ -190,6 +184,22 @@ func (c *ContentComponent) ShowHelp(topic string) tea.Cmd {
     // ... setup ...
     return func() tea.Msg {
         return ChangeModeMsg{NewMode: "help"}
+    }
+}
+
+func (c *ContentComponent) ShowModels(models []AnthropicModel, currentModel string) tea.Cmd {
+    c.activeView = ViewModels
+    // ... setup ...
+    return func() tea.Msg {
+        return ChangeModeMsg{NewMode: "select"}
+    }
+}
+
+func (c *ContentComponent) ShowResume(sessions []Session) tea.Cmd {
+    c.activeView = ViewResume
+    // ... setup ...
+    return func() tea.Msg {
+        return ChangeModeMsg{NewMode: "select"}
     }
 }
 
@@ -226,8 +236,8 @@ View() renders with updated status
 - `"visual"` → `<VISUAL>`
 - `"command"` → `<COMMAND>`
 - `"help"` → `<HELP>`
-- `"models"` → `<MODELS>`
-- `"resume"` → `<RESUME>`
+- `"select"` → `<SELECT>` (used for both models and resume views)
+- `"scroll"` → `<SCROLL>`
 - `"learning"` → (maps to itself)
 
 ### Benefits

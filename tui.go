@@ -617,10 +617,10 @@ func (m TUIModel) handleScrollModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool)
 		chat.ScrollToBottom()
 		return m, nil, true
 	case "j", "down":
-		chat.ScrollHalfPageDown()
+		chat.ScrollDownOneLine()
 		return m, nil, true
 	case "k", "up":
-		chat.ScrollHalfPageUp()
+		chat.ScrollUpOneLine()
 		return m, nil, true
 	case ":":
 		m.disableScrollMode()
@@ -1595,9 +1595,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.content.Chat.SetScrollLock(true)
 		}
 		m.status.SetMode(m.Mode)
-		if m.Mode == "resume" || m.Mode == "models" {
+		if m.Mode == "select" {
 			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
-			// Update prompt placeholder for these modes (#69)
+			// Update prompt placeholder for select mode (#69)
 			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
 		} else if m.Mode == "insert" {
 			// Restore default placeholder when returning to insert mode
