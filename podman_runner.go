@@ -357,7 +357,7 @@ func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
 	s.Env = map[string]string{"TERM": "dumb"}
 
 	// Set up bash to read from stdin
-	s.Command = []string{"bash", "-s"}
+	s.Command = []string{"bash", "-i"}
 	stdinOpen := true
 	s.Stdin = &stdinOpen
 
@@ -419,7 +419,9 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 			slog.Debug("falling back to host shell")
 			return hostRun(ctx, params)
 		}
-		return RunInShellOutput{}, fmt.Errorf("podman unavailable and fallback to host shell is disabled: %w", err)
+		// TODO: return a more general general error for erros not matching:
+		// "failed to create container: no such image: localhost/asimi-shell:latest: image not known"
+		return RunInShellOutput{}, fmt.Errorf("Sandbox container image is missing. Did you run `:init` ?")
 	}
 
 	// Get next command ID
@@ -544,6 +546,7 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 	// Close the pipes first
 	if r.stdinPipe != nil {
 		slog.Debug("closing stdin pipe")
+		// TODO: try first exit the shell to solve the dangling containers bug
 		r.stdinPipe.Close()
 	}
 	if r.stdoutPipe != nil {

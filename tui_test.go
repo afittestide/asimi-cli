@@ -1050,14 +1050,25 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 	require.True(t, model.waitingForResponse)
 
 	// Execute /new command
-	handleNewSessionCommand(model, []string{})
+	cmd := handleNewSessionCommand(model, []string{})
+
+	// Process the returned message
+	msg := cmd()
+	startMsg, ok := msg.(startConversationMsg)
+	require.True(t, ok, "Expected startConversationMsg")
+	require.True(t, startMsg.clearHistory)
+
+	// Simulate the message being processed by Update
+	updatedModel, _ := model.Update(startMsg)
+	updatedModelValue, ok := updatedModel.(TUIModel)
+	require.True(t, ok, "Expected TUIModel")
 
 	// Verify history was reset
-	require.Empty(t, model.sessionPromptHistory)
-	require.Equal(t, 0, model.historyCursor)
-	require.False(t, model.historySaved)
-	require.Empty(t, model.historyPendingPrompt)
-	require.False(t, model.waitingForResponse)
+	require.Empty(t, updatedModelValue.sessionPromptHistory)
+	require.Equal(t, 0, updatedModelValue.historyCursor)
+	require.False(t, updatedModelValue.historySaved)
+	require.Empty(t, updatedModelValue.historyPendingPrompt)
+	require.False(t, updatedModelValue.waitingForResponse)
 }
 
 // TestHistoryNavigation_WithArrowKeys tests arrow key handling

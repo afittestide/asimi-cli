@@ -45,9 +45,9 @@ type TUIModel struct {
 	rawMode              bool // Toggle between chat and raw session view
 
 	// Streaming state
-	streamingActive     bool
-	streamingCancel     context.CancelFunc
-	projectInitializing bool
+	streamingActive        bool
+	streamingCancel        context.CancelFunc
+	streamCompleteCallback func(*TUIModel) tea.Cmd // Optional callback to run after stream completes
 
 	// Exit confirmation
 	ctrlCPressed bool // Track if CTRL-C was pressed once
@@ -933,9 +933,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 
-	isCommand := strings.HasPrefix(content, ":")
-
-	if isCommand {
+	if strings.HasPrefix(content, ":") {
 		// Parse the command (keep the : prefix for display)
 		parts := strings.Fields(content)
 		if len(parts) > 0 {
@@ -1191,12 +1189,19 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.GetChat().AddToRawHistory("STREAM_COMPLETE", "AI streaming response completed")
 		slog.Debug("streamCompleteMsg", "messages_count", len(m.content.GetChat().Messages))
 		m.stopStreaming()
-		if m.projectInitializing && m.session != nil {
-			m.projectInitializing = false
-			// Run guardrails after init completes
+
+		// Run guardrail callback if one was set
+		var guardrailCmd tea.Cmd
+		if m.streamCompleteCallback != nil {
+			slog.Debug("running stream complete callback")
+			guardrailCmd = m.streamCompleteCallback(&m)
+			m.streamCompleteCallback = nil // Clear after running
 		}
+
 		m.saveSession()
 		refreshGitInfo()
+
+		return m, guardrailCmd
 
 	case streamInterruptedMsg:
 		// Streaming was interrupted by user
@@ -1204,9 +1209,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Debug("streamInterruptedMsg", "partial_content_length", len(msg.partialContent))
 		m.content.GetChat().AddMessage("\nESC")
 		m.stopStreaming()
-		if m.projectInitializing {
-			m.projectInitializing = false
-		}
+		m.streamCompleteCallback = nil // Clear callback on interrupt
 		refreshGitInfo()
 
 	case streamErrorMsg:
@@ -1214,12 +1217,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Error("streamErrorMsg", "error", msg.err)
 		m.commandLine.AddToast(fmt.Sprintf("Model Error: %v", msg.err), "error", time.Second*5)
 		m.stopStreaming()
-		if m.projectInitializing {
-			if m.session != nil {
-				m.session.ClearHistory()
-			}
-			m.projectInitializing = false
-		}
 		refreshGitInfo()
 
 	case streamMaxTurnsExceededMsg:
@@ -1228,12 +1225,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("streamMaxTurnsExceededMsg", "max_turns", msg.maxTurns)
 		m.content.GetChat().AddMessage(fmt.Sprintf("\n⚠️  Conversation ended after reaching maximum turn limit (%d turns)", msg.maxTurns))
 		m.stopStreaming()
-		if m.projectInitializing {
-			if m.session != nil {
-				m.session.ClearHistory()
-			}
-			m.projectInitializing = false
-		}
+		m.streamCompleteCallback = nil // Clear callback on max turns
 		refreshGitInfo()
 
 	case streamMaxTokensReachedMsg:
@@ -1242,12 +1234,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("streamMaxTokensReachedMsg", "content_length", len(msg.content))
 		m.content.GetChat().AddMessage("\n\n⚠️  Response truncated due to length limit")
 		m.stopStreaming()
-		if m.projectInitializing {
-			if m.session != nil {
-				m.session.ClearHistory()
-			}
-			m.projectInitializing = false
-		}
+		m.streamCompleteCallback = nil // Clear callback on max tokens
 		refreshGitInfo()
 
 	case showHelpMsg:
@@ -1529,38 +1516,89 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Warn("LLM initialization failed", "error", msg.err)
 		m.commandLine.AddToast("Warning: Running without an LLM", "warning", 5000)
 
-	case initializeProjectMsg:
-		// Handle project initialization
-		slog.Debug("got initializeProjectMsg")
+	case startConversationMsg:
+		// Handle starting a new conversation (used by init, new, and other commands)
+		slog.Debug("got startConversationMsg", "RunOnHost", msg.RunOnHost)
+
 		if m.session == nil {
-			m.commandLine.AddToast("No LLM session available for initialization", "error", 4000)
+			m.commandLine.AddToast("No LLM session available", "error", 4000)
 			return m, nil
 		}
-		// Clear any existing conversation to start fresh
-		// m.chat = NewChatComponent(m.content.GetChat().Width, m.content.GetChat().Height)
-		// m.session.ClearHistory()
-		m.projectInitializing = true
-		m.content.GetChat().ClearToolCallMessageIndex()
 
-		// Add a message to show we're starting initialization
-		m.content.GetChat().AddMessage("🚀 Starting project initialization...")
+		// Set the shell runner based on RunOnHost flag
+		if msg.RunOnHost {
+			slog.Debug("using host shell runner for this conversation")
+			shellRunnerMu.Lock()
+			previousRunner := currentShellRunner
+			currentShellRunner = NewHostShellRunner()
+			shellRunnerMu.Unlock()
 
-		// Send the initialization prompt to the AI
-		ctx, cancel := context.WithCancel(context.Background())
-		m.streamingCancel = cancel
-		m.sessionActive = true
+			// Wrap the caller's func with code to restore the previous runner
+			originalCallback := msg.onStreamComplete
+			msg.onStreamComplete = func(model *TUIModel) tea.Cmd {
+				// Restore the previous shell runner
+				shellRunnerMu.Lock()
+				currentShellRunner = previousRunner
+				shellRunnerMu.Unlock()
+				slog.Debug("restored previous shell runner")
 
-		if waitCmd := m.startWaitingForResponse(); waitCmd != nil {
-			// Start the initialization process
-			go func() {
-				m.session.AskStream(ctx, msg.prompt)
-			}()
-			return m, waitCmd
-		} else {
-			go func() {
-				m.session.AskStream(ctx, msg.prompt)
-			}()
+				// Call the original callback if it exists
+				if originalCallback != nil {
+					return originalCallback(model)
+				}
+				return nil
+			}
 		}
+
+		chat := m.content.GetChat()
+		// Clear history if requested
+		if msg.clearHistory {
+			m.sessionActive = true
+			markdownEnabled := false
+			if m.config != nil {
+				markdownEnabled = m.config.UI.MarkdownEnabled
+			}
+			*chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
+
+			// Reset prompt history and waiting state
+			m.initHistory()
+			m.cancelStreaming()
+			m.stopStreaming()
+
+			// Reset session conversation history
+			m.session.ClearHistory()
+		}
+
+		// Store the callback for later use
+		m.streamCompleteCallback = msg.onStreamComplete
+
+		// Add initialization message if this is an init command (has a prompt and callback)
+		/* TODO: remove
+		if msg.prompt != "" && msg.onStreamComplete != nil {
+			chat.ClearToolCallMessageIndex()
+			chat.AddMessage("🚀 Analyzing Project")
+		}
+		*/
+
+		// If there's a prompt, send it to the AI
+		if msg.prompt != "" {
+			ctx, cancel := context.WithCancel(context.Background())
+			m.streamingCancel = cancel
+			m.sessionActive = true
+
+			if waitCmd := m.startWaitingForResponse(); waitCmd != nil {
+				go func() {
+					m.session.AskStream(ctx, msg.prompt)
+				}()
+				return m, waitCmd
+			} else {
+				go func() {
+					m.session.AskStream(ctx, msg.prompt)
+				}()
+			}
+		}
+
+		return m, nil
 
 	case compactConversationMsg:
 		// Handle conversation compaction

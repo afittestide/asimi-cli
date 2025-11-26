@@ -1,65 +1,18 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type hostShellRunner struct{}
-
-func (hostShellRunner) Restart(ctx context.Context) error {
-	// Host shell runner doesn't maintain state, nothing to restart
-	return nil
-}
-
-func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
-	var output RunInShellOutput
-
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", params.Command)
-	} else {
-		cmd = exec.CommandContext(ctx, "bash", "-c", params.Command)
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	// Populate stdout and stderr separately
-	output.Output = stdout.String() + stderr.String()
-
-	if runErr != nil {
-		if exitErr, ok := runErr.(*exec.ExitError); ok {
-			output.ExitCode = fmt.Sprintf("%d", exitErr.ExitCode())
-		} else {
-			output.ExitCode = "-1"
-		}
-	} else {
-		if cmd.ProcessState != nil {
-			output.ExitCode = fmt.Sprintf("%d", cmd.ProcessState.ExitCode())
-		} else {
-			output.ExitCode = "0"
-		}
-	}
-
-	return output, nil
-}
-
 func TestRunInShell(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewHostShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -77,7 +30,7 @@ func TestRunInShell(t *testing.T) {
 }
 
 func TestRunInShellError(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewHostShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -107,17 +60,17 @@ func TestRunInShellFailsWhenPodmanUnavailable(t *testing.T) {
 
 // TestRunInShellLargeOutput tests that large outputs (>4096 bytes) are fully captured
 // This test demonstrates the issue with the podman runner's fixed 4096-byte buffer
-// The hostShellRunner passes this test, but podman runner would truncate output
+// The HostShellRunner passes this test, but podman runner would truncate output
 // See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellLargeOutput(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewHostShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
 
 	// Generate output larger than 4096 bytes
 	// The actual test would need to be run with podman runner to see the truncation issue
-	// With hostShellRunner this passes, but with podman runner (4096 byte buffer)
+	// With HostShellRunner this passes, but with podman runner (4096 byte buffer)
 	// large outputs would be truncated. This is the issue described in #20
 	input := `{"command": "printf 'test output'"}`
 
@@ -136,7 +89,7 @@ func TestRunInShellLargeOutput(t *testing.T) {
 // This test demonstrates the fragile exit code parsing in podman runner
 // See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellExitCodeWithMarkerInOutput(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewHostShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -285,6 +238,10 @@ func (failingPodmanRunner) Run(ctx context.Context, params RunInShellInput) (Run
 }
 
 func (failingPodmanRunner) Restart(ctx context.Context) error {
+	return nil
+}
+
+func (failingPodmanRunner) Close(ctx context.Context) error {
 	return nil
 }
 

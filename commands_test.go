@@ -156,11 +156,6 @@ func TestHandleInitCommand(t *testing.T) {
 		}
 	}()
 
-	// Create a dummy conf.toml.example
-	exampleContent := "[llm]\nprovider = \"mock\"\n"
-	err = os.WriteFile("conf.toml.example", []byte(exampleContent), 0644)
-	require.NoError(t, err)
-
 	// Setup a mock model
 	mockTUI := &TUIModel{
 		session: &Session{},
@@ -170,20 +165,22 @@ func TestHandleInitCommand(t *testing.T) {
 		cmd := handleInitCommand(mockTUI, []string{})
 		msg := cmd()
 
-		// Check that the message is an initializeProjectMsg
-		initMsg, ok := msg.(initializeProjectMsg)
-		require.True(t, ok, "Expected initializeProjectMsg")
+		// Check that the message is a startConversationMsg
+		initMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg")
 		require.NotEmpty(t, initMsg.prompt)
+		require.True(t, initMsg.clearHistory)
+		require.NotNil(t, initMsg.onStreamComplete)
 
 		// Check that .agents/asimi.toml was created
 		projectConfigPath := ".agents/asimi.toml"
 		_, err := os.Stat(projectConfigPath)
 		require.NoError(t, err, "Project config file should be created")
 
-		// Check that the content matches the example
+		// Check that the content matches the embedded default
 		content, err := os.ReadFile(projectConfigPath)
 		require.NoError(t, err)
-		require.Equal(t, exampleContent, string(content))
+		require.Equal(t, sandboxDefaultConfig, string(content))
 
 		// Clean up for the next test
 		err = os.RemoveAll(".agents")
@@ -198,10 +195,12 @@ func TestHandleInitCommand(t *testing.T) {
 		cmd := handleInitCommand(mockTUI, []string{})
 		msg := cmd()
 
-		// Check that the message is an initializeProjectMsg
-		initMsg, ok := msg.(initializeProjectMsg)
-		require.True(t, ok, "Expected initializeProjectMsg")
+		// Check that the message is a startConversationMsg
+		initMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg")
 		require.NotEmpty(t, initMsg.prompt)
+		require.True(t, initMsg.clearHistory)
+		require.NotNil(t, initMsg.onStreamComplete)
 
 		// Check that .agents/asimi.toml was created
 		projectConfigPath := ".agents/asimi.toml"
@@ -248,7 +247,7 @@ func TestHandleInitCommand(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("Force mode", func(t *testing.T) {
+	t.Run("Clear mode", func(t *testing.T) {
 		// Create all the files
 		err := os.MkdirAll(".agents/sandbox", 0755)
 		require.NoError(t, err)
@@ -265,29 +264,97 @@ func TestHandleInitCommand(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		cmd := handleInitCommand(mockTUI, []string{"force"})
+		cmd := handleInitCommand(mockTUI, []string{"clear"})
 		msg := cmd()
 
-		// Check that the message is an initializeProjectMsg
-		initMsg, ok := msg.(initializeProjectMsg)
-		require.True(t, ok, "Expected initializeProjectMsg")
-		require.Contains(t, initMsg.prompt, "Force mode enabled")
+		// Check that the message is a startConversationMsg
+		initMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg")
+		require.Contains(t, initMsg.prompt, "Clear mode enabled")
 
-		// Check that .agents/asimi.toml was overwritten
+		// Check that files were removed and then recreated (embedded ones)
+		// .agents/asimi.toml should be recreated with embedded content
 		projectConfigPath := ".agents/asimi.toml"
 		content, err := os.ReadFile(projectConfigPath)
 		require.NoError(t, err)
-		require.Equal(t, exampleContent, string(content))
+		require.Equal(t, sandboxDefaultConfig, string(content))
 
-		// Clean up for the next test
-		for _, file := range files {
-			if file == ".agents/asimi.toml" {
-				continue
-			}
-			err := os.Remove(file)
-			require.NoError(t, err)
-		}
+		// bashrc should be recreated with embedded content
+		bashrcPath := ".agents/sandbox/bashrc"
+		bashrcContent, err := os.ReadFile(bashrcPath)
+		require.NoError(t, err)
+		require.Equal(t, sandboxBashrc, string(bashrcContent))
+
+		// Other files should be removed (AGENTS.md, Justfile, Dockerfile)
+		_, err = os.Stat("AGENTS.md")
+		require.True(t, os.IsNotExist(err), "AGENTS.md should be removed in clear mode")
+
+		// Clean up
 		err = os.RemoveAll(".agents")
 		require.NoError(t, err)
+	})
+}
+
+func TestRunInitGuardrails(t *testing.T) {
+	// Setup a temporary directory for the test
+	tmpDir := t.TempDir()
+	originalWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+	defer func() {
+		err := os.Chdir(originalWd)
+		if err != nil {
+			t.Logf("Failed to change back to original directory: %v", err)
+		}
+	}()
+
+	// Setup a mock model
+	mockTUI := &TUIModel{}
+
+	t.Run("Missing files", func(t *testing.T) {
+		// Run guardrails with no files present
+		cmd := verifyInit(mockTUI, nil)
+		msg := cmd()
+
+		// When there are errors, runInitGuardrails returns a startConversationMsg to retry
+		retryMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg for retry, got type: %T", msg)
+		require.Contains(t, retryMsg.prompt, "❌ AGENTS.md was not created")
+		require.Contains(t, retryMsg.prompt, "❌ Justfile was not created")
+		require.Contains(t, retryMsg.prompt, "Issues found verifying initialization")
+		require.True(t, retryMsg.RunOnHost, "Expected RunOnHost to be true")
+	})
+
+	t.Run("Files present", func(t *testing.T) {
+		// Create the required files
+		err := os.WriteFile("AGENTS.md", []byte("# Test AGENTS.md"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile("Justfile", []byte("default:\n\techo 'hello'"), 0644)
+		require.NoError(t, err)
+
+		// Run guardrails
+		cmd := verifyInit(mockTUI, nil)
+		msg := cmd()
+
+		// When just commands fail (which they will in test), it returns startConversationMsg
+		// When all passes, it returns showContextMsg
+		switch m := msg.(type) {
+		case startConversationMsg:
+			// Just commands failed, which is expected in test environment
+			require.Contains(t, m.prompt, "✅ AGENTS.md created")
+			require.Contains(t, m.prompt, "✅ Justfile created")
+			require.True(t, m.RunOnHost, "Expected RunOnHost to be true")
+		case showContextMsg:
+			// All passed (unlikely in test environment)
+			require.Contains(t, m.content, "✅ AGENTS.md created")
+			require.Contains(t, m.content, "✅ Justfile created")
+		default:
+			t.Fatalf("Expected startConversationMsg or showContextMsg, got: %T", msg)
+		}
+
+		// Clean up
+		os.Remove("AGENTS.md")
+		os.Remove("Justfile")
 	})
 }

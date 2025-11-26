@@ -1,18 +1,24 @@
-# Sandbox container for Asimi agent shell commands
-FROM golang:1.25.3-bookworm
+# Asimi Sandbox Container
+# Debian-based container with Go runtime and development tools
 
-# Install common development tools
+FROM golang:1.25-bookworm
+
+# Install common development tools and build dependencies
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     ripgrep \
-    pkg-config \
     libgpgme-dev \
+    libdevmapper-dev \
     libbtrfs-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install just task runner
+# Install just command runner
 RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
-# Default to bash
+# Create asimi user and setup environment
+RUN useradd -m -s /bin/bash asimi
+COPY .agents/sandbox/bashrc /home/asimi/.bashrc
+USER asimi
 CMD ["/bin/bash"]
