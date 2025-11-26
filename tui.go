@@ -1687,13 +1687,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamCompleteCallback = msg.onStreamComplete
 
 		// Add initialization message if this is an init command (has a prompt and callback)
-		/* TODO: remove
-		if msg.prompt != "" && msg.onStreamComplete != nil {
-			chat.ClearToolCallMessageIndex()
-			chat.AddMessage("🚀 Analyzing Project")
-		}
-		*/
-
 		// If there's a prompt, send it to the AI
 		if msg.prompt != "" {
 			ctx, cancel := context.WithCancel(context.Background())
@@ -1709,6 +1702,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				go func() {
 					m.session.AskStream(ctx, msg.prompt)
 				}()
+			}
+		} else {
+			// If RunOnHost is true and restoration callback is set, restore runner immediately
+			if msg.RunOnHost && msg.onStreamComplete != nil {
+				msg.onStreamComplete()
 			}
 		}
 

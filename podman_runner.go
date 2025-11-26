@@ -424,7 +424,7 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 			slog.Debug("falling back to host shell")
 			return hostRun(ctx, params)
 		}
-		// TODO: return a more general general error for erros not matching:
+		// TODO: return a more general error for errors not matching:
 		// "failed to create container: no such image: localhost/asimi-shell:latest: image not known"
 		return RunInShellOutput{}, fmt.Errorf("Sandbox container image is missing. Did you run `:init` ?")
 	}

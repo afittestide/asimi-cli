@@ -37,7 +37,7 @@ clear-sandbox:
    - No need to install vim
    - No need to add a user
    - No need to set WORKDIR
-   - End with the follwing lines:
+   - End with the following lines:
 
 ```
 COPY .agents/sandbox/bashrc /root/.bashrc

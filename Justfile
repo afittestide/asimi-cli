@@ -69,7 +69,7 @@ bootstrap:
     fi
 
 # Build the sandbox container
-sandbox-build:
+build-sandbox:
     @mkdir -p infra
     @podman machine init --disk-size 30 2>/dev/null || true
     @podman machine start 2>/dev/null || true

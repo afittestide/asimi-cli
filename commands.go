@@ -491,7 +491,7 @@ func verifyInit(model *TUIModel, containerRunner shellRunner) tea.Cmd {
 				} else {
 					if program != nil {
 						program.Send(showContextMsg{content: `✅ sandbox smoke test completed
-							Please review the new files and ':new' for a fresh session`})
+Please review the new files and ':new' for a fresh session`})
 					}
 					return nil
 				}
@@ -510,9 +510,9 @@ func verifyInit(model *TUIModel, containerRunner shellRunner) tea.Cmd {
 				}
 			}
 			var message strings.Builder
-			message.WriteString(`Issues found verifying initialization.
-			Please review the failures below and provide a fix.
-			If files need to be modified, use the appropriate tools.`)
+			message.WriteString("Issues found verifying initialization.\n" +
+				"Please review the failures below and provide a fix.\n" +
+				"If files need to be modified, use the appropriate tools.\n")
 			for _, result := range results {
 				message.WriteString(result + "\n")
 			}
@@ -531,7 +531,6 @@ func verifyInit(model *TUIModel, containerRunner shellRunner) tea.Cmd {
 			return showContextMsg{content: "\n🎉 All tests passed!\nProject initialization completed successfully"}
 		}
 
-		return nil
 	}
 }
 
