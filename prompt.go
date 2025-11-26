@@ -15,6 +15,7 @@ const (
 	ViModeInsert      = "insert"
 	ViModeNormal      = "normal"
 	ViModeVisual      = "visual"
+	ViModeScroll      = "scroll"
 	ViModeCommandLine = "command"
 	ViModeLearning    = "learning"
 )
@@ -225,7 +226,7 @@ func (p *PromptComponent) EnterViCommandLineMode() {
 	p.viPendingOp = ""
 	// Use insert keymap for command-line editing
 	p.TextArea.KeyMap = p.viInsertKeyMap
-	p.TextArea.Placeholder = "Enter command..."
+	p.TextArea.Placeholder = "Enter command below..."
 	p.updateViModeStyle()
 }
 
@@ -259,6 +260,21 @@ func (p PromptComponent) IsViLearningMode() bool {
 	return p.ViCurrentMode == ViModeLearning
 }
 
+// EnterViScrollMode switches to vi scroll mode (for scrolling chat history)
+func (p *PromptComponent) EnterViScrollMode() {
+	p.ViCurrentMode = ViModeScroll
+	p.viPendingOp = ""
+	// Use normal keymap for scroll mode (no text editing)
+	p.TextArea.KeyMap = p.viNormalKeyMap
+	p.TextArea.Placeholder = "j/k to scroll | Ctrl+d/u for half-page | i/Esc to exit"
+	p.updateViModeStyle()
+}
+
+// IsViScrollMode returns true if in vi scroll mode
+func (p PromptComponent) IsViScrollMode() bool {
+	return p.ViCurrentMode == ViModeScroll
+}
+
 // ViModeStatus returns current vi mode status for display components
 func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending string) {
 	return true, p.ViCurrentMode, p.viPendingOp
@@ -266,24 +282,15 @@ func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending stri
 
 // updateViModeStyle updates the border color based on vi mode state
 // Uses globalTheme.promptOnBorder when focused on prompt (INSERT/COMMAND/LEARNING)
-// Uses globalTheme.promptOffBorder when focused away from prompt (NORMAL/VISUAL)
+// Uses globalTheme.promptOffBorder when focused away from prompt (NORMAL/VISUAL/SCROLL)
 func (p *PromptComponent) updateViModeStyle() {
 	switch p.ViCurrentMode {
-	case ViModeInsert:
-		// Insert mode: on border (focus on prompt input)
+	case ViModeInsert, ViModeNormal, ViModeLearning:
+		// Focus on prompt input - use "on" border
 		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
-	case ViModeNormal:
-		// Normal mode: off border (focus away from prompt, on content navigation)
+	default:
+		// Focus away from prompt (NORMAL/VISUAL/SCROLL/etc) - use "off" border
 		p.Style = p.Style.BorderForeground(globalTheme.PromptOffBorder)
-	case ViModeVisual:
-		// Visual mode: off border (focus away from prompt, on content selection)
-		p.Style = p.Style.BorderForeground(globalTheme.PromptOffBorder)
-	case ViModeCommandLine:
-		// Command-line mode: on border (focus on command input)
-		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
-	case ViModeLearning:
-		// Learning mode: on border (focus on learning input)
-		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
 	}
 }
 

@@ -105,7 +105,7 @@ func TestViModePlaceholderText(t *testing.T) {
 
 	// Switch to command-line mode
 	prompt.EnterViCommandLineMode()
-	assert.Equal(t, "Enter command...", prompt.TextArea.Placeholder, "Command-line mode should have command placeholder")
+	assert.Equal(t, "Enter command below...", prompt.TextArea.Placeholder, "Command-line mode should have command placeholder")
 
 	// Switch back to insert mode
 	prompt.EnterViInsertMode()

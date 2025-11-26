@@ -422,9 +422,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle escape key for vi mode transitions BEFORE other escape handling
 	// ESC in Insert mode -> Normal mode
 	if keyStr == "esc" && m.Mode == "insert" {
-		m.Mode = "normal"
-		m.status.SetMode(m.Mode)
-		m.prompt.EnterViNormalMode()
 		// Also clear completion dialog and modal if present
 		m.modal = nil
 		if m.showCompletionDialog {
@@ -436,9 +433,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// ESC in Visual mode -> Normal mode
 	if keyStr == "esc" && m.Mode == "visual" {
-		m.Mode = "normal"
-		m.status.SetMode(m.Mode)
-		m.prompt.EnterViNormalMode()
 		// Also clear completion dialog and modal if present
 		m.modal = nil
 		if m.showCompletionDialog {
@@ -450,9 +444,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// ESC in Command-line mode -> Normal mode
 	if keyStr == "esc" && m.Mode == "command" {
-		m.Mode = "normal"
-		m.status.SetMode(m.Mode)
-		m.prompt.EnterViNormalMode()
 		// Hide completion dialog
 		m.showCompletionDialog = false
 		m.completions.Hide()
@@ -461,9 +452,6 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// ESC in Learning mode -> Normal mode
 	if keyStr == "esc" && m.Mode == "learning" {
-		m.Mode = "normal"
-		m.status.SetMode(m.Mode)
-		m.prompt.EnterViNormalMode()
 		m.prompt.SetValue("")
 		// Also clear completion dialog and modal if present
 		m.modal = nil
@@ -555,13 +543,9 @@ func (m TUIModel) enterScrollMode() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	chat := m.content.Chat
-	chat.SetScrollLock(true)
 	if chat.Viewport.AtBottom() {
 		chat.ScrollHalfPageUp()
 	}
-	m.Mode = "scroll"
-	m.status.SetMode(m.Mode)
-	m.prompt.EnterViNormalMode()
 	if m.showCompletionDialog {
 		m.showCompletionDialog = false
 		m.completions.Hide()
@@ -570,27 +554,16 @@ func (m TUIModel) enterScrollMode() (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return ChangeModeMsg{NewMode: "scroll"} }
 }
 
-func (m *TUIModel) disableScrollMode() {
-	if m.Mode != "scroll" {
-		return
-	}
-	m.Mode = "insert"
-	m.status.SetMode(m.Mode)
-	m.content.Chat.SetScrollLock(false)
-}
-
 func (m TUIModel) exitScrollModeToInsert() (tea.Model, tea.Cmd) {
 	if m.Mode != "scroll" {
 		return m, nil
 	}
-	m.disableScrollMode()
-	m.prompt.EnterViInsertMode()
-	m.prompt.Focus()
 	if m.showCompletionDialog {
 		m.showCompletionDialog = false
 		m.completions.Hide()
 		m.completionMode = ""
 	}
+	m.prompt.Focus()
 	return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
 }
 
@@ -623,7 +596,8 @@ func (m TUIModel) handleScrollModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool)
 		chat.ScrollUpOneLine()
 		return m, nil, true
 	case ":":
-		m.disableScrollMode()
+		// Exit scroll mode before entering command mode
+		// The command mode will be set by handleColonKey
 		newModel, cmd := m.handleColonKey(msg)
 		return newModel, cmd, true
 	case "esc", "escape", "i":
@@ -1586,22 +1560,46 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.content.ShowResume(msg.sessions)
 
 	case ChangeModeMsg:
-		wasScroll := m.Mode == "scroll"
-		m.Mode = msg.NewMode
-		isScroll := m.Mode == "scroll"
-		if wasScroll && !isScroll {
+		// Centralized mode change handling
+		oldMode := m.Mode
+		newMode := msg.NewMode
+		
+		// Update mode
+		m.Mode = newMode
+		m.status.SetMode(newMode)
+		
+		// Handle scroll lock state changes
+		if oldMode == "scroll" && newMode != "scroll" {
 			m.content.Chat.SetScrollLock(false)
-		} else if !wasScroll && isScroll {
+		} else if oldMode != "scroll" && newMode == "scroll" {
 			m.content.Chat.SetScrollLock(true)
 		}
-		m.status.SetMode(m.Mode)
-		if m.Mode == "select" {
-			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
-			// Update prompt placeholder for select mode (#69)
+		
+		// Update prompt component based on new mode
+		switch newMode {
+		case "insert":
+			m.prompt.EnterViInsertMode()
+		case "normal":
+			m.prompt.EnterViNormalMode()
+		case "visual":
+			// Visual mode uses normal keymap but different styling
+			m.prompt.ViCurrentMode = ViModeVisual
+			m.prompt.TextArea.KeyMap = m.prompt.viNormalKeyMap
+			m.prompt.TextArea.Placeholder = "Visual selection mode"
+			// Trigger style update by calling the private method via a public interface
+			// For now, we'll just set it directly since we're in the same package
+			if globalTheme != nil {
+				m.prompt.Style = m.prompt.Style.BorderForeground(globalTheme.PromptOffBorder)
+			}
+		case "scroll":
+			m.prompt.EnterViScrollMode()
+		case "command":
+			m.prompt.EnterViCommandLineMode()
+		case "learning":
+			m.prompt.EnterViLearningMode()
+		case "select", "resume", "models", "help":
+			// These modes don't need prompt updates, just placeholder changes
 			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
-		} else if m.Mode == "insert" {
-			// Restore default placeholder when returning to insert mode
-			m.prompt.TextArea.Placeholder = PlaceholderDefault
 		}
 
 		return m, nil
