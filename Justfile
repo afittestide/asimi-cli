@@ -76,16 +76,10 @@ build-sandbox:
     podman build -t asimi-shell:latest -f .agents/sandbox/Dockerfile .
 
 # Clean up the development infrastructure
-sandbox-clear:
+clear-sandbox:
     # podman machine stop
     # podman machine rm
     podman system prune --all --volumes --force
-
-# Build the development infrastructure (alias for sandbox-build)
-infrabuild: sandbox-build
-
-# Clean up the development infrastructure (alias for sandbox-clear)
-infraclean: sandbox-clear 
 
 # Build production container
 build-container:

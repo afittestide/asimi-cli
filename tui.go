@@ -1706,7 +1706,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			// If RunOnHost is true and restoration callback is set, restore runner immediately
 			if msg.RunOnHost && msg.onStreamComplete != nil {
-				msg.onStreamComplete()
+				msg.onStreamComplete(&m)
 			}
 		}
 
