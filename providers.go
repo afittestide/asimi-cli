@@ -145,10 +145,29 @@ func ProvideRepoInfo(config *Config, logger *slog.Logger) RepoInfo {
 	return repoInfo
 }
 
-// ProvideShellRunner creates and returns a shell runner
-func ProvideShellRunner(config *Config, repoInfo RepoInfo, logger *slog.Logger) shellRunner {
-	logger.Info("initializing shell runner")
-	return newPodmanShellRunner(config.RunInShell.AllowHostFallback, config, repoInfo)
+// ShellRunnerParams holds parameters for shell runner initialization
+type ShellRunnerParams struct {
+	fx.In
+	Lifecycle fx.Lifecycle
+	Config    *Config
+	RepoInfo  RepoInfo
+	Logger    *slog.Logger
+}
+
+// ProvideShellRunner creates and returns a shell runner with proper lifecycle management
+func ProvideShellRunner(params ShellRunnerParams) shellRunner {
+	params.Logger.Info("initializing shell runner")
+	runner := newPodmanShellRunner(params.Config.RunInShell.AllowHostFallback, params.Config, params.RepoInfo)
+
+	// Register cleanup hook to close the shell runner when app stops
+	params.Lifecycle.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			params.Logger.Info("shutting down shell runner")
+			return runner.Close(ctx)
+		},
+	})
+
+	return runner
 }
 
 // ModelClientParams holds parameters for async LLM client initialization
