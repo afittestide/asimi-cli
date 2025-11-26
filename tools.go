@@ -192,7 +192,7 @@ func (t ReadFileTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = fmt.Sprintf(" %s", params.Path)
 	}
 
 	// First line: tool name and parameters
@@ -201,16 +201,16 @@ func (t ReadFileTool) Format(input, result string, err error) string {
 	// Second line: result summary
 	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine = fmt.Sprintf("%s Error: %v", shellOutputFinalPrefix, err)
 	} else {
 		lines := strings.Count(result, "\n") + 1
 		if result == "" {
 			lines = 0
 		}
-		secondLine = fmt.Sprintf("  ⎿  Read %d lines", lines)
+		secondLine = fmt.Sprintf("%s Read %d lines", shellOutputFinalPrefix, lines)
 	}
 
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 // WriteFileInput is the input for the WriteFileTool
@@ -286,7 +286,7 @@ func (t WriteFileTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = fmt.Sprintf(" %s", params.Path)
 	}
 
 	// First line: tool name and parameters
@@ -295,12 +295,12 @@ func (t WriteFileTool) Format(input, result string, err error) string {
 	// Second line: result summary
 	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine = fmt.Sprintf("%s Error: %v", shellOutputFinalPrefix, err)
 	} else {
-		secondLine = "  ⎿  File written successfully"
+		secondLine = fmt.Sprintf("%s File written successfully", shellOutputFinalPrefix)
 	}
 
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 // ListDirectoryInput is the input for the ListDirectoryTool
@@ -376,18 +376,17 @@ func (t ListDirectoryTool) Format(input, result string, err error) string {
 	firstLine := fmt.Sprintf("List Files%s", paramStr)
 
 	// Second line: result summary
-	var secondLine string
+	secondLine := shellOutputFinalPrefix
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine += fmt.Sprintf("Error: %v", err)
 	} else {
 		files := strings.Split(strings.TrimSpace(result), "\n")
 		if result == "" {
 			files = []string{}
 		}
-		secondLine = fmt.Sprintf("  ⎿  Found %d items", len(files))
+		secondLine += fmt.Sprintf("Found %d items", len(files))
 	}
-
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 // ReplaceTextInput is the input for the ReplaceTextTool
@@ -485,16 +484,16 @@ func (t ReplaceTextTool) Format(input, result string, err error) string {
 	firstLine := fmt.Sprintf("Replace Text%s", paramStr)
 
 	// Second line: result summary
-	var secondLine string
+	secondLine := shellOutputFinalPrefix
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine += fmt.Sprintf("Error: %v", err)
 	} else {
 		if strings.Contains(result, "No occurrences") {
-			secondLine = "  ⎿  No matches found"
+			secondLine += "No matches found"
 		} else if strings.Contains(result, "No changes") {
-			secondLine = "  ⎿  No changes needed"
+			secondLine += "No changes needed"
 		} else {
-			secondLine = "  ⎿  Text replaced successfully"
+			secondLine += "Text replaced successfully"
 		}
 	}
 
@@ -676,7 +675,7 @@ func (t RunInShell) ParameterSchema() map[string]any {
 			},
 			"description": map[string]any{
 				"type":        "string",
-				"description": "Short description of the command",
+				"description": "Why we run this command, will be displayed to the user",
 			},
 		},
 		"required": []string{"command"},
@@ -689,9 +688,8 @@ func (t RunInShell) Format(input, result string, err error) string {
 	var ec string
 	json.Unmarshal([]byte(input), &params)
 	line3 := ""
-
 	if err != nil {
-		line3 = fmt.Sprintf("%1s ERROR: %v\n", shellOutputFinalPrefix, err)
+		line3 = fmt.Sprintf("%sERROR: %v\n", shellOutputFinalPrefix, err)
 	} else if result != "" {
 		var output map[string]interface{}
 		err := json.Unmarshal([]byte(result), &output)
@@ -699,19 +697,19 @@ func (t RunInShell) Format(input, result string, err error) string {
 			ec = output["exitCode"].(string)
 			if ec != "0" {
 				// TODO: Format with warning color
-				line3 = fmt.Sprintf("%1s %s\n", shellOutputFinalPrefix, ec)
+				line3 = fmt.Sprintf("%s%s\n", shellOutputFinalPrefix, ec)
 			}
 		} else {
-			line3 = fmt.Sprintf("%1s ERROR: %s\n", shellOutputFinalPrefix, err)
+			line3 = fmt.Sprintf("%sERROR: %s\n", shellOutputFinalPrefix, err)
 		}
 	}
 
 	var ret strings.Builder
 	ret.WriteString(params.Description + "\n")
 	if line3 == "" {
-		ret.WriteString(fmt.Sprintf("%1s $ %s\n", shellOutputFinalPrefix, params.Command))
+		ret.WriteString(fmt.Sprintf("%s$ %s\n", shellOutputFinalPrefix, params.Command))
 	} else {
-		ret.WriteString(fmt.Sprintf("%1s $ %s\n", shellOutputMidPrefix, params.Command))
+		ret.WriteString(fmt.Sprintf("%s$ %s\n", shellOutputMidPrefix, params.Command))
 	}
 	ret.WriteString(line3)
 	return ret.String()
@@ -862,16 +860,16 @@ func (t ReadManyFilesTool) Format(input, result string, err error) string {
 	firstLine := fmt.Sprintf("Read Many Files%s", paramStr)
 
 	// Second line: result summary
-	var secondLine string
+	secondLine := shellOutputFinalPrefix
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine += fmt.Sprintf("Error: %v", err)
 	} else {
 		// Count files by counting "---\t" markers
 		fileCount := strings.Count(result, "---\t")
-		secondLine = fmt.Sprintf("  ⎿  Read %d files", fileCount)
+		secondLine += fmt.Sprintf("Read %d files", fileCount)
 	}
 
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 type Tool interface {

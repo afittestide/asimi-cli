@@ -151,6 +151,15 @@ func (c *ContentComponent) SetModelsError(err string) {
 	c.models.SetError(err)
 }
 
+// SetResumeLoading shows loading state for resume
+func (c *ContentComponent) SetResumeLoading() {
+	c.activeView = ViewResume
+	c.navMode = NavList
+	c.resume.SetLoading(true)
+	c.selectedItem = 0
+	c.scrollOffset = 0
+}
+
 // Update handles messages and navigation
 func (c *ContentComponent) Update(msg tea.Msg) (ContentComponent, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -416,16 +425,11 @@ func (c *ContentComponent) renderModelsView() string {
 
 	content := c.models.RenderList(c.selectedItem, c.scrollOffset, c.models.GetVisibleSlots())
 
-	combined := lipgloss.JoinVertical(
+	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
 		content,
 	)
-
-	// Ensure the view fills the full height
-	return lipgloss.NewStyle().
-		Height(c.height).
-		Render(combined)
 }
 
 // renderResumeView renders the session selection view
@@ -443,10 +447,9 @@ func (c *ContentComponent) renderResumeView() string {
 
 	content := c.resume.RenderList(c.selectedItem, c.scrollOffset, c.resume.GetVisibleSlots())
 
-	return lipgloss.NewStyle().
-		Render(lipgloss.JoinVertical(
-			lipgloss.Left,
-			title,
-			content,
-		))
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		content,
+	)
 }

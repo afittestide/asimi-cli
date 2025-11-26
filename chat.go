@@ -42,8 +42,8 @@ type ChatComponent struct {
 }
 
 const (
-	shellOutputFinalPrefix = " ╰  "
-	shellOutputMidPrefix   = " │  "
+	shellOutputFinalPrefix = " ╰"
+	shellOutputMidPrefix   = " │"
 	shellUserPrefix        = "You:$"
 )
 

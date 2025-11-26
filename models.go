@@ -208,24 +208,30 @@ func (m *ModelsWindow) GetSelectedModel(index int) *AnthropicModel {
 }
 
 // RenderList renders the models list with the given selection
+// Always renders exactly visibleSlots lines to maintain consistent height
 func (m *ModelsWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int) string {
-	var content strings.Builder
+	lr := lineRenderer{targetLines: visibleSlots}
 
 	if m.loading {
-		content.WriteString("Loading models...\n\n")
-		content.WriteString("⏳ Fetching available models from Anthropic API...")
-		return content.String()
+		lr.writeLine("Loading models...")
+		lr.writeLine("")
+		lr.writeLine("⏳ Fetching available models from Anthropic API...")
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	if m.errorMsg != "" {
-		content.WriteString("Error loading models:\n\n")
-		content.WriteString(m.errorMsg + "\n\n")
-		return content.String()
+		lr.writeLine("Error loading models:")
+		lr.writeLine("")
+		lr.writeLine(m.errorMsg)
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	if len(m.models) == 0 {
-		content.WriteString("No models available\n")
-		return content.String()
+		lr.writeLine("No models available")
+		lr.padToTarget()
+		return lr.String()
 	}
 
 	start := scrollOffset
@@ -260,17 +266,21 @@ func (m *ModelsWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int)
 		}
 
 		line := fmt.Sprintf("%s%s%s", prefix, displayText, suffix)
-		content.WriteString(style.Render(line) + "\n")
+		lr.content.WriteString(style.Render(line))
+		lr.content.WriteString("\n")
+		lr.linesWritten++
 	}
 
-	// Show scroll indicator if needed
+	lr.padToTarget()
+
+	// Show scroll indicator if needed (doesn't count toward line height)
 	if len(m.models) > visibleSlots {
 		scrollInfo := fmt.Sprintf("\n%d-%d of %d models", start+1, end, len(m.models))
 		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
-		content.WriteString(scrollStyle.Render(scrollInfo))
+		lr.content.WriteString(scrollStyle.Render(scrollInfo))
 	}
 
-	return content.String()
+	return lr.String()
 }
 
 // Message types for model selection
@@ -298,9 +308,21 @@ func handleModelsCommand(model *TUIModel, args []string) tea.Cmd {
 		return nil
 	}
 
-	return func() tea.Msg {
-		return showModelSelectionMsg{}
+	// Immediately show the models view with loading state
+	showModelsCmd := model.content.ShowModels([]AnthropicModel{}, model.config.LLM.Model)
+	model.content.models.SetLoading(true)
+
+	// Fetch models in the background
+	loadCmd := func() tea.Msg {
+		models, err := fetchAnthropicModels(model.config)
+		if err != nil {
+			return modelsLoadErrorMsg{error: err.Error()}
+		}
+		return modelsLoadedMsg{models: models}
 	}
+
+	// Return both commands - show view immediately, then load data
+	return tea.Batch(showModelsCmd, loadCmd)
 }
 
 // TUI command to fetch models
