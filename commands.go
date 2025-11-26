@@ -435,6 +435,13 @@ type startConversationMsg struct {
 // verifyInit runs validation checks after init completes
 // It accepts a containerRunner parameter to run tests in the container
 func verifyInit(model *TUIModel, containerRunner shellRunner) tea.Cmd {
+	return verifyInitWithRetry(model, containerRunner, 0)
+}
+
+// verifyInitWithRetry is the internal implementation with retry tracking
+func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCount int) tea.Cmd {
+	const maxRetries = 5 // Maximum number of retry attempts
+
 	return func() tea.Msg {
 		var results []string
 		var hasErrors bool
@@ -447,7 +454,11 @@ func verifyInit(model *TUIModel, containerRunner shellRunner) tea.Cmd {
 		}
 		// Send initial message
 		if program != nil {
-			program.Send(showContextMsg{content: "\n" + GuardrailPrefix + "Verifying initialization"})
+			msg := "\n" + GuardrailPrefix + "Verifying initialization"
+			if retryCount > 0 {
+				msg += fmt.Sprintf(" (attempt %d/%d)", retryCount+1, maxRetries+1)
+			}
+			program.Send(showContextMsg{content: msg})
 		}
 
 		if _, err := os.Stat("AGENTS.md"); os.IsNotExist(err) {
@@ -499,8 +510,20 @@ Please review the new files and ':new' for a fresh session`})
 		}
 
 		// Prepare the message to the model
-		slog.Debug("In verifyInit", "hasErrors", hasErrors, "messages", results)
+		slog.Debug("In verifyInit", "hasErrors", hasErrors, "messages", results, "retryCount", retryCount)
 		if hasErrors {
+			// Check if we've exceeded the maximum retry count
+			if retryCount >= maxRetries {
+				var failureMsg strings.Builder
+				failureMsg.WriteString(fmt.Sprintf("\n❌ Initialization failed after %d attempts.\n", maxRetries+1))
+				failureMsg.WriteString("The following issues could not be resolved:\n")
+				for _, result := range results {
+					failureMsg.WriteString(result + "\n")
+				}
+				failureMsg.WriteString("\nPlease review the errors and try running ':init' again, or manually fix the issues.")
+				return showContextMsg{content: failureMsg.String()}
+			}
+
 			// Stop and remove the container so the next attempt will rebuild with fixes
 			if containerRunner != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -522,9 +545,8 @@ Please review the new files and ':new' for a fresh session`})
 				prompt:       s,
 				clearHistory: false,
 				RunOnHost:    true,
-				// TODO: add a retry count so we won't be stuck in a loop
 				onStreamComplete: func(model *TUIModel) tea.Cmd {
-					return verifyInit(model, containerRunner)
+					return verifyInitWithRetry(model, containerRunner, retryCount+1)
 				},
 			}
 		} else {
