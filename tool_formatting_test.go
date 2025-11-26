@@ -19,7 +19,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"path": "test.txt"}`,
 			result:   "Hello\nWorld\nTest",
 			err:      nil,
-			expected: "- Read File(test.txt)\n  ⎿  Read 3 lines",
+			expected: "- Read File test.txt\n ╰ Read 3 lines\n",
 		},
 		{
 			name:     "read_file with offset and limit",
@@ -27,7 +27,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"path": "test.txt", "offset": 2, "limit": 2}`,
 			result:   "World\nTest",
 			err:      nil,
-			expected: "- Read File(test.txt)\n  ⎿  Read 2 lines",
+			expected: "- Read File test.txt\n ╰ Read 2 lines\n",
 		},
 		{
 			name:     "write_file success",
@@ -35,7 +35,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"path": "output.txt", "content": "test content"}`,
 			result:   "Successfully wrote to output.txt",
 			err:      nil,
-			expected: "- Write File(output.txt)\n  ⎿  File written successfully",
+			expected: "- Write File output.txt\n ╰ File written successfully\n",
 		},
 		{
 			name:     "list_files success",
@@ -43,7 +43,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"path": "."}`,
 			result:   "file1.txt\nfile2.txt\ndir1",
 			err:      nil,
-			expected: "- List Files(.)\n  ⎿  Found 3 items",
+			expected: "- List Files(.)\n ╰Found 3 items\n",
 		},
 		{
 			name:     "run_in_shell success",
@@ -51,7 +51,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"command": "echo hello", "description": "test"}`,
 			result:   `{"output":"hello\n","exitCode":"0"}`,
 			err:      nil,
-			expected: "- test\n   │   $ echo hello\n   ╰   0\n",
+			expected: "- test\n ╰$ echo hello\n",
 		},
 		{
 			name:     "run_in_shell failure",
@@ -59,7 +59,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"command": "false", "description": "test"}`,
 			result:   `{"output":"","exitCode":"1"}`,
 			err:      nil,
-			expected: "- test\n   │   $ false\n   ╰   1\n",
+			expected: "- test\n │$ false\n ╰1\n",
 		},
 		{
 			name:     "read_many_files success",
@@ -67,7 +67,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"paths": ["*.txt", "*.go"]}`,
 			result:   "---\tfile1.txt---\ncontent1\n---\tfile2.go---\ncontent2\n",
 			err:      nil,
-			expected: "- Read Many Files(2 files)\n  ⎿  Read 2 files",
+			expected: "- Read Many Files(2 files)\n ╰Read 2 files\n",
 		},
 		{
 			name:     "tool error",
@@ -75,7 +75,7 @@ func TestFormatToolCall(t *testing.T) {
 			input:    `{"path": "nonexistent.txt"}`,
 			result:   "",
 			err:      &testError{msg: "file not found"},
-			expected: "- Read File(nonexistent.txt)\n  ⎿  Error: file not found",
+			expected: "- Read File nonexistent.txt\n ╰ Error: file not found\n",
 		},
 	}
 

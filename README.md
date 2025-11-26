@@ -198,14 +198,59 @@ run_on_host = ['^gh ']
 
 ### Environment Variables
 
-- **`EDITOR`** - Preferred text editor for export commands
-- **`ASIMI_LAZYGIT_CMD`** - Custom lazygit command path
+#### General Configuration
+
+All configuration options can be set via environment variables using the `ASIMI_` prefix. The variable name should match the config path with underscores instead of dots. For example:
+- `ASIMI_LLM_PROVIDER=anthropic` sets `llm.provider`
+- `ASIMI_LLM_MODEL=claude-sonnet-4-20250514` sets `llm.model`
+- `ASIMI_UI_MARKDOWN_ENABLED=true` sets `ui.markdown_enabled`
+
+#### System Variables
+
+- **`EDITOR`** - Preferred text editor for `:export` commands (default: system default)
+- **`SHELL`** - Shell to use in container sessions (default: `/bin/bash`)
+
+#### API Keys & Authentication
+
+- **`ANTHROPIC_API_KEY`** - API key for Anthropic Claude models (alternative to OAuth)
 - **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token for Anthropic API (takes priority over keyring). Supports three formats:
   - Raw access token: `sk-ant-...`
   - JSON format: `{"access_token":"...", "refresh_token":"...", "expiry":"...", "provider":"anthropic"}`
   - Base64-encoded JSON (useful if copying from keychain)
-- **`ANTHROPIC_API_KEY`** - API key for Anthropic (alternative to OAuth)
 - **`ANTHROPIC_BASE_URL`** - Custom base URL for Anthropic API (e.g., for proxy or custom endpoint)
+- **`OPENAI_API_KEY`** - API key for OpenAI GPT models
+- **`GEMINI_API_KEY`** - API key for Google Gemini models
+
+#### OAuth Configuration (Advanced)
+
+For custom OAuth setups, you can override the default OAuth endpoints:
+
+**Google/Gemini:**
+- `GOOGLE_CLIENT_ID` - OAuth client ID
+- `GOOGLE_CLIENT_SECRET` - OAuth client secret
+- `GOOGLE_AUTH_URL` - Authorization URL (optional, default: `https://accounts.google.com/o/oauth2/v2/auth`)
+- `GOOGLE_TOKEN_URL` - Token URL (optional, default: `https://oauth2.googleapis.com/token`)
+- `GOOGLE_OAUTH_SCOPES` - Comma-separated list of scopes (optional, default: generative-language scope)
+
+**OpenAI:**
+- `OPENAI_CLIENT_ID` - OAuth client ID
+- `OPENAI_CLIENT_SECRET` - OAuth client secret
+- `OPENAI_AUTH_URL` - Authorization URL
+- `OPENAI_TOKEN_URL` - Token URL
+- `OPENAI_OAUTH_SCOPES` - Comma-separated list of scopes (optional)
+
+**Anthropic:**
+- `ANTHROPIC_CLIENT_ID` - OAuth client ID
+- `ANTHROPIC_CLIENT_SECRET` - OAuth client secret
+- `ANTHROPIC_AUTH_URL` - Authorization URL
+- `ANTHROPIC_TOKEN_URL` - Token URL
+- `ANTHROPIC_OAUTH_SCOPES` - Comma-separated list of scopes (optional)
+
+#### Development & Testing
+
+- **`ASIMI_KEYRING_SERVICE`** - Override keyring service name (default: `asimi-cli`)
+- **`ASIMI_SKIP_GIT_STATUS`** - Skip git status checks (set to any value to enable)
+- **`ASIMI_VERSION`** - Override version string for testing
 
 
 Logs are rotated and stored in `~/.local/share/asimi/`. When running with `--debug`, logs are instead written to `asimi.log` in the project root for quick inspection.

@@ -13,6 +13,7 @@ type StatusComponent struct {
 	Provider    string
 	Model       string
 	Connected   bool
+	HasError    bool // Track if there's a model error
 	Width       int
 	Style       lipgloss.Style
 	Session     *Session  // Reference to session for token/time tracking
@@ -61,6 +62,104 @@ func (s *StatusComponent) StartWaiting() {
 // StopWaiting clears the waiting indicator
 func (s *StatusComponent) StopWaiting() {
 	s.waitingForResponse = false
+}
+
+// SetError marks the status component as having an error
+func (s *StatusComponent) SetError() {
+	s.HasError = true
+}
+
+// ClearError clears the error state
+func (s *StatusComponent) ClearError() {
+	s.HasError = false
+}
+
+// getStatusIcon returns the appropriate status icon based on connection and error state
+func (s StatusComponent) getStatusIcon() string {
+	if s.HasError {
+		return "❌"
+	}
+	if s.Connected {
+		return "✅"
+	}
+	return "🔌"
+}
+
+// shortenProviderModel shortens provider and model names for display
+func shortenProviderModel(provider, model string) string {
+	// Shorten common provider names
+	switch strings.ToLower(provider) {
+	case "anthropic":
+		provider = "Claude"
+	case "openai":
+		provider = "GPT"
+	case "google", "googleai":
+		provider = "Gemini"
+	case "ollama":
+		provider = "Ollama"
+	}
+
+	// Shorten common model names
+	modelShort := model
+	lowerModel := strings.ToLower(model)
+	if strings.Contains(lowerModel, "claude") {
+		// Handle models like "Claude-Haiku-4.5", "Claude 3.5 Sonnet", etc.
+		// Extract the meaningful part after "claude"
+		parts := strings.FieldsFunc(lowerModel, func(r rune) bool {
+			return r == '-' || r == ' ' || r == '_'
+		})
+
+		// Skip "claude" prefix and build the short name
+		if len(parts) > 1 {
+			// For "claude-3-5-haiku-20240307" -> "3.5-Haiku"
+			// For "claude-haiku-4.5" -> "Haiku-4.5"
+			var shortParts []string
+			for i := 1; i < len(parts); i++ {
+				part := parts[i]
+				// Skip date suffixes like "20240307"
+				if len(part) == 8 && strings.ContainsAny(part, "0123456789") {
+					continue
+				}
+				// Skip "latest" suffix
+				if part == "latest" {
+					continue
+				}
+				shortParts = append(shortParts, part)
+			}
+
+			if len(shortParts) > 0 {
+				// Join parts and capitalize first letter of each word
+				result := strings.Join(shortParts, "-")
+				// Capitalize: "3-5-haiku" -> "3.5-Haiku"
+				result = strings.ReplaceAll(result, "-5-", ".5-")
+				// Capitalize model names
+				result = strings.ReplaceAll(result, "haiku", "Haiku")
+				result = strings.ReplaceAll(result, "sonnet", "Sonnet")
+				result = strings.ReplaceAll(result, "opus", "Opus")
+				modelShort = result
+			}
+		} else if strings.Contains(lowerModel, "instant") {
+			modelShort = "Instant"
+		}
+	} else if strings.Contains(lowerModel, "gpt") {
+		if strings.Contains(model, "4") {
+			if strings.Contains(model, "turbo") {
+				modelShort = "4T"
+			} else {
+				modelShort = "4"
+			}
+		} else if strings.Contains(model, "3.5") {
+			modelShort = "3.5"
+		}
+	} else if strings.Contains(lowerModel, "gemini") {
+		if strings.Contains(model, "pro") {
+			modelShort = "Pro"
+		} else if strings.Contains(model, "flash") {
+			modelShort = "Flash"
+		}
+	}
+
+	return fmt.Sprintf("%s-%s", provider, modelShort)
 }
 
 // SetAgent sets the current agent (legacy method for compatibility)
@@ -258,12 +357,12 @@ func (s StatusComponent) renderMiddleSection() string {
 
 // renderRightSection renders the right section with provider info
 func (s StatusComponent) renderRightSection() string {
-	icon := getProviderStatusIcon(s.Connected)
+
 	providerModel := shortenProviderModel(s.Provider, s.Model)
 
 	providerStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 
-	return fmt.Sprintf("%s %s ", providerStyle.Render(providerModel), icon)
+	return fmt.Sprintf("%s %s ", providerStyle.Render(providerModel), s.getStatusIcon())
 }
 
 // truncateString truncates a string to fit within maxWidth, adding "..." if needed

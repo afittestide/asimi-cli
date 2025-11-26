@@ -73,17 +73,6 @@ func ProvideConfig(logger *slog.Logger) (*Config, error) {
 		logger.Debug("Warning: Using defaults due to config load failure", "error", err)
 		// Continue with default config
 		config = &Config{
-			Server: ServerConfig{
-				Host: "localhost",
-				Port: 3000,
-			},
-			Database: DatabaseConfig{
-				Host:     "localhost",
-				Port:     5432,
-				User:     "asimi",
-				Password: "asimi",
-				Name:     "asimi_dev",
-			},
 			Logging: LoggingConfig{
 				Level:  "info",
 				Format: "text",
@@ -98,7 +87,7 @@ func ProvideConfig(logger *slog.Logger) (*Config, error) {
 	}
 	// Override from CLI flag
 	if cli.NoCleanup {
-		config.LLM.PodmanNoCleanup = true
+		config.RunInShell.NoCleanup = true
 	}
 	logger.Info("configuration loaded")
 	return config, nil
@@ -156,10 +145,29 @@ func ProvideRepoInfo(config *Config, logger *slog.Logger) RepoInfo {
 	return repoInfo
 }
 
-// ProvideShellRunner creates and returns a shell runner
-func ProvideShellRunner(config *Config, repoInfo RepoInfo, logger *slog.Logger) shellRunner {
-	logger.Info("initializing shell runner")
-	return newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config, repoInfo)
+// ShellRunnerParams holds parameters for shell runner initialization
+type ShellRunnerParams struct {
+	fx.In
+	Lifecycle fx.Lifecycle
+	Config    *Config
+	RepoInfo  RepoInfo
+	Logger    *slog.Logger
+}
+
+// ProvideShellRunner creates and returns a shell runner with proper lifecycle management
+func ProvideShellRunner(params ShellRunnerParams) shellRunner {
+	params.Logger.Info("initializing shell runner")
+	runner := newPodmanShellRunner(params.Config.RunInShell.AllowHostFallback, params.Config, params.RepoInfo)
+
+	// Register cleanup hook to close the shell runner when app stops
+	params.Lifecycle.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			params.Logger.Info("shutting down shell runner")
+			return runner.Close(ctx)
+		},
+	})
+
+	return runner
 }
 
 // ModelClientParams holds parameters for async LLM client initialization

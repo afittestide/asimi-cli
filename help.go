@@ -140,7 +140,7 @@ The help topic '%s' was not found.
 Type :help followed by one of these topics:
 
   :help index       - Main help index
-  :help modes       - Vi modes (INSERT, NORMAL, VISUAL)
+  :help modes       - Vi modes (INSERT, NORMAL, COMMAND)
   :help commands    - Available commands
   :help navigation  - Navigation keys
   :help editing     - Editing commands
@@ -158,24 +158,24 @@ Press 'q' or ESC to close this help window.
 
 const helpIndex = `# Asimi Help Index
 
-Welcome to Asimi - A safe, opinionated coding agent with vim-like interface.
+Welcome to Asimi - A safe, opinionated coding agent with vi-like interface.
 
 ## Getting Started
 
-Asimi uses vi-style editing by default. You start in INSERT mode where you can
-type normally. Press ESC to enter NORMAL mode for navigation and commands.
+Asimi mimics vi so if you're got any experience vi/vim/neovim you should feel at home.
+Asimi uses ':' for sending commmands and starts in INSERT mode. 
 
 ## Quick Start
 
   1. Type your question or request in INSERT mode
   2. Press Enter to send
   3. Use @ to reference files (e.g., @main.go)
-  4. Press : in NORMAL mode to enter commands
-  5. Press ? in NORMAL mode for quick help
+  4. Press : in NORMAL mode to enter COMMAND
+  4. Press ! in COMMAND mode to run a shell command in the sandbox
 
 ## Help Topics
 
-  :help modes       - Vi modes (INSERT, NORMAL, VISUAL, COMMAND-LINE)
+  :help modes       - Vi modes (INSERT, NORMAL, COMMAND-LINE)
   :help commands    - Available commands (:help, :new, :quit, etc.)
   :help navigation  - Navigation keys (h, j, k, l, w, b, etc.)
   :help editing     - Editing commands (i, a, o, d, y, p, etc.)
@@ -235,31 +235,13 @@ Navigation and command mode. Use this to move around and execute commands.
   Border: Yellow (#F4DB53)
 
   Enter NORMAL mode:
-    ESC  - From INSERT, VISUAL, or COMMAND-LINE mode
+    ESC  - From INSERT or COMMAND-LINE mode
 
   From NORMAL mode you can:
     - Navigate with h, j, k, l
     - Enter commands with :
     - Enter INSERT mode with i, a, o, etc.
-    - Enter VISUAL mode with v
     - Show quick help with ?
-
-## VISUAL Mode
-
-Select text for copying or manipulation.
-
-  Status: -- VISUAL --
-  Border: Cyan (#01FAFA)
-
-  Enter VISUAL mode:
-    v    - Character-wise visual mode
-    V    - Line-wise visual mode
-
-  In VISUAL mode:
-    h/j/k/l  - Extend selection
-    y        - Yank (copy) selection
-    d        - Delete selection
-    ESC      - Return to NORMAL mode
 
 ## COMMAND-LINE Mode
 
@@ -337,7 +319,7 @@ COMMAND-LINE mode, then type the command and press Enter.
 
 const helpNavigation = `# Navigation
 
-Navigation commands work in NORMAL and VISUAL modes.
+Navigation commands work in NORMAL mode.
 
 ## Basic Movement
 
@@ -411,8 +393,6 @@ Editing commands work in NORMAL mode.
 
 ## Copying and Pasting
 
-  y        - Yank (copy) in VISUAL mode
-  yy       - Yank current line
   p        - Paste after cursor
   P        - Paste before cursor
 
@@ -670,12 +650,47 @@ Supported providers:
 
 ## Environment Variables
 
-EDITOR                    - Text editor for :export
-ASIMI_LAZYGIT_CMD        - Custom lazygit path
-ANTHROPIC_OAUTH_TOKEN    - Anthropic OAuth token
-ANTHROPIC_API_KEY        - Anthropic API key
-ANTHROPIC_BASE_URL       - Custom Anthropic endpoint
-ASIMI_LLM_VI_MODE        - Enable/disable vi mode
+### General Configuration
+All config options can be set via ASIMI_* environment variables.
+Examples:
+  ASIMI_LLM_PROVIDER=anthropic
+  ASIMI_LLM_MODEL=claude-sonnet-4-20250514
+  ASIMI_UI_MARKDOWN_ENABLED=true
+
+### System
+  EDITOR                    - Text editor for :export
+  SHELL                     - Shell for container sessions
+
+### API Keys & Authentication
+  ANTHROPIC_API_KEY         - Anthropic API key
+  ANTHROPIC_OAUTH_TOKEN     - Anthropic OAuth token (priority over keyring)
+  ANTHROPIC_BASE_URL        - Custom Anthropic endpoint
+  OPENAI_API_KEY            - OpenAI API key
+  GEMINI_API_KEY            - Google Gemini API key
+
+### OAuth Configuration (Advanced)
+  GOOGLE_CLIENT_ID          - Google OAuth client ID
+  GOOGLE_CLIENT_SECRET      - Google OAuth client secret
+  GOOGLE_AUTH_URL           - Google OAuth authorization URL (optional)
+  GOOGLE_TOKEN_URL          - Google OAuth token URL (optional)
+  GOOGLE_OAUTH_SCOPES       - Google OAuth scopes (optional)
+  
+  OPENAI_CLIENT_ID          - OpenAI OAuth client ID
+  OPENAI_CLIENT_SECRET      - OpenAI OAuth client secret
+  OPENAI_AUTH_URL           - OpenAI OAuth authorization URL
+  OPENAI_TOKEN_URL          - OpenAI OAuth token URL
+  OPENAI_OAUTH_SCOPES       - OpenAI OAuth scopes (optional)
+  
+  ANTHROPIC_CLIENT_ID       - Anthropic OAuth client ID
+  ANTHROPIC_CLIENT_SECRET   - Anthropic OAuth client secret
+  ANTHROPIC_AUTH_URL        - Anthropic OAuth authorization URL
+  ANTHROPIC_TOKEN_URL       - Anthropic OAuth token URL
+  ANTHROPIC_OAUTH_SCOPES    - Anthropic OAuth scopes (optional)
+
+### Development
+  ASIMI_KEYRING_SERVICE     - Override keyring service name
+  ASIMI_SKIP_GIT_STATUS     - Skip git status checks
+  ASIMI_VERSION             - Override version string
 
 ## Vi Mode
 
@@ -723,11 +738,10 @@ const helpQuickRef = `# Quick Reference
 
 ## Modes
 
-  ESC      - NORMAL mode (from INSERT/VISUAL/COMMAND-LINE)
+  ESC      - NORMAL mode (from INSERT/COMMAND-LINE)
   i        - INSERT mode at cursor
   a        - INSERT mode after cursor
   o        - INSERT mode on new line below
-  v        - VISUAL mode
   :        - COMMAND-LINE mode
   #        - LEARNING mode
 
@@ -743,7 +757,7 @@ const helpQuickRef = `# Quick Reference
 
   x        - Delete character
   dw dd D  - Delete word/line/to-end
-  y p      - Yank (copy) and paste
+  p        - Paste
   u Ctrl+r - Undo/redo
 
 ## Commands (type : then command)

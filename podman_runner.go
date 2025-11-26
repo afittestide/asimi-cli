@@ -53,7 +53,7 @@ type commandOutput struct {
 func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
 	noCleanup := false
-	if config != nil && config.LLM.PodmanNoCleanup {
+	if config != nil && config.RunInShell.NoCleanup {
 		noCleanup = true
 	}
 	return &PodmanShellRunner{
@@ -126,6 +126,11 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 			r.mu.Lock()
 			r.containerStarted = true
 			r.mu.Unlock()
+
+			// Notify user that container was launched
+			if program != nil {
+				program.Send(containerLaunchMsg{message: "🐳 Container launched"})
+			}
 		}
 	} else {
 		r.mu.Unlock()
@@ -543,8 +548,11 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Close the pipes first
+	// Send exit command to bash before closing pipes
 	if r.stdinPipe != nil {
+		slog.Debug("sending exit command to bash")
+		// Ignore errors here as the pipe might already be broken
+		r.stdinPipe.Write([]byte("exit\n"))
 		slog.Debug("closing stdin pipe")
 		// TODO: try first exit the shell to solve the dangling containers bug
 		r.stdinPipe.Close()
@@ -558,19 +566,29 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 	r.stdoutPipe = nil
 
 	// Stop and optionally remove the container if we have a connection
-	if r.conn != nil {
-		slog.Debug("stopping container", "containerName", r.containerName)
-		timeout := uint(5)
+	if r.conn != nil && r.containerStarted {
+		// Use a very short timeout since we sent exit to bash
+		// If bash doesn't exit quickly, force kill the container
+		timeout := uint(1)
+		slog.Debug("stopping container", "containerName", r.containerName, "timeout", timeout)
 		if err := containers.Stop(r.conn, r.containerName, &containers.StopOptions{Timeout: &timeout}); err != nil {
-			slog.Warn("failed to stop container", "error", err)
+			slog.Debug("stop returned error (may already be stopped)", "error", err)
+			// Don't return error, continue to try removal
 		}
 
 		// Only remove the container if not in no-cleanup mode
 		if !r.noCleanup {
 			slog.Debug("removing container", "containerName", r.containerName)
 			force := true
-			if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{Force: &force}); err != nil {
-				slog.Warn("failed to remove container", "error", err)
+			volumes := true
+			if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{
+				Force:   &force,
+				Volumes: &volumes,
+			}); err != nil {
+				slog.Debug("remove returned error", "error", err)
+				// Don't return error, just log it
+			} else {
+				slog.Debug("container removed successfully", "containerName", r.containerName)
 			}
 		} else {
 			slog.Info("Container NOT removed (--no-cleanup flag set)", "containerName", r.containerName)
