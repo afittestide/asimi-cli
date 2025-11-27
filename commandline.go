@@ -25,6 +25,7 @@ type (
 	navigateCompletionMsg struct{ direction int } // -1 for up, +1 for down
 	acceptCompletionMsg   struct{}                // Tab pressed
 	navigateHistoryMsg    struct{ direction int } // For completion or history
+	yesNoResponseMsg      struct{ answer bool }   // true for yes, false for no
 )
 
 // Mode management - single unified message for all mode changes
@@ -39,6 +40,7 @@ const (
 	CommandLineIdle CommandLineMode = iota
 	CommandLineCommand
 	CommandLineToast
+	CommandLineYesNo
 )
 
 // CommandLineComponent manages the bottom command line
@@ -60,6 +62,9 @@ type CommandLineComponent struct {
 	historyCursor  int      // Current position in history
 	historySaved   bool     // Whether we've saved the current command
 	historyPending string   // The command being typed before navigating history
+
+	// Yes/No prompt support
+	yesNoQuestion string // The question being asked
 }
 
 // NewCommandLineComponent creates a new command line component
@@ -138,6 +143,30 @@ func (cl *CommandLineComponent) ExitCommandMode() tea.Cmd {
 // IsInCommandMode returns true if in command mode
 func (cl *CommandLineComponent) IsInCommandMode() bool {
 	return cl.mode == CommandLineCommand
+}
+
+// EnterYesNoMode enters yes/no prompt mode with a question
+func (cl *CommandLineComponent) EnterYesNoMode(question string) tea.Cmd {
+	cl.mode = CommandLineYesNo
+	cl.yesNoQuestion = question
+	cl.showCursor = false
+	return func() tea.Msg {
+		return ChangeModeMsg{NewMode: "yesno"}
+	}
+}
+
+// ExitYesNoMode exits yes/no mode and returns to idle
+func (cl *CommandLineComponent) ExitYesNoMode() tea.Cmd {
+	cl.mode = CommandLineIdle
+	cl.yesNoQuestion = ""
+	return func() tea.Msg {
+		return ChangeModeMsg{NewMode: "insert"}
+	}
+}
+
+// IsInYesNoMode returns true if in yes/no mode
+func (cl *CommandLineComponent) IsInYesNoMode() bool {
+	return cl.mode == CommandLineYesNo
 }
 
 // SetCommand sets the current command being entered
@@ -245,7 +274,15 @@ func (cl *CommandLineComponent) Update() {
 
 // View renders the command line
 func (cl *CommandLineComponent) View() string {
-	// Priority 1: Show command if in command mode
+	// Priority 1: Show yes/no prompt if in yes/no mode
+	if cl.mode == CommandLineYesNo {
+		promptStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11")). // Yellow for attention
+			Width(cl.width)
+		return promptStyle.Render(cl.yesNoQuestion + " (y/n)")
+	}
+
+	// Priority 2: Show command if in command mode
 	if cl.mode == CommandLineCommand {
 		// Build command text with cursor
 		cmdText := ":" + cl.command
@@ -276,7 +313,7 @@ func (cl *CommandLineComponent) View() string {
 		return cmdStyle.Render(displayText)
 	}
 
-	// Priority 2: Show toast if active
+	// Priority 3: Show toast if active
 	if len(cl.toasts) > 0 {
 		toast := cl.toasts[len(cl.toasts)-1]
 		style := cl.style
@@ -377,6 +414,27 @@ func (cl *CommandLineComponent) NavigateHistory(direction int) bool {
 
 // HandleKey handles keyboard input for the command line component
 func (cl *CommandLineComponent) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	// Handle yes/no mode
+	if cl.IsInYesNoMode() {
+		keyStr := msg.String()
+		switch keyStr {
+		case "y", "Y":
+			exitCmd := cl.ExitYesNoMode()
+			return tea.Batch(
+				exitCmd,
+				func() tea.Msg { return yesNoResponseMsg{answer: true} },
+			), true
+		case "n", "N", "esc":
+			exitCmd := cl.ExitYesNoMode()
+			return tea.Batch(
+				exitCmd,
+				func() tea.Msg { return yesNoResponseMsg{answer: false} },
+			), true
+		}
+		// Ignore other keys in yes/no mode
+		return nil, true
+	}
+
 	if !cl.IsInCommandMode() {
 		return nil, false
 	}

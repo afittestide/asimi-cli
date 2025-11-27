@@ -134,6 +134,10 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 	// Clean up the path to remove any surrounding quotes
 	params.Path = strings.Trim(params.Path, `"'`)
 
+	if err := validatePathWithinProject(params.Path); err != nil {
+		return "", err
+	}
+
 	content, err := os.ReadFile(params.Path)
 	if err != nil {
 		return "", err
@@ -333,6 +337,10 @@ func (t ListDirectoryTool) Call(ctx context.Context, input string) (string, erro
 	// If the path is empty, use the current directory
 	if params.Path == "" {
 		params.Path = "."
+	}
+
+	if err := validatePathWithinProject(params.Path); err != nil {
+		return "", err
 	}
 
 	files, err := os.ReadDir(params.Path)
@@ -797,6 +805,11 @@ func (t ReadManyFilesTool) Call(ctx context.Context, input string) (string, erro
 	}
 
 	for _, path := range uniqueMatches {
+		if err := validatePathWithinProject(path); err != nil {
+			// Skip files outside the project directory
+			continue
+		}
+
 		content, err := os.ReadFile(path)
 		if err != nil {
 			// If we can't read a file, we can skip it and continue.
