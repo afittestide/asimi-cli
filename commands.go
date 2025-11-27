@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
+	"text/template"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +28,14 @@ var sandboxBashrc string
 
 // GuardrailPrefix is the prefix for all guardrail messages
 const GuardrailPrefix = "🛠️ "
+
+// InitTemplateData holds data for the initialization prompt template
+type InitTemplateData struct {
+	ProjectName  string
+	ProjectSlug  string
+	MissingFiles []string
+	ClearMode    bool
+}
 
 // Command represents a slash command
 type Command struct {
@@ -398,11 +408,33 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			}
 		}
 
-		// Use the embedded initialization prompt
-		initPrompt := initializePrompt
+		// Get the project slug from RepoInfo
+		slug := model.session.repoInfo.Slug
 
-		if clearMode {
-			initPrompt += "\nNote: Clear mode enabled - all infrastructure files have been removed. Please regenerate them.\n"
+		// Extract just the project name from the slug (last part after /)
+		// For "owner/repo" or "host/owner/repo", we want just "repo"
+		projectName := slug
+		if idx := strings.LastIndex(slug, "/"); idx >= 0 {
+			projectName = slug[idx+1:]
+		}
+
+		// Prepare template data
+		templateData := InitTemplateData{
+			ProjectName:  projectName,
+			ProjectSlug:  slug,
+			MissingFiles: missingFiles,
+			ClearMode:    clearMode,
+		}
+
+		// Parse and execute the template
+		tmpl, err := template.New("init").Parse(initializePrompt)
+		if err != nil {
+			return showContextMsg{content: fmt.Sprintf("Error parsing initialization template: %v", err)}
+		}
+
+		var initPrompt bytes.Buffer
+		if err := tmpl.Execute(&initPrompt, templateData); err != nil {
+			return showContextMsg{content: fmt.Sprintf("Error executing initialization template: %v", err)}
 		}
 
 		// Capture the original shell runner before switching to host mode
@@ -414,7 +446,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		// Send the initialization prompt to the session with guardrails
 		// Use host shell runner for init to avoid container issues
 		return startConversationMsg{
-			prompt:       initPrompt,
+			prompt:       initPrompt.String(),
 			clearHistory: true,
 			onStreamComplete: func(model *TUIModel) tea.Cmd {
 				return verifyInit(model, originalRunner)
@@ -502,7 +534,7 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 				} else {
 					if program != nil {
 						program.Send(showContextMsg{content: `✅ sandbox smoke test completed
-Please review the new files and ':new' for a fresh session`})
+Please review your recipes using ':!just' or start fresh with ':new'`})
 					}
 					return nil
 				}

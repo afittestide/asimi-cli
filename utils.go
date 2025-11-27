@@ -24,6 +24,7 @@ type RepoInfo struct {
 	Branch       string
 	IsWorktree   bool
 	IsMain       bool
+	Slug         string // Project slug (e.g., "owner/repo")
 	status       string // Cached git status
 	LinesAdded   int    // Lines added in working directory
 	LinesDeleted int    // Lines deleted in working directory
@@ -253,12 +254,16 @@ func GetRepoInfo() RepoInfo {
 	// Detect if branch is a main branch
 	isMain := isMainBranch(branch)
 
+	// Get project slug
+	slug := projectSlug(projectRoot)
+
 	repoInfo := RepoInfo{
 		ProjectRoot:  projectRoot,
 		WorktreePath: worktreePath,
 		Branch:       branch,
 		IsWorktree:   isWorktree,
 		IsMain:       isMain,
+		Slug:         slug,
 		status:       status,
 		repo:         repo,
 	}
