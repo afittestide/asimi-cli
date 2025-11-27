@@ -2206,11 +2206,12 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 	// Create a list of helpful commands
 	commands := []string{
-		"▶ We start in INSERT mode",
-		"▶ Press `Esc` to switch models",
+		"▶ Mode base UI, starting in INSERT",
+		"▶ Press `ESC` to switch models",
+		"▶ Press `CTRL-B` for SCROLL mode",
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Type `:init` to setup the project",
-		"▶ Press `!` in COMMAND to run command in the sandbox",
+		"▶ Press `!` in COMMAND to run a command in the sandbox",
 		"▶ Type `:q` to quit",
 		"",
 		"     ⌨️  ESC:!uname -aENTER ⌨️",
