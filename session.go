@@ -407,6 +407,17 @@ func (s *Session) prepareUserMessage(prompt string) {
 	s.updateTokenCounts()
 }
 
+// isOAuthTokenExpiredError checks if an error is due to an expired OAuth token
+func isOAuthTokenExpiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	// Check for OAuth-related expiration errors
+	return (strings.Contains(errStr, "oauth") || strings.Contains(errStr, "401")) &&
+		strings.Contains(errStr, "expire")
+}
+
 func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ctx context.Context, chunk []byte) error) (*llms.ContentChoice, error) {
 	// Build call options; try with explicit tool choice first, then without, then no tools.
 	var callOptsWithChoice []llms.CallOption
@@ -442,10 +453,26 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	// Remove any unmatched tool calls from context before sending to API
 	s.sanitizeMessages()
 
-	// Attempt with explicit tool choice first.
+	// Attempt with explicit tool choice first
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {
-		return nil, err
+		// Check if this is an OAuth token expiration error
+		if isOAuthTokenExpiredError(err) {
+			slog.Info("OAuth token expired, attempting to refresh and retry", "error", err)
+			cfg := &Config{LLM: *s.config}
+			if !refreshOAuthToken(cfg) {
+				return nil, fmt.Errorf("OAuth token expired and refresh failed (original error: %v)", err)
+			}
+			// Retry the request with the new token
+			slog.Info("Retrying request with refreshed OAuth token")
+			resp, err = s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
+			if err != nil {
+				return nil, fmt.Errorf("request failed after OAuth token refresh: %w", err)
+			}
+		} else {
+			// Not an OAuth error, return as-is
+			return nil, err
+		}
 	}
 
 	if len(resp.Choices) == 0 {
