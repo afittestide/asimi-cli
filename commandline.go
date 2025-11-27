@@ -44,16 +44,13 @@ const (
 // CommandLineComponent manages the bottom command line
 // Handles both : commands and toast notifications
 type CommandLineComponent struct {
-	mode        CommandLineMode
-	toasts      []Toast
-	command     string
-	cursorPos   int // Cursor position in command string
-	width       int
-	style       lipgloss.Style
-	showCursor  bool
-	cursorBlink bool
-	lastBlink   time.Time
-	blinkRate   time.Duration
+	mode       CommandLineMode
+	toasts     []Toast
+	command    string
+	cursorPos  int // Cursor position in command string
+	width      int
+	style      lipgloss.Style
+	showCursor bool
 
 	// History support
 	history        []string // Command history
@@ -69,9 +66,6 @@ func NewCommandLineComponent() *CommandLineComponent {
 		toasts:         make([]Toast, 0),
 		cursorPos:      0,
 		showCursor:     true,
-		cursorBlink:    true,
-		blinkRate:      500 * time.Millisecond,
-		lastBlink:      time.Now(),
 		history:        make([]string, 0),
 		historyCursor:  0,
 		historySaved:   false,
@@ -117,7 +111,6 @@ func (cl *CommandLineComponent) EnterCommandMode(initialText string) tea.Cmd {
 	cl.command = initialText
 	cl.cursorPos = len(initialText)
 	cl.showCursor = true
-	cl.cursorBlink = true
 	return func() tea.Msg {
 		return ChangeModeMsg{NewMode: "command"}
 	}
@@ -223,15 +216,9 @@ func (cl *CommandLineComponent) SetWidth(width int) {
 	cl.width = width
 }
 
-// Update handles updating the command line (e.g., removing expired toasts, cursor blink)
+// Update handles updating the command line (e.g., removing expired toasts)
 func (cl *CommandLineComponent) Update() {
 	now := time.Now()
-
-	// Update cursor blink
-	if cl.mode == CommandLineCommand && now.Sub(cl.lastBlink) >= cl.blinkRate {
-		cl.cursorBlink = !cl.cursorBlink
-		cl.lastBlink = now
-	}
 
 	// Remove expired toasts
 	activeToasts := make([]Toast, 0)
@@ -253,7 +240,7 @@ func (cl *CommandLineComponent) View() string {
 		// Insert cursor at position (account for leading ":")
 		displayPos := cl.cursorPos + 1
 		var displayText string
-		if cl.showCursor && cl.cursorBlink {
+		if cl.showCursor {
 			if displayPos < len(cmdText) {
 				// Cursor in middle of text
 				before := cmdText[:displayPos]
