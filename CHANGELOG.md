@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
+- Yes/No prompt support in command line component for user confirmations
   - Accepts raw access token format
   - Accepts full JSON format with refresh token and expiry
   - Accepts base64-encoded JSON (useful when copying from macOS Keychain)
