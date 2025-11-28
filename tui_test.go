@@ -65,7 +65,7 @@ func TestTUIModelWindowSizeMsg(t *testing.T) {
 }
 
 // newTestModel creates a new TUIModel for testing purposes.
-func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
+func newTestModel(t *testing.T) *TUIModel {
 	llm := fake.NewFakeLLM([]string{})
 	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	// Disable persistent history to keep tests hermetic.
@@ -75,7 +75,7 @@ func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
 	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
-	return model, llm
+	return model
 }
 
 func TestCommandCompletionOrderDefaultsToHelp(t *testing.T) {
@@ -187,7 +187,7 @@ func TestTUIModelSubmit(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model, _ := newTestModel(t)
+			model := newTestModel(t)
 
 			model.prompt.SetValue(tc.initialEditorValue)
 
@@ -275,7 +275,7 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model, _ := newTestModel(t)
+			model := newTestModel(t)
 			if tc.setup != nil {
 				tc.setup(model)
 			}
@@ -660,7 +660,7 @@ func TestCommandLineBackspaceAtLineStartExitsCommandMode(t *testing.T) {
 
 // TestTUIModelUpdateFileCompletions tests the file completion functionality with multiple files
 func TestTUIModelUpdateFileCompletions(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Set up mock file list
 	files := []string{
@@ -708,7 +708,7 @@ func TestRenderHomeView(t *testing.T) {
 
 // TestColonCommandCompletion tests command completion with colon prefix in vi mode
 func TestColonCommandCompletion(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Test initial colon shows all commands with colon prefix
 	model.prompt.SetValue(":")
@@ -735,7 +735,7 @@ func TestColonCommandCompletion(t *testing.T) {
 
 // TestColonInNormalModeShowsCompletion tests that pressing : in normal mode shows completion dialog
 func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start in insert mode
 	require.Equal(t, "insert", model.Mode)
@@ -782,7 +782,7 @@ func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
 
 // TestHistoryNavigation_EmptyHistory tests navigation with no history
 func TestHistoryNavigation_EmptyHistory(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Press up arrow with empty history
 	handled := model.handleHistoryNavigation(-1)
@@ -795,7 +795,7 @@ func TestHistoryNavigation_EmptyHistory(t *testing.T) {
 
 // TestHistoryNavigation_SingleEntry tests navigation with one history entry
 func TestHistoryNavigation_SingleEntry(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add one history entry
 	model.sessionPromptHistory = []promptHistoryEntry{
@@ -824,7 +824,7 @@ func TestHistoryNavigation_SingleEntry(t *testing.T) {
 
 // TestHistoryNavigation_MultipleEntries tests navigation through multiple entries
 func TestHistoryNavigation_MultipleEntries(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current input")
 
 	// Add multiple history entries
@@ -883,7 +883,7 @@ func TestHistoryNavigation_MultipleEntries(t *testing.T) {
 
 // TestHistoryNavigation_DownWithoutSavedState tests down navigation without saved state
 func TestHistoryNavigation_DownWithoutSavedState(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
@@ -898,7 +898,7 @@ func TestHistoryNavigation_DownWithoutSavedState(t *testing.T) {
 
 // TestHistoryNavigation_CursorInitialization tests cursor initialization from present
 func TestHistoryNavigation_CursorInitialization(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current")
 
 	model.sessionPromptHistory = []promptHistoryEntry{
@@ -916,7 +916,7 @@ func TestHistoryNavigation_CursorInitialization(t *testing.T) {
 
 // TestWaitingIndicator_StartStop tests the waiting indicator lifecycle
 func TestWaitingIndicator_StartStop(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Initially not waiting
 	require.False(t, model.waitingForResponse)
@@ -939,7 +939,7 @@ func TestWaitingIndicator_StartStop(t *testing.T) {
 
 // TestWaitingIndicator_DoubleStart tests starting waiting when already waiting
 func TestWaitingIndicator_DoubleStart(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	cmd1 := model.startWaitingForResponse()
@@ -954,7 +954,7 @@ func TestWaitingIndicator_DoubleStart(t *testing.T) {
 
 // TestWaitingIndicator_DoubleStop tests stopping when not waiting
 func TestWaitingIndicator_DoubleStop(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Stop when not waiting (should not panic)
 	model.stopStreaming()
@@ -963,7 +963,7 @@ func TestWaitingIndicator_DoubleStop(t *testing.T) {
 
 // TestWaitingTickMsg_WhileWaiting tests waiting tick message handling
 func TestWaitingTickMsg_WhileWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	model.startWaitingForResponse()
@@ -980,7 +980,7 @@ func TestWaitingTickMsg_WhileWaiting(t *testing.T) {
 
 // TestWaitingTickMsg_NotWaiting tests waiting tick when not waiting
 func TestWaitingTickMsg_NotWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Handle tick message when not waiting
 	newModel, cmd := model.handleCustomMessages(waitingTickMsg{})
@@ -992,7 +992,7 @@ func TestWaitingTickMsg_NotWaiting(t *testing.T) {
 
 // TestHistoryRollback_OnSubmit tests that submitting a historical prompt rolls back state
 func TestHistoryRollback_OnSubmit(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	chat := model.content.Chat
 
 	// Clear the welcome message for cleaner testing
@@ -1046,7 +1046,7 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 
 // TestNewSessionCommand_ResetsHistory tests that /new command resets history
 func TestNewSessionCommand_ResetsHistory(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add some history
 	model.sessionPromptHistory = []promptHistoryEntry{
@@ -1074,7 +1074,7 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 
 // TestHistoryNavigation_WithArrowKeys tests arrow key handling
 func TestHistoryNavigation_WithArrowKeys(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add history
 	model.sessionPromptHistory = []promptHistoryEntry{
@@ -1105,7 +1105,7 @@ func TestHistoryNavigation_WithArrowKeys(t *testing.T) {
 
 // TestCancelActiveStreaming tests the streaming cancellation helper
 func TestCancelActiveStreaming(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Set up active streaming
 	model.streamingActive = true
@@ -1124,7 +1124,7 @@ func TestCancelActiveStreaming(t *testing.T) {
 
 // TestCancelActiveStreaming_NotActive tests cancellation when not streaming
 func TestCancelActiveStreaming_NotActive(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Not streaming
 	model.streamingActive = false
@@ -1139,7 +1139,7 @@ func TestCancelActiveStreaming_NotActive(t *testing.T) {
 
 // TestSaveHistoryPresentState tests saving the present state
 func TestSaveHistoryPresentState(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current prompt")
 	chat := model.content.Chat
 	chat.AddMessage("message 1")
@@ -1162,7 +1162,7 @@ func TestSaveHistoryPresentState(t *testing.T) {
 
 // TestRestoreHistoryPresent tests restoring the present state
 func TestRestoreHistoryPresent(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current")
 	model.historyPendingPrompt = "pending"
 	model.historySaved = true
@@ -1176,7 +1176,7 @@ func TestRestoreHistoryPresent(t *testing.T) {
 
 // TestApplyHistoryEntry tests applying a history entry
 func TestApplyHistoryEntry(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current")
 
 	entry := promptHistoryEntry{
@@ -1240,7 +1240,7 @@ func TestStatusComponent_WaitingIndicatorView(t *testing.T) {
 
 // TestEscapeDuringStreaming_StopsWaiting tests that ESC during streaming stops waiting
 func TestEscapeDuringStreaming_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Set up streaming
 	model.streamingActive = true
@@ -1264,7 +1264,7 @@ func TestEscapeDuringStreaming_StopsWaiting(t *testing.T) {
 
 // TestStreamChunkMsg_StopsWaiting tests that receiving a stream chunk resets the quiet time timer
 func TestStreamChunkMsg_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting and mark as streaming
 	model.startWaitingForResponse()
@@ -1290,7 +1290,7 @@ func TestStreamChunkMsg_StopsWaiting(t *testing.T) {
 
 // TestStreamCompleteMsg_StopsWaiting tests that stream completion stops waiting
 func TestStreamCompleteMsg_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	model.startWaitingForResponse()
@@ -1306,7 +1306,7 @@ func TestStreamCompleteMsg_StopsWaiting(t *testing.T) {
 
 // TestStreamErrorMsg_StopsWaiting tests that stream error stops waiting
 func TestStreamErrorMsg_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	model.startWaitingForResponse()
@@ -1323,7 +1323,7 @@ func TestStreamErrorMsg_StopsWaiting(t *testing.T) {
 
 // TestHistoryNavigation_RapidNavigation tests rapid navigation through history
 func TestHistoryNavigation_RapidNavigation(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add many history entries
 	for i := 0; i < 10; i++ {
