@@ -324,14 +324,3 @@ func handleModelsCommand(model *TUIModel, args []string) tea.Cmd {
 	// Return both commands - show view immediately, then load data
 	return tea.Batch(showModelsCmd, loadCmd)
 }
-
-// TUI command to fetch models
-func (m *TUIModel) fetchModelsCommand() tea.Cmd {
-	return func() tea.Msg {
-		models, err := fetchAnthropicModels(m.config)
-		if err != nil {
-			return modelsLoadErrorMsg{error: err.Error()}
-		}
-		return modelsLoadedMsg{models: models}
-	}
-}

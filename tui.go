@@ -49,9 +49,6 @@ type TUIModel struct {
 	streamingCancel     context.CancelFunc
 	projectInitializing bool
 
-	// Exit confirmation
-	ctrlCPressed bool // Track if CTRL-C was pressed once
-
 	// Command registry
 	commandRegistry CommandRegistry
 
@@ -507,8 +504,8 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up":
 		// Only handle history navigation if we're on the first line
 		if m.prompt.TextArea.Line() == 0 {
-			if handled, historyCmd := m.handleHistoryNavigation(-1); handled {
-				return m, historyCmd
+			if handled := m.handleHistoryNavigation(-1); handled {
+				return m, nil
 			}
 		}
 		var cmd tea.Cmd
@@ -517,8 +514,8 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		// Only handle history navigation if we're on the last line
 		if m.prompt.TextArea.Line() == m.prompt.TextArea.LineCount()-1 {
-			if handled, historyCmd := m.handleHistoryNavigation(1); handled {
-				return m, historyCmd
+			if handled := m.handleHistoryNavigation(1); handled {
+				return m, nil
 			}
 		}
 		var cmd tea.Cmd
@@ -617,8 +614,8 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		// Only handle history navigation if we're on the first line
 		if m.prompt.TextArea.Line() == 0 {
-			if handled, historyCmd := m.handleHistoryNavigation(-1); handled {
-				return m, historyCmd
+			if handled := m.handleHistoryNavigation(-1); handled {
+				return m, nil
 			}
 		}
 		// If not handled by history, pass to textarea for navigation
@@ -628,8 +625,8 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		// Only handle history navigation if we're on the last line
 		if m.prompt.TextArea.Line() == m.prompt.TextArea.LineCount()-1 {
-			if handled, historyCmd := m.handleHistoryNavigation(1); handled {
-				return m, historyCmd
+			if handled := m.handleHistoryNavigation(1); handled {
+				return m, nil
 			}
 		}
 		// If not handled by history, pass to textarea for navigation
@@ -738,16 +735,15 @@ func (m TUIModel) handleViCommandLineMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.completions.Hide()
 					m.completionMode = ""
 					return m, command
-				} else {
-					m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
-					m.prompt.SetValue("")
-					m.prompt.EnterViInsertMode()
-					// Hide completion dialog
-					m.showCompletionDialog = false
-					m.completions.Hide()
-					m.completionMode = ""
-					return m, nil
 				}
+				m.commandLine.AddToast(fmt.Sprintf("Unknown command: %s", cmdName), "error", time.Second*3)
+				m.prompt.SetValue("")
+				m.prompt.EnterViInsertMode()
+				// Hide completion dialog
+				m.showCompletionDialog = false
+				m.completions.Hide()
+				m.completionMode = ""
+				return m, nil
 			}
 		}
 		// If no command, just return to insert mode
@@ -944,9 +940,9 @@ func (m *TUIModel) restoreHistoryPresent() {
 	m.prompt.TextArea.CursorEnd()
 }
 
-func (m *TUIModel) handleHistoryNavigation(direction int) (bool, tea.Cmd) {
+func (m *TUIModel) handleHistoryNavigation(direction int) bool {
 	if len(m.sessionPromptHistory) == 0 {
-		return false, nil
+		return false
 	}
 
 	switch {
@@ -962,25 +958,25 @@ func (m *TUIModel) handleHistoryNavigation(direction int) (bool, tea.Cmd) {
 		}
 		if m.historyCursor >= 0 && m.historyCursor < len(m.sessionPromptHistory) {
 			m.applyHistoryEntry(m.sessionPromptHistory[m.historyCursor])
-			return true, nil
+			return true
 		}
 	case direction > 0:
 		// Navigate forwards in history (newer prompts)
 		if !m.historySaved {
-			return false, nil
+			return false
 		}
 		if m.historyCursor < len(m.sessionPromptHistory)-1 {
 			m.historyCursor++
 			m.applyHistoryEntry(m.sessionPromptHistory[m.historyCursor])
-			return true, nil
+			return true
 		}
 		// Reached the end of history, restore the present state
 		m.historyCursor = len(m.sessionPromptHistory)
 		m.restoreHistoryPresent()
-		return true, nil
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 // handleEnterKey handles the enter key press
@@ -1154,7 +1150,7 @@ func (m TUIModel) handleSlashKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleColonKey handles the colon key - enters command mode in command line
-func (m TUIModel) handleColonKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m TUIModel) handleColonKey(_ tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Enter command mode in the command line
 	enterCmd := m.commandLine.EnterCommandMode("")
 	m.prompt.Blur()
@@ -1371,9 +1367,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Restart the waiting indicator to track quiet time
 			m.waitingStart = time.Now()
 			if !m.waitingForResponse {
-				if waitCmd := m.startWaitingForResponse(); waitCmd != nil {
-					// The tick command will be returned at the end
-				}
+				waitCmd := m.startWaitingForResponse()
+				// Update content (which handles chat updates)
+				var contentCmd tea.Cmd
+				m.content, contentCmd = m.content.Update(msg)
+				return m, tea.Batch(waitCmd, contentCmd)
 			}
 		}
 		chat := m.content.Chat
@@ -1543,7 +1541,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.commandLine.AddToast("Failed to re-init model. Please try again", "error", 4000)
 				// Revert model change
 				m.config.LLM.Model = oldModel
-				SaveConfig(m.config) // Try to save the reverted config
+				if err := SaveConfig(m.config); err != nil { // Try to save the reverted config
+					slog.Error("Failed to save reverted config", "error", err)
+				}
 			} else {
 				modelName := msg.model.DisplayName
 				if modelName == "" {
@@ -1799,11 +1799,10 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.session.AskStream(ctx, msg.prompt)
 			}()
 			return m, waitCmd
-		} else {
-			go func() {
-				m.session.AskStream(ctx, msg.prompt)
-			}()
 		}
+		go func() {
+			m.session.AskStream(ctx, msg.prompt)
+		}()
 
 	case compactConversationMsg:
 		// Handle conversation compaction
@@ -2144,7 +2143,7 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 	bottomOffset := commandLineHeight + lipgloss.Height(promptView)
 	if m.completionMode == "file" {
 		// Command completion needs extra spacing
-		bottomOffset += 1
+		bottomOffset++
 	}
 
 	dialogHeight := lipgloss.Height(dialog)
