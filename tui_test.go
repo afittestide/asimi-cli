@@ -785,14 +785,12 @@ func TestHistoryNavigation_EmptyHistory(t *testing.T) {
 	model, _ := newTestModel(t)
 
 	// Press up arrow with empty history
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.False(t, handled, "Should not handle navigation with empty history")
-	require.Nil(t, cmd)
 
 	// Press down arrow with empty history
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.False(t, handled, "Should not handle navigation with empty history")
-	require.Nil(t, cmd)
 }
 
 // TestHistoryNavigation_SingleEntry tests navigation with one history entry
@@ -806,23 +804,20 @@ func TestHistoryNavigation_SingleEntry(t *testing.T) {
 	model.historyCursor = 1 // At present
 
 	// Navigate up (to first entry)
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 	require.Equal(t, "first prompt", model.prompt.Value())
 	require.True(t, model.historySaved, "Should save present state")
 
 	// Try to navigate up again (should stay at first entry)
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 
 	// Navigate down (back to present)
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.False(t, model.historySaved, "Should clear saved state when returning to present")
 }
@@ -841,53 +836,46 @@ func TestHistoryNavigation_MultipleEntries(t *testing.T) {
 	model.historyCursor = 3 // At present
 
 	// Navigate up once
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 2, model.historyCursor)
 	require.Equal(t, "third prompt", model.prompt.Value())
 	require.True(t, model.historySaved)
 	require.Equal(t, "current input", model.historyPendingPrompt)
 
 	// Navigate up again
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.Equal(t, "second prompt", model.prompt.Value())
 
 	// Navigate up to first
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 	require.Equal(t, "first prompt", model.prompt.Value())
 
 	// Try to navigate up past first (should stay at first)
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 	require.Equal(t, "first prompt", model.prompt.Value())
 
 	// Navigate down
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.Equal(t, "second prompt", model.prompt.Value())
 
 	// Navigate down to third
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 2, model.historyCursor)
 	require.Equal(t, "third prompt", model.prompt.Value())
 
 	// Navigate down to present
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 3, model.historyCursor)
 	require.Equal(t, "current input", model.prompt.Value())
 	require.False(t, model.historySaved)
@@ -904,9 +892,8 @@ func TestHistoryNavigation_DownWithoutSavedState(t *testing.T) {
 	model.historySaved = false
 
 	// Try to navigate down when already at present
-	handled, cmd := model.handleHistoryNavigation(1)
+	handled := model.handleHistoryNavigation(1)
 	require.False(t, handled, "Should not handle down when not in history")
-	require.Nil(t, cmd)
 }
 
 // TestHistoryNavigation_CursorInitialization tests cursor initialization from present
@@ -921,9 +908,8 @@ func TestHistoryNavigation_CursorInitialization(t *testing.T) {
 	model.historyCursor = len(model.sessionPromptHistory) // At present
 
 	// First up navigation should go to last entry
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.Equal(t, "second", model.prompt.Value())
 }

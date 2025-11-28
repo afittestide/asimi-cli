@@ -138,7 +138,7 @@ func formatMessages(b *strings.Builder, messages []llms.MessageContent, fullMode
 		switch msg.Role {
 		case llms.ChatMessageTypeHuman:
 			if includeMessageNumbers {
-				b.WriteString(fmt.Sprintf("### User (Message %d)\n\n", messageNum))
+				fmt.Fprintf(b, "### User (Message %d)\n\n", messageNum)
 			} else {
 				b.WriteString("### User\n\n")
 			}
@@ -152,7 +152,7 @@ func formatMessages(b *strings.Builder, messages []llms.MessageContent, fullMode
 
 		case llms.ChatMessageTypeAI:
 			if includeMessageNumbers {
-				b.WriteString(fmt.Sprintf("### Assistant (Message %d)\n\n", messageNum))
+				fmt.Fprintf(b, "### Assistant (Message %d)\n\n", messageNum)
 			} else {
 				b.WriteString("### Assistant\n\n")
 			}
@@ -179,7 +179,7 @@ func formatToolCallWithResult(b *strings.Builder, toolCall llms.ToolCall, toolRe
 		return
 	}
 
-	b.WriteString(fmt.Sprintf("**Tool Call:** %s\n\n", toolCall.FunctionCall.Name))
+	fmt.Fprintf(b, "**Tool Call:** %s\n\n", toolCall.FunctionCall.Name)
 	b.WriteString("**Input:**\n```json\n")
 
 	// Try to pretty-print JSON
@@ -235,7 +235,7 @@ func formatToolOutput(b *strings.Builder, toolResp llms.ToolCallResponse, fullMo
 			// Show full output if in full mode OR if output is short (≤128 chars)
 			if fullMode || totalLength <= 128 {
 				b.WriteString("\n```\n")
-				b.WriteString(fmt.Sprintf("Exit Code: %s\n", exitCode))
+				fmt.Fprintf(b, "Exit Code: %s\n", exitCode)
 
 				if stdout != "" {
 					b.WriteString("\n")
@@ -250,7 +250,7 @@ func formatToolOutput(b *strings.Builder, toolResp llms.ToolCallResponse, fullMo
 				b.WriteString("\n```")
 			} else {
 				// Conversation mode with long output: show only exit code and character count
-				b.WriteString(fmt.Sprintf(" Exit code %s, %d characters", exitCode, totalLength))
+				fmt.Fprintf(b, " Exit code %s, %d characters", exitCode, totalLength)
 			}
 		} else {
 			// Not JSON or parsing failed - show raw content
@@ -259,7 +259,7 @@ func formatToolOutput(b *strings.Builder, toolResp llms.ToolCallResponse, fullMo
 				b.WriteString(toolResp.Content)
 				b.WriteString("\n```")
 			} else {
-				b.WriteString(fmt.Sprintf(" %d characters", len(toolResp.Content)))
+				fmt.Fprintf(b, " %d characters", len(toolResp.Content))
 			}
 		}
 	} else {
@@ -269,7 +269,7 @@ func formatToolOutput(b *strings.Builder, toolResp llms.ToolCallResponse, fullMo
 			b.WriteString(toolResp.Content)
 			b.WriteString("\n```")
 		} else {
-			b.WriteString(fmt.Sprintf(" %d characters", len(toolResp.Content)))
+			fmt.Fprintf(b, " %d characters", len(toolResp.Content))
 		}
 	}
 }
@@ -285,10 +285,4 @@ func openInEditor(filepath string) *exec.Cmd {
 	// Create command
 	cmd := exec.Command(editor, filepath)
 	return cmd
-}
-
-// Deprecated: use generateFullExportContent instead
-// generateExportContent is kept for backward compatibility
-func generateExportContent(session *Session) string {
-	return generateFullExportContent(session)
 }

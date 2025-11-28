@@ -132,7 +132,10 @@ var sessSystemPromptTemplate string
 // NewSession creates a new Session instance with a system prompt and tools.
 func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify NotifyFunc) (*Session, error) {
 	now := time.Now()
-	workingDir, _ := os.Getwd()
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 
 	s := &Session{
 		ID:          generateSessionID(),
@@ -876,8 +879,7 @@ func sessBuildEnvBlock(repoInfo RepoInfo) string {
 	var env strings.Builder
 
 	env.WriteString(fmt.Sprintf("- **OS:** %s\n", sandboxOS))
-	cwd, _ := os.Getwd()
-	if cwd != "" {
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
 		env.WriteString(fmt.Sprintf("- **Working copy path** %s\n", cwd))
 	}
 
@@ -893,8 +895,8 @@ func sessBuildEnvBlock(repoInfo RepoInfo) string {
 
 	if repoInfo.IsWorktree && repoInfo.Branch != "dev" {
 		env.WriteString(
-			fmt.Sprintf(`\n\n**IMPORTANT:** Working on worktree so commits will be quashed.
-Feel free to commit whenever you can summarize the changes in a meaningful commit message.`))
+			`\n\n**IMPORTANT:** Working on worktree so commits will be quashed.
+Feel free to commit whenever you can summarize the changes in a meaningful commit message.`)
 	}
 
 	return env.String()
@@ -1179,24 +1181,6 @@ func branchSlugOrDefault(branch string) string {
 	return slug
 }
 
-const defaultProjectSlug = "project-unknown"
-
-func projectSlug(workingDir string) string {
-	if workingDir == "" {
-		cwd, err := os.Getwd()
-		if err == nil {
-			workingDir = cwd
-		}
-	}
-
-	root := findProjectRoot(workingDir)
-	if slug := remoteRepoSlug(root); slug != "" {
-		return slug
-	}
-
-	return fallbackProjectSlug(root)
-}
-
 func findProjectRoot(start string) string {
 	dir := start
 	for {
@@ -1211,20 +1195,22 @@ func findProjectRoot(start string) string {
 	}
 }
 
-func remoteRepoSlug(workingDir string) string {
-	remote, err := gitRemoteOriginURL(workingDir)
-	if err != nil || remote == "" {
-		return ""
+func sanitizeSegment(value string) string {
+	value = strings.ToLower(value)
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevHyphen = false
+			continue
+		}
+		if !prevHyphen {
+			b.WriteRune('-')
+			prevHyphen = true
+		}
 	}
-
-	owner, repo := parseGitRemote(remote)
-	owner = sanitizeSegment(owner)
-	repo = sanitizeSegment(repo)
-	if owner == "" || repo == "" {
-		return ""
-	}
-
-	return owner + "/" + repo
+	return strings.Trim(b.String(), "-")
 }
 
 func gitRemoteOriginURL(workingDir string) (string, error) {
@@ -1267,42 +1253,4 @@ func parseGitRemote(remote string) (owner, repo string) {
 	}
 
 	return owner, repo
-}
-
-func fallbackProjectSlug(workingDir string) string {
-	cleaned := filepath.Clean(workingDir)
-	if cleaned == "" || cleaned == "." {
-		cleaned = workingDir
-	}
-
-	base := strings.ToLower(filepath.Base(cleaned))
-	if base == "." || base == string(os.PathSeparator) || base == "" {
-		base = "project"
-	}
-
-	slugBase := sanitizeSegment(base)
-	if slugBase == "" {
-		slugBase = "project"
-	}
-
-	hash := sha256.Sum256([]byte(cleaned))
-	return fmt.Sprintf("%s-%s", slugBase, hex.EncodeToString(hash[:])[:6])
-}
-
-func sanitizeSegment(value string) string {
-	value = strings.ToLower(value)
-	var b strings.Builder
-	prevHyphen := false
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			prevHyphen = false
-			continue
-		}
-		if !prevHyphen {
-			b.WriteRune('-')
-			prevHyphen = true
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }
