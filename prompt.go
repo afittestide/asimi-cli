@@ -14,6 +14,8 @@ import (
 const (
 	ViModeInsert      = "insert"
 	ViModeNormal      = "normal"
+	ViModeVisual      = "visual"
+	ViModeScroll      = "scroll"
 	ViModeCommandLine = "command"
 	ViModeLearning    = "learning"
 )
@@ -106,6 +108,11 @@ func NewPromptComponent(width, height int) PromptComponent {
 		TransposeCharacterBackward: key.NewBinding(key.WithKeys("ctrl+t")),
 	}
 
+	// Ensure globalTheme is initialized (for tests)
+	if globalTheme == nil {
+		globalTheme = NewTheme()
+	}
+
 	prompt := PromptComponent{
 		TextArea:       ta,
 		Height:         height,
@@ -116,8 +123,7 @@ func NewPromptComponent(width, height int) PromptComponent {
 		viInsertKeyMap: viInsertKeyMap,
 		Style: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			//TODO: get the color from the theme
-			BorderForeground(lipgloss.Color("#F952F9")). // Terminal7 prompt border
+			BorderForeground(globalTheme.PromptOnBorder). // Use theme's on border for insert mode
 			Width(width).
 			Height(height),
 	}
@@ -220,7 +226,7 @@ func (p *PromptComponent) EnterViCommandLineMode() {
 	p.viPendingOp = ""
 	// Use insert keymap for command-line editing
 	p.TextArea.KeyMap = p.viInsertKeyMap
-	p.TextArea.Placeholder = "Enter command..."
+	p.TextArea.Placeholder = "Enter command below..."
 	p.updateViModeStyle()
 }
 
@@ -254,26 +260,37 @@ func (p PromptComponent) IsViLearningMode() bool {
 	return p.ViCurrentMode == ViModeLearning
 }
 
+// EnterViScrollMode switches to vi scroll mode (for scrolling chat history)
+func (p *PromptComponent) EnterViScrollMode() {
+	p.ViCurrentMode = ViModeScroll
+	p.viPendingOp = ""
+	// Use normal keymap for scroll mode (no text editing)
+	p.TextArea.KeyMap = p.viNormalKeyMap
+	p.TextArea.Placeholder = "j/k to scroll | Ctrl+d/u for half-page | i/Esc to exit"
+	p.updateViModeStyle()
+}
+
+// IsViScrollMode returns true if in vi scroll mode
+func (p PromptComponent) IsViScrollMode() bool {
+	return p.ViCurrentMode == ViModeScroll
+}
+
 // ViModeStatus returns current vi mode status for display components
 func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending string) {
 	return true, p.ViCurrentMode, p.viPendingOp
 }
 
 // updateViModeStyle updates the border color based on vi mode state
+// Uses globalTheme.promptOnBorder when focused on prompt (INSERT/COMMAND/LEARNING)
+// Uses globalTheme.promptOffBorder when focused away from prompt (NORMAL/VISUAL/SCROLL)
 func (p *PromptComponent) updateViModeStyle() {
 	switch p.ViCurrentMode {
-	case ViModeInsert:
-		// Insert mode: green border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#00FF00")) // Green
-	case ViModeNormal:
-		// Normal mode: yellow border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F4DB53")) // Terminal7 warning/chat border (yellow)
-	case ViModeCommandLine:
-		// Command-line mode: magenta border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
-	case ViModeLearning:
-		// Learning mode: orange border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#FFA500")) // Orange
+	case ViModeInsert, ViModeNormal, ViModeLearning:
+		// Focus on prompt input - use "on" border
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
+	default:
+		// Focus away from prompt (NORMAL/VISUAL/SCROLL/etc) - use "off" border
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOffBorder)
 	}
 }
 

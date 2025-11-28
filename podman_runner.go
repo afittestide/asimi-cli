@@ -462,6 +462,7 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	slog.Debug("command written to stdin successfully")
 
 	// Get timeout from config or use default of 10 minutes
+	// TODO: move the default to config.go
 	timeoutMinutes := 10
 	if r.config != nil && r.config.RunInShell.TimeoutMinutes > 0 {
 		timeoutMinutes = r.config.RunInShell.TimeoutMinutes

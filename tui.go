@@ -147,6 +147,9 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 		persistentCommandHistory: commandHistory,
 	}
 
+	// Set the GetStatus callback for the chat component
+	model.content.Chat.GetStatus = func() string { return model.Mode }
+
 	// Set initial status info - show disconnected state initially
 	model.status.SetProvider(config.LLM.Provider, config.LLM.Model, false)
 	model.initHistory()
@@ -406,10 +409,30 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Scroll mode activation and handling
+	if keyStr == "ctrl+b" && m.Mode != "scroll" {
+		return m.enterScrollMode()
+	}
+	if m.Mode == "scroll" {
+		if newModel, cmd, handled := m.handleScrollModeKey(msg); handled {
+			return newModel, cmd
+		}
+	}
+
 	// Handle escape key for vi mode transitions BEFORE other escape handling
 	// ESC in Insert mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViInsertMode() {
-		m.prompt.EnterViNormalMode()
+	if keyStr == "esc" && m.Mode == "insert" {
+		// Also clear completion dialog and modal if present
+		m.modal = nil
+		if m.showCompletionDialog {
+			m.showCompletionDialog = false
+			m.completions.Hide()
+			m.completionMode = ""
+		}
+		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
+	}
+	// ESC in Visual mode -> Normal mode
+	if keyStr == "esc" && m.Mode == "visual" {
 		// Also clear completion dialog and modal if present
 		m.modal = nil
 		if m.showCompletionDialog {
@@ -420,8 +443,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Command-line mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViCommandLineMode() {
-		m.prompt.EnterViNormalMode()
+	if keyStr == "esc" && m.Mode == "command" {
 		// Hide completion dialog
 		m.showCompletionDialog = false
 		m.completions.Hide()
@@ -429,8 +451,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, func() tea.Msg { return ChangeModeMsg{NewMode: "normal"} }
 	}
 	// ESC in Learning mode -> Normal mode
-	if keyStr == "esc" && m.prompt.IsViLearningMode() {
-		m.prompt.EnterViNormalMode()
+	if keyStr == "esc" && m.Mode == "learning" {
 		m.prompt.SetValue("")
 		// Also clear completion dialog and modal if present
 		m.modal = nil
@@ -457,13 +478,13 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCompletionDialog(msg)
 	}
 
-	// Handle vi mode key bindings when in normal mode
-	if m.prompt.IsViNormalMode() {
+	// Handle vi mode key bindings when in normal or visual mode
+	if m.Mode == "normal" || m.Mode == "visual" {
 		return m.handleViNormalMode(msg)
 	}
 
 	// Handle command-line mode
-	if m.prompt.IsViCommandLineMode() {
+	if m.Mode == "command" {
 		return m.handleViCommandLineMode(msg)
 	}
 
@@ -511,7 +532,83 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 }
 
-// handleViNormalMode handles key presses when in vi normal mode
+// handleToggleRawMode toggles between chat and raw session view
+func (m TUIModel) handleToggleRawMode() (tea.Model, tea.Cmd) {
+	m.rawMode = !m.rawMode
+	return m, nil
+}
+
+func (m TUIModel) enterScrollMode() (tea.Model, tea.Cmd) {
+	if m.Mode == "scroll" || m.content.GetActiveView() != ViewChat {
+		return m, nil
+	}
+	chat := m.content.Chat
+	if chat.Viewport.AtBottom() {
+		chat.ScrollHalfPageUp()
+	}
+	if m.showCompletionDialog {
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+	}
+	return m, func() tea.Msg { return ChangeModeMsg{NewMode: "scroll"} }
+}
+
+func (m TUIModel) exitScrollModeToInsert() (tea.Model, tea.Cmd) {
+	if m.Mode != "scroll" {
+		return m, nil
+	}
+	if m.showCompletionDialog {
+		m.showCompletionDialog = false
+		m.completions.Hide()
+		m.completionMode = ""
+	}
+	m.prompt.Focus()
+	return m, func() tea.Msg { return ChangeModeMsg{NewMode: "insert"} }
+}
+
+func (m TUIModel) handleScrollModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	if m.Mode != "scroll" {
+		return m, nil, false
+	}
+	chat := m.content.Chat
+
+	switch msg.String() {
+	case "ctrl+f":
+		chat.ScrollPageDown()
+		return m, nil, true
+	case "ctrl+b":
+		chat.ScrollPageUp()
+		return m, nil, true
+	case "ctrl+d":
+		chat.ScrollHalfPageDown()
+		return m, nil, true
+	case "ctrl+u":
+		chat.ScrollHalfPageUp()
+		return m, nil, true
+	case "G":
+		chat.ScrollToBottom()
+		return m, nil, true
+	case "j", "down":
+		chat.ScrollDownOneLine()
+		return m, nil, true
+	case "k", "up":
+		chat.ScrollUpOneLine()
+		return m, nil, true
+	case ":":
+		// Exit scroll mode before entering command mode
+		// The command mode will be set by handleColonKey
+		newModel, cmd := m.handleColonKey(msg)
+		return newModel, cmd, true
+	case "esc", "escape", "i":
+		newModel, cmd := m.exitScrollModeToInsert()
+		return newModel, cmd, true
+	}
+
+	return m, nil, false
+}
+
+// handleViNormalMode handles key presses when in vi normal or visual mode
 func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -539,6 +636,15 @@ func (m TUIModel) handleViNormalMode(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.prompt, cmd = m.prompt.Update(msg)
 		return m, cmd
+	case "enter":
+		// Only submit from actual normal mode to avoid interfering with visual selections
+		if m.Mode != "normal" {
+			break
+		}
+		if m.prompt.Value() == "" {
+			return m, nil
+		}
+		return m.handleEnterKey()
 	}
 
 	// Handle mode switching keys
@@ -887,7 +993,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 	}
 
 	// Handle learning mode - append to AGENTS.md
-	if m.prompt.IsViLearningMode() {
+	if m.Mode == "learning" {
 		// Remove the leading "#" and trim whitespace
 		learningNote := strings.TrimSpace(strings.TrimPrefix(content, "#"))
 		if learningNote != "" {
@@ -1032,10 +1138,14 @@ func (m TUIModel) handleSlashKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Only show command completion if we're at the beginning of the input
 	if m.prompt.Value() == "" {
 		m.prompt, _ = m.prompt.Update(msg)
-		// Show completion dialog with commands
+		// Show completion dialog with commands (add / prefix for display)
 		m.showCompletionDialog = true
 		m.completionMode = "command"
-		m.completions.SetOptions(append([]string(nil), m.commandRegistry.order...))
+		var commandsWithPrefix []string
+		for _, cmd := range m.commandRegistry.order {
+			commandsWithPrefix = append(commandsWithPrefix, "/"+cmd)
+		}
+		m.completions.SetOptions(commandsWithPrefix)
 		m.completions.Show()
 	} else {
 		m.prompt, _ = m.prompt.Update(msg)
@@ -1266,11 +1376,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if len(m.content.Chat.Messages) == 0 || !strings.HasPrefix(m.content.Chat.Messages[len(m.content.Chat.Messages)-1], "Asimi:") {
-			m.content.Chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
+		chat := m.content.Chat
+		if len(chat.Messages) == 0 || !strings.HasPrefix(chat.Messages[len(chat.Messages)-1], "Asimi:") {
+			chat.AddMessage(fmt.Sprintf("Asimi: %s", string(msg)))
 			slog.Debug("added_new_message", "total_messages", len(m.content.Chat.Messages))
 		} else {
-			m.content.Chat.AppendToLastMessage(string(msg))
+			chat.AppendToLastMessage(string(msg))
 			slog.Debug("appended_to_last_message", "total_messages", len(m.content.Chat.Messages))
 		}
 
@@ -1453,16 +1564,46 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.content.ShowResume(msg.sessions)
 
 	case ChangeModeMsg:
-		// Centralized mode management - update Mode and status
-		m.Mode = msg.NewMode
-		m.status.SetMode(m.Mode)
-		if m.Mode == "resume" || m.Mode == "models" {
-			m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
-			// Update prompt placeholder for these modes (#69)
+		// Centralized mode change handling
+		oldMode := m.Mode
+		newMode := msg.NewMode
+
+		// Update mode
+		m.Mode = newMode
+		m.status.SetMode(newMode)
+
+		// Handle scroll lock state changes
+		if oldMode == "scroll" && newMode != "scroll" {
+			m.content.Chat.SetScrollLock(false)
+		} else if oldMode != "scroll" && newMode == "scroll" {
+			m.content.Chat.SetScrollLock(true)
+		}
+
+		// Update prompt component based on new mode
+		switch newMode {
+		case "insert":
+			m.prompt.EnterViInsertMode()
+		case "normal":
+			m.prompt.EnterViNormalMode()
+		case "visual":
+			// Visual mode uses normal keymap but different styling
+			m.prompt.ViCurrentMode = ViModeVisual
+			m.prompt.TextArea.KeyMap = m.prompt.viNormalKeyMap
+			m.prompt.TextArea.Placeholder = "Visual selection mode"
+			// Trigger style update by calling the private method via a public interface
+			// For now, we'll just set it directly since we're in the same package
+			if globalTheme != nil {
+				m.prompt.Style = m.prompt.Style.BorderForeground(globalTheme.PromptOffBorder)
+			}
+		case "scroll":
+			m.prompt.EnterViScrollMode()
+		case "command":
+			m.prompt.EnterViCommandLineMode()
+		case "learning":
+			m.prompt.EnterViLearningMode()
+		case "select", "resume", "models", "help":
+			// These modes don't need prompt updates, just placeholder changes
 			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
-		} else if m.Mode == "insert" {
-			// Restore default placeholder when returning to insert mode
-			m.prompt.TextArea.Placeholder = PlaceholderDefault
 		}
 
 		return m, nil
@@ -1589,8 +1730,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.config != nil {
 				markdownEnabled = m.config.UI.MarkdownEnabled
 			}
-			chat := m.content.Chat
-			m.content.Chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
+			m.content.Chat = NewChatComponentWithStatus(m.content.Chat.Width, m.content.Chat.Height, markdownEnabled, func() string { return m.Mode })
 			for _, msgContent := range m.session.Messages {
 				// Skip system messages
 				if msgContent.Role == llms.ChatMessageTypeSystem {
@@ -1812,16 +1952,14 @@ func (m *TUIModel) updateCommandCompletions() {
 	// Get all command names and filter them
 	var filteredCommands []string
 	for _, name := range m.commandRegistry.order {
-		// name is stored with "/" prefix, so we need to check against the command part
-		cmdName := strings.TrimPrefix(name, "/")
-
+		// Commands are now stored without prefix
 		// Check if the command starts with the search query
-		if strings.HasPrefix(strings.ToLower(cmdName), searchQuery) {
+		if strings.HasPrefix(strings.ToLower(name), searchQuery) {
 			// Format the command with the appropriate prefix for display
 			if prefix == ":" {
-				filteredCommands = append(filteredCommands, ":"+cmdName)
+				filteredCommands = append(filteredCommands, ":"+name)
 			} else {
-				filteredCommands = append(filteredCommands, name)
+				filteredCommands = append(filteredCommands, "/"+name)
 			}
 		}
 	}
@@ -1837,13 +1975,11 @@ func (m *TUIModel) updateCommandLineCompletions() {
 	// Get all command names and filter them
 	var filteredCommands []string
 	for _, name := range m.commandRegistry.order {
-		// name is stored with "/" prefix, so we need to check against the command part
-		cmdName := strings.TrimPrefix(name, "/")
-
+		// Commands are now stored without prefix
 		// Check if the command starts with the search query
-		if strings.HasPrefix(strings.ToLower(cmdName), searchQuery) {
+		if strings.HasPrefix(strings.ToLower(name), searchQuery) {
 			// Format with : prefix for command line mode
-			filteredCommands = append(filteredCommands, ":"+cmdName)
+			filteredCommands = append(filteredCommands, ":"+name)
 		}
 	}
 
@@ -2070,11 +2206,12 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 	// Create a list of helpful commands
 	commands := []string{
-		"▶ We start in INSERT mode",
-		"▶ Press `Esc` to switch models",
+		"▶ Mode base UI, starting in INSERT",
+		"▶ Press `ESC` to switch models",
+		"▶ Press `CTRL-B` for SCROLL mode",
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Type `:init` to setup the project",
-		"▶ Press `!` in COMMAND to run command in the sandbox",
+		"▶ Press `!` in COMMAND to run a command in the sandbox",
 		"▶ Type `:q` to quit",
 		"",
 		"     ⌨️  ESC:!uname -aENTER ⌨️",

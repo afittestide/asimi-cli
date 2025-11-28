@@ -172,7 +172,7 @@ func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int)
 	if r.loading {
 		lr.writeLine("Loading sessions...")
 		lr.writeLine("")
-		lr.writeLine("⏳ Fetching your previous sessions...")
+		lr.writeLine("⏳ Fetching previous sessions...")
 		lr.padToTarget()
 		return lr.String()
 	}
