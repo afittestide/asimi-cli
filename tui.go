@@ -1740,6 +1740,18 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.session.updateTokenCounts()
 			}
 			m.sessionActive = true
+
+			// Reset in-session prompt history state to prevent rollback issues
+			// when the user enters a new prompt after resuming.
+			// We keep the persistent history (loaded from disk) but clear the
+			// session-specific rollback state.
+			m.sessionPromptHistory = make([]promptHistoryEntry, 0)
+			m.historyCursor = 0
+			m.historySaved = false
+			m.historyPendingPrompt = ""
+			m.historyPresentSessionSnapshot = 0
+			m.historyPresentChatSnapshot = 0
+
 			timeStr := formatRelativeTime(msg.session.LastUpdated)
 			m.commandLine.AddToast(fmt.Sprintf("Resumed session from %s", timeStr), "success", 3000)
 		}
@@ -2238,17 +2250,17 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		Align(lipgloss.Center).
 		Width(width)
 
-	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to vi  🎂")
+	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to visual mode  🎂")
 
 	// Create a list of helpful commands
 	commands := []string{
 		"▶ Mode base UI, starting in INSERT",
-		"▶ Press `ESC` to switch models",
+		"▶ Press `ESC` to switch modes",
 		"▶ Press `CTRL-B` for SCROLL mode",
+		"▶ Press `CTRL-C` to stop the model, press again to exit",
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Type `:init` to setup the project",
 		"▶ Press `!` in COMMAND to run a command in the sandbox",
-		"▶ Type `:q` to quit",
 		"",
 		"     ⌨️  ESC:!uname -aENTER ⌨️",
 	}

@@ -20,14 +20,14 @@ var initializePrompt string
 //go:embed prompts/compact.txt
 var compactPrompt string
 
-//go:embed docs/asimi.default.conf
+//go:embed dotagents/asimi.conf
 var sandboxDefaultConfig string
 
 //go:embed dotagents/sandbox/bashrc
 var sandboxBashrc string
 
 // GuardrailPrefix is the prefix for all guardrail messages
-const GuardrailPrefix = "🛠️ "
+const GuardrailPrefix = "🛠️  "
 
 // InitTemplateData holds data for the initialization prompt template
 type InitTemplateData struct {
@@ -59,7 +59,6 @@ func normalizeCommandName(name string) string {
 	}
 	// Strip both : and / prefixes to store commands without prefix
 	name = strings.TrimPrefix(name, ":")
-	name = strings.TrimPrefix(name, "/")
 	return name
 }
 
@@ -345,7 +344,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			filesToRemove := []string{
 				"AGENTS.md",
 				"Justfile",
-				".agents/asimi.toml",
+				".agents/asimi.conf",
 				".agents/sandbox/bashrc",
 				".agents/sandbox/Dockerfile",
 			}
@@ -357,9 +356,9 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			}
 		}
 
-		// Always write embedded files (asimi.toml and bashrc)
+		// Always write embedded files (asimi.conf and bashrc)
 		// These are simple files we can provide directly
-		projectConfigPath := ".agents/asimi.toml"
+		projectConfigPath := ".agents/asimi.conf"
 		if _, err := os.Stat(projectConfigPath); os.IsNotExist(err) || clearMode {
 			if err := os.WriteFile(projectConfigPath, []byte(sandboxDefaultConfig), 0o644); err != nil {
 				return showContextMsg{content: fmt.Sprintf("Error writing project config file %s: %v", projectConfigPath, err)}
@@ -383,12 +382,12 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		missingFiles := checkMissingInfraFiles()
 
 		if len(missingFiles) == 0 && !clearMode {
-			return showContextMsg{content: strings.Join([]string{"All infrastructure files already exist:",
+			return showContextMsg{content: strings.Join([]string{GuardrailPrefix + "All infrastructure files already exist:",
 				"✓ AGENTS.md",
 				"✓ Justfile",
 				"✓ .agents/sandbox/Dockerfile",
 				"✓ .agents/sandbox/bashrc",
-				"✓ .agents/asimi.toml",
+				"✓ .agents/asimi.conf",
 				"",
 				"Use `:init clear` to remove and regenerate them."}, "\n")}
 		}
@@ -408,8 +407,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		}
 
 		// Get the project slug from RepoInfo
-		repoInfo := GetRepoInfo()
-		slug := repoInfo.Slug
+		slug := GetRepoInfo().Slug
 
 		// Extract just the project name from the slug (last part after /)
 		// For "owner/repo" or "host/owner/repo", we want just "repo"
@@ -475,8 +473,19 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 	const maxRetries = 5 // Maximum number of retry attempts
 
 	return func() tea.Msg {
+		slog.Debug("verifyInitWithRetry called", "retryCount", retryCount, "containerRunner", containerRunner)
+
+		// Reload configuration on retry attempts to pick up any changes made by the LLM
+		// (e.g., modifications to .agents/asimi.conf, Dockerfile, etc.)
+		slog.Debug("Reloading configuration for retry attempt", "retryCount", retryCount)
+		err := model.config.ReloadProjectConf()
+		if err != nil {
+			slog.Warn("Failed to reload config during verifyInit retry", "error", err)
+		} else {
+			slog.Debug("Configuration reloaded successfully")
+		}
+
 		var results []string
-		var hasErrors bool
 
 		report := func(message string) {
 			results = append(results, message)
@@ -484,6 +493,7 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 				program.Send(showContextMsg{content: shellOutputMidPrefix + " " + message})
 			}
 		}
+
 		// Send initial message
 		if program != nil {
 			msg := "\n" + GuardrailPrefix + "Verifying initialization"
@@ -493,98 +503,211 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 			program.Send(showContextMsg{content: msg})
 		}
 
-		if _, err := os.Stat("AGENTS.md"); os.IsNotExist(err) {
-			report("❌ AGENTS.md was not created")
-			hasErrors = true
-		} else {
-			report("✅ AGENTS.md created")
+		slog.Debug("Starting verification checks", "retryCount", retryCount)
+
+		// Check required files exist - collect all failures before returning
+		slog.Debug("Checking required files")
+		agentsMdExists := checkFileExists("AGENTS.md", "AGENTS.md created", report)
+		justfileExists := checkFileExists("Justfile", "Justfile created", report)
+
+		if !agentsMdExists || !justfileExists {
+			slog.Debug("Required files missing, handling failure")
+			return handleVerificationFailure(model, containerRunner, retryCount, maxRetries, results)
 		}
 
-		if _, err := os.Stat("Justfile"); os.IsNotExist(err) {
-			report("❌ Justfile was not created")
-			hasErrors = true
-		} else {
-			report("✅ Justfile created")
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
+		// Run build-sandbox
+		slog.Debug("Running build-sandbox")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
-			report("running `just build-sandbox`")
-			infraResult, err := hostRun(ctx, RunInShellInput{
-				Command:     "just build-sandbox",
-				Description: "Building infrastructure files",
-			})
+		if !runBuildSandbox(ctx, report, &results) {
+			slog.Debug("build-sandbox failed, handling failure")
+			return handleVerificationFailure(model, containerRunner, retryCount, maxRetries, results)
+		}
 
-			if err != nil || infraResult.ExitCode != "0" {
-				report(fmt.Sprintf("❌ just build-sandbox failed (exit code: %s)", infraResult.ExitCode))
-				if infraResult.Output != "" {
-					results = append(results, fmt.Sprintf("   Output: %s", strings.TrimSpace(infraResult.Output)))
-				}
-				hasErrors = true
-			} else {
-				report("✅ just build-sandbox completed successfully")
-				unameResult, err := containerRunner.Run(ctx, RunInShellInput{
-					Command:     "uname",
-					Description: "Running tests in container",
-				})
-				isLinux := strings.Contains(unameResult.Output, "Linux")
+		// After build-sandbox succeeds, reinitialize the shell runner to get a fresh container
+		// This is necessary because the previous container was closed and the image was rebuilt
+		slog.Debug("Reinitializing shell runner after build-sandbox")
+		initShellRunner(model.config)
+		containerRunner = getShellRunner()
+		slog.Debug("Shell runner reinitialized", "containerRunner", containerRunner)
 
-				if err != nil || unameResult.ExitCode != "0" || !isLinux {
-					report(fmt.Sprintf("❌ Sandbox smoke test failed (exit code: %s)", unameResult.ExitCode))
-					hasErrors = true
-				} else {
-					if program != nil {
-						program.Send(showContextMsg{content: `✅ sandbox smoke test completed
+		// Run smoke test in container
+		slog.Debug("Running smoke test in container", "containerRunner", containerRunner)
+		if !runSmokeTest(ctx, containerRunner, report) {
+			slog.Debug("Smoke test failed, handling failure")
+			return handleVerificationFailure(model, containerRunner, retryCount, maxRetries, results)
+		}
+
+		// Run tests on host
+		slog.Debug("Running tests on host")
+		if !runHostTests(ctx, report, &results) {
+			slog.Debug("Host tests failed, handling failure")
+			return handleVerificationFailure(model, containerRunner, retryCount, maxRetries, results)
+		}
+
+		// Run tests in container
+		slog.Debug("Running tests in container")
+		if !runContainerTests(ctx, containerRunner, report, &results) {
+			slog.Debug("Container tests failed, handling failure")
+			return handleVerificationFailure(model, containerRunner, retryCount, maxRetries, results)
+		}
+
+		// All tests passed
+		slog.Debug("All verification tests passed!")
+		if program != nil {
+			program.Send(showContextMsg{content: `✅ All verification tests passed!
 Please review your recipes using ':!just' or start fresh with ':new'`})
-					}
-					return nil
-				}
-			}
 		}
+		return nil
+	}
+}
 
-		// Prepare the message to the model
-		slog.Debug("In verifyInit", "hasErrors", hasErrors, "messages", results, "retryCount", retryCount)
-		if hasErrors {
-			// Check if we've exceeded the maximum retry count
-			if retryCount >= maxRetries {
-				var failureMsg strings.Builder
-				failureMsg.WriteString(fmt.Sprintf("\n❌ Initialization failed after %d attempts.\n", maxRetries+1))
-				failureMsg.WriteString("The following issues could not be resolved:\n")
-				for _, result := range results {
-					failureMsg.WriteString(result + "\n")
-				}
-				failureMsg.WriteString("\nPlease review the errors and try running ':init' again, or manually fix the issues.")
-				return showContextMsg{content: failureMsg.String()}
-			}
+// checkFileExists checks if a file exists and reports the result
+func checkFileExists(filename, successMsg string, report func(string)) bool {
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		report(fmt.Sprintf("❌ %s was not created", filename))
+		return false
+	}
+	report("✅ " + successMsg)
+	return true
+}
 
-			// Stop and remove the container so the next attempt will rebuild with fixes
-			if containerRunner != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-				if err := containerRunner.Close(ctx); err != nil {
-					slog.Warn("Failed to close container during verifyInit", "error", err)
-				}
-			}
-			var message strings.Builder
-			message.WriteString("Issues found verifying initialization.\n" +
-				"Please review the failures below and provide a fix.\n" +
-				"If files need to be modified, use the appropriate tools.\n")
-			for _, result := range results {
-				message.WriteString(result + "\n")
-			}
-			s := message.String()
-			// Return a startConversationMsg to send this message to the LLM session
-			return startConversationMsg{
-				prompt:       s,
-				clearHistory: false,
-				RunOnHost:    true,
-				onStreamComplete: func(model *TUIModel) tea.Cmd {
-					return verifyInitWithRetry(model, containerRunner, retryCount+1)
-				},
-			}
+// runBuildSandbox runs the build-sandbox command on the host
+func runBuildSandbox(ctx context.Context, report func(string), results *[]string) bool {
+	report("Running `just build-sandbox`")
+	result, err := hostRun(ctx, RunInShellInput{
+		Command:     "just build-sandbox",
+		Description: "Building infrastructure files",
+	})
+
+	if err != nil || result.ExitCode != "0" {
+		report(fmt.Sprintf("❌ just build-sandbox failed (exit code: %s)", result.ExitCode))
+		if result.Output != "" {
+			*results = append(*results, fmt.Sprintf("   Output: %s", strings.TrimSpace(result.Output)))
+		}
+		return false
+	}
+
+	report("✅ just build-sandbox completed successfully")
+	return true
+}
+
+// runSmokeTest runs a basic smoke test in the container
+func runSmokeTest(ctx context.Context, containerRunner shellRunner, report func(string)) bool {
+	slog.Debug("runSmokeTest called", "containerRunner", containerRunner)
+	if containerRunner == nil {
+		slog.Error("containerRunner is nil in runSmokeTest")
+		report("❌ Container runner is not available")
+		return false
+	}
+
+	slog.Debug("Calling containerRunner.Run for smoke test")
+	result, err := containerRunner.Run(ctx, RunInShellInput{
+		Command:     "uname",
+		Description: "Running smoke test in container",
+	})
+
+	slog.Debug("Smoke test result", "output", result.Output, "exitCode", result.ExitCode, "error", err)
+	isLinux := strings.Contains(result.Output, "Linux")
+	if err != nil || result.ExitCode != "0" || !isLinux {
+		report(fmt.Sprintf("❌ Sandbox smoke test failed (exit code: %s)", result.ExitCode))
+		return false
+	}
+
+	report("✅ Sandbox smoke test passed")
+	return true
+}
+
+// runHostTests runs the test suite on the host
+func runHostTests(ctx context.Context, report func(string), results *[]string) bool {
+	report("Running `just test` on host")
+	result, err := hostRun(ctx, RunInShellInput{
+		Command:     "just test",
+		Description: "Running tests on host",
+	})
+
+	if err != nil || result.ExitCode != "0" {
+		report(fmt.Sprintf("❌ just test on host failed (exit code: %s)", result.ExitCode))
+		if result.Output != "" {
+			*results = append(*results, fmt.Sprintf("   Output: %s", strings.TrimSpace(result.Output)))
+		}
+		return false
+	}
+
+	report("✅ just test on host passed")
+	return true
+}
+
+// runContainerTests runs the test suite in the container
+func runContainerTests(ctx context.Context, containerRunner shellRunner, report func(string), results *[]string) bool {
+	report("Running `just test` in container")
+	result, err := containerRunner.Run(ctx, RunInShellInput{
+		Command:     "just test",
+		Description: "Running tests in container",
+	})
+
+	if err != nil || result.ExitCode != "0" {
+		report(fmt.Sprintf("❌ just test in container failed (exit code: %s)", result.ExitCode))
+		if result.Output != "" {
+			*results = append(*results, fmt.Sprintf("   Output: %s", strings.TrimSpace(result.Output)))
+		}
+		return false
+	}
+
+	report("✅ just test in container passed")
+	return true
+}
+
+// handleVerificationFailure handles the case when verification fails
+func handleVerificationFailure(model *TUIModel, containerRunner shellRunner, retryCount, maxRetries int, results []string) tea.Msg {
+	slog.Debug("In verifyInit - handleVerificationFailure", "hasErrors", true, "messages", results, "retryCount", retryCount)
+
+	// Check if we've exceeded the maximum retry count
+	if retryCount >= maxRetries {
+		slog.Debug("Max retries exceeded, giving up", "retryCount", retryCount, "maxRetries", maxRetries)
+		var failureMsg strings.Builder
+		failureMsg.WriteString(fmt.Sprintf("\n❌ Initialization failed after %d attempts.\n", maxRetries+1))
+		failureMsg.WriteString("The following issues could not be resolved:\n")
+		for _, result := range results {
+			failureMsg.WriteString(result + "\n")
+		}
+		failureMsg.WriteString("\nPlease review the errors and try running ':init' again, or manually fix the issues.")
+		return showContextMsg{content: failureMsg.String()}
+	}
+
+	// Stop and remove the container so the next attempt will rebuild with fixes
+	slog.Debug("Attempting to close container before retry", "containerRunner", containerRunner, "retryCount", retryCount)
+	if containerRunner != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		slog.Debug("Calling containerRunner.Close()")
+		if err := containerRunner.Close(ctx); err != nil {
+			slog.Warn("Failed to close container during verifyInit", "error", err)
 		} else {
-			return showContextMsg{content: "\n🎉 All tests passed!\nProject initialization completed successfully"}
+			slog.Debug("Container closed successfully")
 		}
+	} else {
+		slog.Debug("containerRunner is nil, skipping close")
+	}
 
+	// Build message for LLM to fix the issues
+	var message strings.Builder
+	message.WriteString("Issues found verifying initialization.\n" +
+		"Please review the failures below and provide a fix.\n" +
+		"If files need to be modified, use the appropriate tools.\n")
+	for _, result := range results {
+		message.WriteString(result + "\n")
+	}
+
+	// Return a startConversationMsg to send this message to the LLM session
+	return startConversationMsg{
+		prompt:       message.String(),
+		clearHistory: false,
+		RunOnHost:    true,
+		onStreamComplete: func(model *TUIModel) tea.Cmd {
+			return verifyInitWithRetry(model, containerRunner, retryCount+1)
+		},
 	}
 }
 
@@ -595,7 +718,7 @@ func checkMissingInfraFiles() []string {
 	for _, file := range []string{
 		"AGENTS.md",
 		"Justfile",
-		".agents/asimi.toml",
+		".agents/asimi.conf",
 		".agents/sandbox/Dockerfile",
 		".agents/sandbox/bashrc",
 	} {

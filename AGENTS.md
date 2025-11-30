@@ -1,57 +1,42 @@
-# Asimi CLI - Agent Guide
+# AGENTS.md
 
-**Language**: Go 1.25.3 | **Build**: `just build` | **Test**: `just test` | **Lint**: `just lint`
+## Language
+Go 1.25+
 
-## Essential Commands
-
+## Build Commands
 ```bash
-just run              # Run with debug logging
+just install          # Install dependencies
 just build            # Build binary
-just test             # Run all tests
-just test-coverage    # Tests with coverage report
-just lint             # Run golangci-lint
-just fmt              # Format code
-just bootstrap        # Install dev tools (golangci-lint, podman)
-just sandbox-build    # Build agent sandbox container
-just measure          # Measure run_in_shell performance
+just run              # Run with debug logging
+just bootstrap        # Install dev tools (golangci-lint, goimports)
 ```
 
-## Code Conventions
+## Test Commands
+```bash
+just test             # Run all tests
+just test-coverage    # Run tests with coverage
+go test -v -run TestName ./...  # Run single test
+```
 
-**Write idiomatic Go** - Simple, flat, direct.
+## Lint/Format
+```bash
+just lint             # Run golangci-lint
+just fmt              # Format with go fmt + goimports
+```
 
-- **Naming**: Short, meaningful names (Go style)
-- **Structure**: Flat - avoid new directories/files
-- **Comments**: Only for non-trivial logic (why, not what)
-- **No abstractions**: Avoid unnecessary wrappers
-- **No build tags**: Keep builds simple
+## Code Style
+- **Imports**: stdlib first, then external, then local (goimports handles this)
+- **Formatting**: `go fmt` standard
+- **Types**: Use strong typing, avoid `interface{}` unless necessary
+- **Naming**: camelCase for private, PascalCase for exported, short meaningful names
+- **Errors**: Return errors, don't panic; wrap with context using `fmt.Errorf("context: %w", err)`
+- **Structure**: Flat layout, avoid creating new directories/files unless essential
 
-## Key Libraries
+## Conventions
+- Use `slog` for logging (not fmt.Println)
+- Never shell out to git/podman - use Go libraries
+- All project files under `.agents/` directory
+- Present progressive tense in commits: "adding feature" not "added feature"
 
-- `slog` - Logging (use `--debug` flag)
-- `bubbletea` - Terminal UI framework
-- `koanf` - Configuration management
-- `kong` - CLI argument parsing
-- `langchaingo` - LLM communications
-- `go-git` - Git operations (NEVER shell out to git)
-- `podman` - Container management in `podman_runner.go` (NEVER shell out)
-
-## Testing
-
-- Run: `go test ./...` or `just test`
-- Coverage: `just test-coverage` (generates `coverage.html`)
-- Search: `rg <pattern>` (ripgrep installed)
-
-## Commit Style
-
-- Use **present progressive**: "adding feature" not "added feature"
-- Follow **SemVer** for releases
-- Update **CHANGELOG.md** with: Fixed, Changed, Added
-- **DON'T MERGE** - ask user for approval
-
-## Project Files
-
-- Logs: `./asimi.log` (with `--debug`)
-- Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`
-- Storage: SQLite schema at `storage/schema.go`
-- Docs: Check `docs/` when starting, update when finished
+## Container
+Configure sandbox image in `.agents/asimi.conf` under `[run_in_shell]` section.

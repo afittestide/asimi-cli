@@ -54,7 +54,7 @@ func projectSlug(projectRoot string) string {
 		return ""
 	}
 
-	return owner + "/" + repo
+	return owner + "-" + repo
 }
 
 // GetStatus returns a short git status string (e.g., "[!+]")

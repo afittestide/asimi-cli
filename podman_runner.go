@@ -53,11 +53,19 @@ type commandOutput struct {
 func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
 	noCleanup := false
-	if config != nil && config.RunInShell.NoCleanup {
-		noCleanup = true
+	imageName := "localhost/asimi-shell:latest" // default for backward compatibility
+
+	if config != nil {
+		if config.RunInShell.NoCleanup {
+			noCleanup = true
+		}
+		if config.RunInShell.ImageName != "" {
+			imageName = config.RunInShell.ImageName
+		}
 	}
-	return &PodmanShellRunner{
-		imageName:     "localhost/asimi-shell:latest",
+
+	ret := &PodmanShellRunner{
+		imageName:     imageName,
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
 		noCleanup:     noCleanup,
@@ -68,6 +76,8 @@ func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo)
 		outputs:       make(map[int]*commandOutput),
 		nextCommandID: 1,
 	}
+	slog.Debug("New podman shell runner", "object", ret)
+	return ret
 }
 
 // initialize sets up everything needed to run commands: connection, container, and bash session
@@ -596,6 +606,10 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 			slog.Info("To manually remove the container later, run:", "command", fmt.Sprintf("podman rm -f %s", r.containerName))
 		}
 	}
+
+	// Reset containerStarted so the runner can be reused after Close()
+	// This allows the container to be recreated on the next Run() call
+	r.containerStarted = false
 
 	slog.Debug("podman shell runner closed successfully")
 	return nil

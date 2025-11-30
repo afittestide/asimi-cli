@@ -128,8 +128,6 @@ func TestNormalizeCommandName(t *testing.T) {
 	}{
 		{input: ":help", expected: "help"},
 		{input: ":quit", expected: "quit"},
-		{input: "/help", expected: "help"},
-		{input: "/quit", expected: "quit"},
 		{input: "", expected: ""},
 		{input: ":new", expected: "new"},
 		{input: "help", expected: "help"},
@@ -174,8 +172,8 @@ func TestHandleInitCommand(t *testing.T) {
 		require.True(t, initMsg.clearHistory)
 		require.NotNil(t, initMsg.onStreamComplete)
 
-		// Check that .agents/asimi.toml was created
-		projectConfigPath := ".agents/asimi.toml"
+		// Check that .agents/asimi.conf was created
+		projectConfigPath := ".agents/asimi.conf"
 		_, err := os.Stat(projectConfigPath)
 		require.NoError(t, err, "Project config file should be created")
 
@@ -204,8 +202,8 @@ func TestHandleInitCommand(t *testing.T) {
 		require.True(t, initMsg.clearHistory)
 		require.NotNil(t, initMsg.onStreamComplete)
 
-		// Check that .agents/asimi.toml was created
-		projectConfigPath := ".agents/asimi.toml"
+		// Check that .agents/asimi.conf was created
+		projectConfigPath := ".agents/asimi.conf"
 		_, err = os.Stat(projectConfigPath)
 		require.NoError(t, err, "Project config file should be created")
 
@@ -223,7 +221,7 @@ func TestHandleInitCommand(t *testing.T) {
 		files := []string{
 			"AGENTS.md",
 			"Justfile",
-			".agents/asimi.toml",
+			".agents/asimi.conf",
 			".agents/sandbox/Dockerfile",
 			".agents/sandbox/bashrc",
 		}
@@ -256,7 +254,7 @@ func TestHandleInitCommand(t *testing.T) {
 		files := []string{
 			"AGENTS.md",
 			"Justfile",
-			".agents/asimi.toml",
+			".agents/asimi.conf",
 			".agents/sandbox/Dockerfile",
 			".agents/sandbox/bashrc",
 		}
@@ -275,8 +273,8 @@ func TestHandleInitCommand(t *testing.T) {
 		require.Contains(t, initMsg.prompt, "Clear mode enabled")
 
 		// Check that files were removed and then recreated (embedded ones)
-		// .agents/asimi.toml should be recreated with embedded content
-		projectConfigPath := ".agents/asimi.toml"
+		// .agents/asimi.conf should be recreated with embedded content
+		projectConfigPath := ".agents/asimi.conf"
 		content, err := os.ReadFile(projectConfigPath)
 		require.NoError(t, err)
 		require.Equal(t, sandboxDefaultConfig, string(content))

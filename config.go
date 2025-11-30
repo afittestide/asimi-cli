@@ -134,9 +134,10 @@ type RunInShellConfig struct {
 	// instead of in the container
 	RunOnHost []string `koanf:"run_on_host"`
 	// TimeoutMinutes is the timeout for shell commands in minutes (default: 10)
-	TimeoutMinutes    int  `koanf:"timeout_minutes"`
-	AllowHostFallback bool `koanf:"allow_host_fallback"`
-	NoCleanup         bool `koanf:"no_cleanup"`
+	TimeoutMinutes    int    `koanf:"timeout_minutes"`
+	AllowHostFallback bool   `koanf:"allow_host_fallback"`
+	NoCleanup         bool   `koanf:"no_cleanup"`
+	ImageName         string `koanf:"image_name"` // Container image name (default: asimi-sandbox-<project>:latest)
 }
 
 // LoadConfig loads configuration from multiple sources
@@ -148,13 +149,13 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		log.Printf("Failed to get user home directory: %v", err)
 	} else {
-		userConfigPath := filepath.Join(homeDir, ".config", "asimi", "conf.toml")
+		userConfigPath := filepath.Join(homeDir, ".config", "asimi", "asimi.conf")
 		if err := k.Load(file.Provider(userConfigPath), koanftoml.Parser()); err != nil {
 			log.Printf("Failed to load user config from %s: %v", userConfigPath, err)
 		}
 	}
 
-	projectConfigPath := filepath.Join(".agents", "asimi.toml")
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
 	if _, err := os.Stat(projectConfigPath); err == nil {
 		if err := k.Load(file.Provider(projectConfigPath), koanftoml.Parser()); err != nil {
 			log.Printf("Failed to load project config from %s: %v", projectConfigPath, err)
@@ -212,9 +213,32 @@ func LoadConfig() (*Config, error) {
 	return &config, nil
 }
 
-// SaveConfig saves the current config to the project-level asimi.toml file
+// ReloadProjectConf reloads the project's configuration file
+func (c *Config) ReloadProjectConf() error {
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
+
+	// Check if project config exists
+	if _, err := os.Stat(projectConfigPath); os.IsNotExist(err) {
+		return nil // No project config to reload
+	}
+
+	// Create a new koanf instance and load project config
+	k := koanf.New(".")
+	if err := k.Load(file.Provider(projectConfigPath), koanftoml.Parser()); err != nil {
+		return fmt.Errorf("failed to load project config: %w", err)
+	}
+
+	// Unmarshal into the current config, overwriting project-level settings
+	if err := k.Unmarshal("", c); err != nil {
+		return fmt.Errorf("failed to unmarshal project config: %w", err)
+	}
+
+	return nil
+}
+
+// SaveConfig saves the current config to the project-level asimi.conf file
 func SaveConfig(config *Config) error {
-	projectConfigPath := filepath.Join(".agents", "asimi.toml")
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
 
 	if err := os.MkdirAll(".agents", 0o755); err != nil {
 		return fmt.Errorf("failed to create .agents directory: %w", err)
@@ -246,7 +270,7 @@ func SaveConfig(config *Config) error {
 	return nil
 }
 
-// UpdateUserLLMAuth updates or creates ~/.config/asimi/asimi.toml with the given LLM auth settings.
+// UpdateUserLLMAuth updates or creates ~/.config/asimi/asimi.conf with the given LLM auth settings.
 // It saves API keys securely in the keyring and only stores provider/model in the config file.
 // TODO: remove this as it removes commands, store in sqlite when it's ready
 func UpdateUserLLMAuth(provider, apiKey, model string) error {
@@ -265,7 +289,7 @@ func UpdateUserLLMAuth(provider, apiKey, model string) error {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
+	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	// If file does not exist, create minimal content
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
@@ -381,7 +405,7 @@ func updateAPIKeyInFile(provider, apiKey, model string) error {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
+	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	// If file does not exist, create minimal content
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
@@ -499,7 +523,7 @@ func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry ti
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
+	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	data := []byte{}
 	if b, err := os.ReadFile(cfgPath); err == nil {
@@ -590,7 +614,7 @@ func updateOAuthTokensInFile(provider, accessToken, refreshToken string) error {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
+	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	data := []byte{}
 	if b, err := os.ReadFile(cfgPath); err == nil {
