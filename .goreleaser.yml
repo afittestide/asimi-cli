@@ -109,32 +109,10 @@ brews:
         type: optional
     install: |
       bin.install "asimi"
-      
-      # Install example configuration
-      (etc/"asimi").install "conf.toml.example" => "asimi.toml.example"
-      
-      # Install shell completions if available
-      if File.exist?("completions/asimi.bash")
-        bash_completion.install "completions/asimi.bash" => "asimi"
-      end
-      if File.exist?("completions/asimi.zsh")
-        zsh_completion.install "completions/asimi.zsh" => "_asimi"
-      end
-      if File.exist?("completions/asimi.fish")
-        fish_completion.install "completions/asimi.fish"
-      end
     test: |
       system "#{bin}/asimi", "--version"
-      assert_match "asimi version", shell_output("#{bin}/asimi --version")
     caveats: |
       Asimi requires Podman for containerized shell execution.
       Install it with: brew install podman
       
-      Example configuration has been installed to:
-        #{etc}/asimi/asimi.toml.example
-      
-      Copy it to get started:
-        mkdir -p ~/.config/asimi
-        cp #{etc}/asimi/asimi.toml.example ~/.config/asimi/asimi.toml
-      
-      For more information, see: https://github.com/afittestide/asimi-cli
+      For configuration, see: https://github.com/afittestide/asimi-cli

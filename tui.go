@@ -344,7 +344,7 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.ctrlCPressedTime = now
 
-		m.content.Chat.AddMessage("\nCTRL-C\n")
+		m.content.Chat.AddMessage("You: CTRL-C")
 		m.handleEscape()
 		m.commandLine.AddToast("Press CTRL-C in less than 2s to exit", "info", 3*time.Second)
 		return m, nil
@@ -1417,7 +1417,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Streaming was interrupted by user
 		m.content.Chat.AddToRawHistory("STREAM_INTERRUPTED", fmt.Sprintf("AI streaming interrupted, partial content: %s", msg.partialContent))
 		slog.Debug("streamInterruptedMsg", "partial_content_length", len(msg.partialContent))
-		m.content.Chat.AddMessage("\nESC")
+		m.content.Chat.AddMessage("You: ESC")
 		m.stopStreaming()
 		m.streamCompleteCallback = nil // Clear callback on interrupt
 		refreshGitInfo()
@@ -1622,7 +1622,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prompt.EnterViLearningMode()
 		case "select", "resume", "models", "help":
 			// These modes don't need prompt updates, just placeholder changes
-			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
+			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | ESC to abort"
 		}
 
 		return m, nil
