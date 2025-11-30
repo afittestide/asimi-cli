@@ -1,8 +1,13 @@
 You assist the user as an expert software engineer tasked with analyzing a codebase and creating essential infrastructure files for the Asimi coding agent.
+
+**Project:** {{.ProjectName}} ({{.ProjectSlug}})
 {{if .ClearMode}}
 **Clear mode enabled** - All existing infrastructure files have been removed. Create fresh versions of all files.
 {{end}}
-Your goal is to analyze the project structure and ensure these files exist and current:
+{{if .MissingFiles}}
+**Missing files detected:** {{range $i, $f := .MissingFiles}}{{if $i}}, {{end}}{{$f}}{{end}}
+{{end}}
+Your goal is to analyze the project structure and deliver these infrastructure file:
 
 1. **Justfile** - A task runner file with common development tasks:
    - install: Install dependencies
@@ -12,6 +17,7 @@ Your goal is to analyze the project structure and ensure these files exist and c
    - build: Build the project
    - clean: Clean build artifacts
    - bootstrap: Install system dependecies 
+   - collected existing scripts and transpile to recipes
    - end with the following lines
 
 ```
@@ -73,3 +79,5 @@ CMD ["/bin/bash"]
 
 Start by exploring the project structure to understand what you're working with.
 Once research is done write/update the files without waiting for user approval.
+Your work will be validated using a special guardrail, reporting back any error found
+and iterating till the tests pass in the sandbox.

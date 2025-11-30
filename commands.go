@@ -14,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-//go:embed prompts/initialize.txt
+//go:embed prompts/init.tmpl
 var initializePrompt string
 
 //go:embed prompts/compact.txt
