@@ -496,7 +496,7 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 
 		// Send initial message
 		if program != nil {
-			msg := "\n" + GuardrailPrefix + "Verifying initialization"
+			msg := "\n" + GuardrailPrefix + "Testing infrastructure"
 			if retryCount > 0 {
 				msg += fmt.Sprintf(" (attempt %d/%d)", retryCount+1, maxRetries+1)
 			}
@@ -553,10 +553,36 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 			return handleVerificationFailure(model, containerRunner, retryCount, maxRetries, results)
 		}
 
-		// All tests passed
-		slog.Debug("All verification tests passed!")
+		// All tests passed - stage the files
+		slog.Debug("All verification tests passed! Staging files...")
+
+		// Stage all added/changed files in .agents/ and root infrastructure files
+		filesToStage := []string{
+			"AGENTS.md",
+			"Justfile",
+			".agents/",
+		}
+
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel2()
+
+		for _, file := range filesToStage {
+			result, err := hostRun(ctx2, RunInShellInput{
+				Command:     fmt.Sprintf("git add %s", file),
+				Description: fmt.Sprintf("Staging %s", file),
+			})
+
+			if err != nil || result.ExitCode != "0" {
+				slog.Warn("Failed to stage file", "file", file, "error", err, "exitCode", result.ExitCode)
+				report(fmt.Sprintf("⚠️  Failed to stage %s", file))
+			} else {
+				slog.Debug("Staged file successfully", "file", file)
+			}
+		}
+
 		if program != nil {
 			program.Send(showContextMsg{content: `✅ All verification tests passed!
+📝 Infrastructure files have been staged with git add
 Please review your recipes using ':!just' or start fresh with ':new'`})
 		}
 		return nil

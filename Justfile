@@ -4,7 +4,7 @@ PROJECT_NAME := "afittestide-asimi-cli"
 default:
     @just --list
 
-# Install Go dependencies
+# Install dependencies
 install:
     go mod download
     go mod vendor
@@ -40,15 +40,15 @@ clean:
     rm -f asimi
     rm -f coverage.out coverage.html
     rm -f asimi.log
-    rm -rf profiles/
-    rm -rf test_tmp/
+    rm -rf test_tmp
+    rm -rf profiles
 
 # Install development tools
 bootstrap:
     go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
     go install golang.org/x/tools/cmd/goimports@latest
 
-# Measure shell performance
+# Profile startup performance
 measure:
     ./profile_startup.sh
 
