@@ -528,13 +528,13 @@ type RunInShellOutput struct {
 type shellRunner interface {
 	Run(context.Context, RunInShellInput) (RunInShellOutput, error)
 	Restart(context.Context) error
+	Close(context.Context) error
 }
 
 var (
-	shellRunnerMu       sync.RWMutex
-	currentShellRunner  shellRunner
-	shellRunnerOnce     sync.Once
-	shellRunnerInstance shellRunner // Populated by fx
+	shellRunnerMu      sync.RWMutex
+	currentShellRunner shellRunner
+	shellRunnerOnce    sync.Once
 )
 
 func setShellRunnerForTesting(r shellRunner) func() {
@@ -559,15 +559,6 @@ func initShellRunner(config *Config) {
 }
 
 func getShellRunner() shellRunner {
-	// If shellRunnerInstance is set (via fx), use it
-	shellRunnerMu.RLock()
-	if shellRunnerInstance != nil {
-		defer shellRunnerMu.RUnlock()
-		return shellRunnerInstance
-	}
-	shellRunnerMu.RUnlock()
-
-	// Otherwise fall back to legacy initialization
 	shellRunnerOnce.Do(func() {
 		repoInfo := GetRepoInfo()
 		shellRunnerMu.Lock()
@@ -607,7 +598,7 @@ func (t RunInShell) Name() string {
 }
 
 func (t RunInShell) Description() string {
-	return "Executes a shell command in a persistent shell session inside a container. The project root is mounted at `/workspace`, and when in a worktree, the shell automatically navigates to the worktree directory. Current working directory is maintained between commands. The input should be a JSON object with 'command' and optional 'description' fields."
+	return "Executes a shell command in a persistent shell session inside a container. The project root is mounted at `/workspace`, and when in a worktree, the shell automatically navigates to the worktree directory. Current working directory is maintained between commands. The input should be a JSON object with 'command' and optional 'description' fields.\n\nIMPORTANT: Each command runs in an isolated subshell for stability and predictability. This means:\n- Environment variables set with 'export' do NOT persist between commands\n- Directory changes with 'cd' do NOT persist between commands\n- Each command starts fresh in the project/worktree root directory\n- To perform multi-step operations, combine them in a single command using && or ; (e.g., 'cd dir && make && cd ..')\n- Redirects and heredocs work correctly within each command"
 }
 
 func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
@@ -640,7 +631,7 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 		// - Making tool execution wait for approval
 
 		// Run directly on host
-		output, runErr = hostShellRunner{}.Run(ctx, params)
+		output, runErr = hostRun(ctx, params)
 	} else {
 		runner := getShellRunner()
 		output, runErr = runner.Run(ctx, params)
@@ -723,14 +714,7 @@ func (t RunInShell) Format(input, result string, err error) string {
 	return ret.String()
 }
 
-type hostShellRunner struct{}
-
-func (hostShellRunner) Restart(ctx context.Context) error {
-	// Host shell runner doesn't maintain state, nothing to restart
-	return nil
-}
-
-func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
+func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	var output RunInShellOutput
 
 	var cmd *exec.Cmd

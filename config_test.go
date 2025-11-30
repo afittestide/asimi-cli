@@ -244,7 +244,7 @@ api_key = "test-key"
 enabled = false
 max_sessions = 100
 `
-		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.conf", []byte(configContent), 0644)
 		require.NoError(t, err)
 		defer os.RemoveAll(".agents")
 
@@ -272,7 +272,7 @@ max_sessions = 100
 provider = "openai"
 model = "gpt-4"
 `
-		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.conf", []byte(configContent), 0644)
 		require.NoError(t, err)
 
 		config, err := LoadConfig()
@@ -295,7 +295,7 @@ model = "gpt-4"
 provider = "openai"
 model = "gpt-4"
 `
-		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.conf", []byte(configContent), 0644)
 		require.NoError(t, err)
 
 		config, err := LoadConfig()
@@ -316,7 +316,7 @@ model = "gpt-4"
 provider = "anthropic"
 model = "claude-3-opus"
 `
-		err = os.WriteFile(".agents/asimi.toml", []byte(configContent), 0644)
+		err = os.WriteFile(".agents/asimi.conf", []byte(configContent), 0644)
 		require.NoError(t, err)
 
 		config, err := LoadConfig()
@@ -355,7 +355,7 @@ func TestSaveConfig(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Check that config file was created
-		_, err = os.Stat(".agents/asimi.toml")
+		_, err = os.Stat(".agents/asimi.conf")
 		assert.NoError(t, err)
 	})
 
@@ -369,7 +369,7 @@ func TestSaveConfig(t *testing.T) {
 provider = "openai"
 model = "gpt-3.5-turbo"
 `
-		err = os.WriteFile(".agents/asimi.toml", []byte(initialContent), 0644)
+		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		// Update config
@@ -403,7 +403,7 @@ api_key = "test-key"
 enabled = true
 max_sessions = 50
 `
-		err = os.WriteFile(".agents/asimi.toml", []byte(initialContent), 0644)
+		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		// Update only model
@@ -454,7 +454,7 @@ func TestUpdateUserLLMAuthIntegration(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check the file
-		configPath := filepath.Join(configDir, "asimi.toml")
+		configPath := filepath.Join(configDir, "asimi.conf")
 		_, err = os.Stat(configPath)
 		assert.NoError(t, err, "Config file should be created")
 	})

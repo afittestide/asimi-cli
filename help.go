@@ -518,7 +518,7 @@ Sessions are automatically saved when:
 
 ## Session Configuration
 
-Configure session behavior in ~/.config/asimi/conf.toml:
+Configure session behavior in ~/.config/asimi/asimi.conf:
 
   [session]
   enabled = true           # Enable session persistence
@@ -621,8 +621,8 @@ Asimi can be configured through configuration files and environment variables.
 ## Configuration Files
 
 Asimi looks for configuration in this order:
-  1. .agents/asimi.toml        (project-level)
-  2. ~/.config/asimi/conf.toml (user-level)
+  1. .agents/asimi.conf        (project-level)
+  2. ~/.config/asimi/asimi.conf (user-level)
 
 ## Basic Configuration
 

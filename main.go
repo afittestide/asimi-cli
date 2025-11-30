@@ -124,7 +124,7 @@ func runInteractiveMode() error {
 		fx.Invoke(
 			ProvideModelClient,
 		),
-		fx.Populate(&shellRunnerInstance, &tuiProgram),
+		fx.Populate(&currentShellRunner, &tuiProgram),
 	)
 
 	// Create fx app with all providers

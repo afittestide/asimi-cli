@@ -51,7 +51,7 @@ After To start Asimi in interactive mode type `asimi`.
 
 
 2. **Initialize your repo:**
-    `:init` - Creates a AGENTS.md and Justfile if missing and `.agents/Sandbox` for the container 
+    `:init` - Creates a AGENTS.md and Justfile if missing and `.agents/sandbox` for Dockerfile and confs
 
 3. **Check your container:***
     `:!uname -a` - runs shell commands is a persistent, containrized bash

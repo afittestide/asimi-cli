@@ -147,7 +147,7 @@ func (s *SessionStore) LoadSession(sessionID string) (*SessionData, string, stri
 	session.CreatedAt = time.Unix(createdAt, 0)
 	session.LastUpdated = time.Unix(lastUpdated, 0)
 	session.ProjectSlug = fmt.Sprintf("%s/%s/%s", host, org, project)
-	session.Messages = []llms.MessageContent{} // Initialize empty slice
+	session.Messages = []llms.MessageContent{}     // Initialize empty slice
 	session.ContextFiles = make(map[string]string) // Initialize empty map
 
 	// Load messages

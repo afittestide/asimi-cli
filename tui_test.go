@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/stretchr/testify/require"
+	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/fake"
 )
 
@@ -1062,14 +1063,25 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 	require.True(t, model.waitingForResponse)
 
 	// Execute /new command
-	handleNewSessionCommand(model, []string{})
+	cmd := handleNewSessionCommand(model, []string{})
+
+	// Process the returned message
+	msg := cmd()
+	startMsg, ok := msg.(startConversationMsg)
+	require.True(t, ok, "Expected startConversationMsg")
+	require.True(t, startMsg.clearHistory)
+
+	// Simulate the message being processed by Update
+	updatedModel, _ := model.Update(startMsg)
+	updatedModelValue, ok := updatedModel.(TUIModel)
+	require.True(t, ok, "Expected TUIModel")
 
 	// Verify history was reset
-	require.Empty(t, model.sessionPromptHistory)
-	require.Equal(t, 0, model.historyCursor)
-	require.False(t, model.historySaved)
-	require.Empty(t, model.historyPendingPrompt)
-	require.False(t, model.waitingForResponse)
+	require.Empty(t, updatedModelValue.sessionPromptHistory)
+	require.Equal(t, 0, updatedModelValue.historyCursor)
+	require.False(t, updatedModelValue.historySaved)
+	require.Empty(t, updatedModelValue.historyPendingPrompt)
+	require.False(t, updatedModelValue.waitingForResponse)
 }
 
 // TestHistoryNavigation_WithArrowKeys tests arrow key handling
@@ -1319,6 +1331,56 @@ func TestStreamErrorMsg_StopsWaiting(t *testing.T) {
 	require.True(t, ok)
 
 	require.False(t, updatedModel.waitingForResponse)
+}
+
+// TestSessionResume_ResetsHistoryState tests that resuming a session resets history state
+// This prevents the bug where entering a prompt after resume would clear the chat
+func TestSessionResume_ResetsHistoryState(t *testing.T) {
+	model := newTestModel(t)
+
+	// Simulate having some history state from a previous session
+	model.sessionPromptHistory = []promptHistoryEntry{
+		{Prompt: "old prompt 1", SessionSnapshot: 1, ChatSnapshot: 0},
+		{Prompt: "old prompt 2", SessionSnapshot: 3, ChatSnapshot: 2},
+	}
+	model.historyCursor = 1
+	model.historySaved = true
+	model.historyPendingPrompt = "pending from old session"
+	model.historyPresentSessionSnapshot = 5
+	model.historyPresentChatSnapshot = 4
+
+	// Create a mock resumed session
+	resumedSession := &Session{
+		ID:          "resumed-session-id",
+		FirstPrompt: "resumed prompt",
+		Messages: []llms.MessageContent{
+			{Role: llms.ChatMessageTypeSystem, Parts: []llms.ContentPart{llms.TextContent{Text: "system"}}},
+			{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hello"}}},
+			{Role: llms.ChatMessageTypeAI, Parts: []llms.ContentPart{llms.TextContent{Text: "hi there"}}},
+		},
+	}
+
+	// Process the sessionSelectedMsg
+	newModel, _ := model.handleCustomMessages(sessionSelectedMsg{session: resumedSession})
+	updatedModel, ok := newModel.(TUIModel)
+	require.True(t, ok)
+
+	// Verify history state was reset
+	require.Empty(t, updatedModel.sessionPromptHistory, "sessionPromptHistory should be empty after resume")
+	require.Equal(t, 0, updatedModel.historyCursor, "historyCursor should be 0 after resume")
+	require.False(t, updatedModel.historySaved, "historySaved should be false after resume")
+	require.Empty(t, updatedModel.historyPendingPrompt, "historyPendingPrompt should be empty after resume")
+	require.Equal(t, 0, updatedModel.historyPresentSessionSnapshot, "historyPresentSessionSnapshot should be 0 after resume")
+	require.Equal(t, 0, updatedModel.historyPresentChatSnapshot, "historyPresentChatSnapshot should be 0 after resume")
+
+	// Verify session was properly set
+	require.True(t, updatedModel.sessionActive)
+	require.Equal(t, "resumed-session-id", updatedModel.session.ID)
+
+	// Verify chat was rebuilt with resumed messages
+	chat := updatedModel.content.Chat
+	require.True(t, containsMessage(chat.Messages, "You: hello"), "Chat should contain resumed human message")
+	require.True(t, containsMessage(chat.Messages, "Asimi: hi there"), "Chat should contain resumed AI message")
 }
 
 // TestHistoryNavigation_RapidNavigation tests rapid navigation through history

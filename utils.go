@@ -24,6 +24,7 @@ type RepoInfo struct {
 	Branch       string
 	IsWorktree   bool
 	IsMain       bool
+	Slug         string // Project slug (e.g., "owner/repo")
 	status       string // Cached git status
 	LinesAdded   int    // Lines added in working directory
 	LinesDeleted int    // Lines deleted in working directory
@@ -34,6 +35,26 @@ type RepoInfo struct {
 // Currently checks for "main" and "master".
 func isMainBranch(branch string) bool {
 	return branch == "main" || branch == "master"
+}
+
+// projectSlug returns the project slug (e.g., "owner/repo") from the git remote origin URL.
+// Returns an empty string if the project root is not a git repository or has no remote.
+func projectSlug(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	remoteURL, err := gitRemoteOriginURL(projectRoot)
+	if err != nil || remoteURL == "" {
+		return ""
+	}
+
+	owner, repo := parseGitRemote(remoteURL)
+	if owner == "" || repo == "" {
+		return ""
+	}
+
+	return owner + "-" + repo
 }
 
 // GetStatus returns a short git status string (e.g., "[!+]")
@@ -259,6 +280,7 @@ func GetRepoInfo() RepoInfo {
 		Branch:       branch,
 		IsWorktree:   isWorktree,
 		IsMain:       isMain,
+		Slug:         projectSlug(projectRoot),
 		status:       status,
 		repo:         repo,
 	}
