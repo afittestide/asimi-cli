@@ -13,12 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/` is just a slash. Use `:` to enter command mode
 
 ### Fixed
-- Infinite recursion in TestRunInitGuardrails due to guardrails running tests
 - OAuth token now automatically refreshes during chat sessions to prevent 401 errors when token expires mid-conversation
 - Context validation error when interrupting tool execution (issue #37)
-- Tests now properly use isolated keyring service to avoid clearing production OAuth tokens
-- Command timeout is now returned as command output (with exit code 124) instead of harness error
-- Harness errors (connection failures) now trigger automatic container restart and command retry
+- Shell command timeouts now properly reported (exit code 124)
+- Container connection failures now trigger automatic restart and retry
 - Enter now submits prompts directly from vi normal mode when the prompt is non-empty (#32)
 - ESC in NORMAL mode now switches to INSERT mode (#70)
 - Prompt placeholder now shows helpful navigation hints in RESUME & MODEL modes (#69)
@@ -29,23 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Support for `ANTHROPIC_OAUTH_TOKEN` environment variable to bypass keyring authentication
-- Yes/No prompt support in command line component for user confirmations
   - Accepts raw access token format
   - Accepts full JSON format with refresh token and expiry
   - Accepts base64-encoded JSON (useful when copying from macOS Keychain)
 - Configuration option `run_in_shell.timeout_minutes` to set shell command timeout (default: 10 minutes)
-- :! <cmd> - running in the container, to verify `:!uname -a`
-- :resume to resume session
-- :init - analyzes the project and creates a `.agents/asimi.toml`, `
-- Each branch has its own prompt & command history
+- `:!` command prefix to run shell commands in the container (e.g., `:!uname -a`)
+- `:resume` command to resume previous sessions
+- `:init` command to analyze project and generate infrastructure files (AGENTS.md, Justfile, .agents/asimi.conf, Dockerfile)
+  - Automatic verification with retry logic (up to 5 attempts)
+  - `:init clear` to regenerate all files from scratch
+- Per-branch prompt & command history
 - `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
 - Ctrl-B SCROLL mode for the chat viewport with vi-style paging and `:1` to jump to the first message without re-pinning
-- Warning logging when commands run on host instead of sandbox (partial implementation of #68)
 - Toast notification when container is launched (#77)
 
 ### Changed
-- `runInitGuardrails` now automatically sends a message to the LLM to fix detected errors during project initialization.
-- `NewTUIModel` calls in `tui_test.go` and `vi_mode_test.go` updated to match new 6-argument signature
+- `:init` command now automatically retries with AI-generated fixes when verification fails
 
 
 
