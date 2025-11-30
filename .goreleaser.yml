@@ -27,10 +27,12 @@ builds:
 archives:
   - id: asimi
     name_template: 'asimi_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-    format: tar.gz
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     files:
       - README.md
       - LICENSE
@@ -97,7 +99,7 @@ brews:
     homepage: https://github.com/afittestide/asimi-cli
     description: "AI-powered CLI assistant with container support - safe, opinionated coding agent"
     license: MIT
-    folder: Formula
+    directory: Formula
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
@@ -136,25 +138,3 @@ brews:
         cp #{etc}/asimi/asimi.toml.example ~/.config/asimi/asimi.toml
       
       For more information, see: https://github.com/afittestide/asimi-cli
-
-# Uncomment if you want to create a cask for GUI distribution
-# This would be useful if you later add a GUI wrapper or want to distribute
-# the CLI as a macOS application bundle
-# casks:
-#   - name: asimi
-#     repository:
-#       owner: afittestide
-#       name: homebrew-tap
-#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-#     homepage: https://github.com/afittestide/asimi-cli
-#     description: "AI-powered CLI assistant with container support"
-#     folder: Casks
-#     commit_author:
-#       name: goreleaserbot
-#       email: bot@goreleaser.com
-#     commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
-#     name: Asimi
-#     app: asimi.app
-#     # For a CLI tool distributed as a cask, you might use:
-#     # binary: asimi
-#     # Or create an app bundle structure
