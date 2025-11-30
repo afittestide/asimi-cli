@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,28 +44,22 @@ type ContentComponent struct {
 	viewport     viewport.Model // For text navigation
 	selectedItem int            // For list navigation
 	scrollOffset int            // For list navigation
-
-	// Exit handling
-	lastEscapeTime time.Time
-	escDebounceMs  int
 }
 
 // NewContentComponent creates a new content component
 func NewContentComponent(width, height int, markdownEnabled bool) ContentComponent {
 	return ContentComponent{
-		activeView:     ViewChat,
-		width:          width,
-		height:         height,
-		Chat:           NewChatComponent(width, height, markdownEnabled),
-		help:           NewHelpWindow(),
-		models:         NewModelsWindow(),
-		resume:         NewResumeWindow(),
-		navMode:        NavText,
-		viewport:       viewport.New(width, height),
-		selectedItem:   0,
-		scrollOffset:   0,
-		lastEscapeTime: time.Time{},
-		escDebounceMs:  300, // 300ms for double-ESC detection
+		activeView:   ViewChat,
+		width:        width,
+		height:       height,
+		Chat:         NewChatComponent(width, height, markdownEnabled),
+		help:         NewHelpWindow(),
+		models:       NewModelsWindow(),
+		resume:       NewResumeWindow(),
+		navMode:      NavText,
+		viewport:     viewport.New(width, height),
+		selectedItem: 0,
+		scrollOffset: 0,
 	}
 }
 
@@ -225,15 +218,8 @@ func (c *ContentComponent) handleExitKeys(msg tea.KeyMsg) tea.Cmd {
 		// Ctrl+C exits to chat
 		return c.ShowChat()
 	case "esc":
-		// Check for double-ESC
-		now := time.Now()
-		if !c.lastEscapeTime.IsZero() && now.Sub(c.lastEscapeTime) < time.Duration(c.escDebounceMs)*time.Millisecond {
-			// Double-ESC detected
-			c.lastEscapeTime = time.Time{}
-			return c.ShowChat()
-		}
-		c.lastEscapeTime = now
-		return nil
+		// Single ESC exits to chat
+		return c.ShowChat()
 	}
 	return nil
 }

@@ -174,13 +174,6 @@ func handleNewSessionCommand(model *TUIModel, args []string) tea.Cmd {
 }
 
 func handleQuitCommand(model *TUIModel, args []string) tea.Cmd {
-	// Check if we're in a non-chat view (help, models, resume)
-	// If so, return to chat instead of quitting the application
-	if model.content.GetActiveView() != ViewChat {
-		model.content.ShowChat()
-		return nil
-	}
-
 	// Save the session before quitting the application
 	model.saveSession()
 	// Quit the application
