@@ -30,6 +30,9 @@ import (
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
+// Update the version as part of the version release process
+var version = "0.2.0-rc.1"
+
 var program *tea.Program
 
 var cli struct {
@@ -42,9 +45,6 @@ var cli struct {
 	Trace         string `help:"Write execution trace to file"`
 	ProfileExitMs int    `help:"Exit after N milliseconds (for profiling startup)"`
 }
-
-// Update the version as part of the version release process
-var version = "0.2.0-beta.6"
 
 func initLogger() {
 	var logDir string
