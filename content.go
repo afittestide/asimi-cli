@@ -122,7 +122,7 @@ func (c *ContentComponent) ShowModels(models []AnthropicModel, currentModel stri
 	c.scrollOffset = 0
 
 	return func() tea.Msg {
-		return ChangeModeMsg{NewMode: "models"}
+		return ChangeModeMsg{NewMode: "select"}
 	}
 }
 
@@ -135,7 +135,7 @@ func (c *ContentComponent) ShowResume(sessions []Session) tea.Cmd {
 	c.scrollOffset = 0
 
 	changeModeCmd := func() tea.Msg {
-		return ChangeModeMsg{NewMode: "resume"}
+		return ChangeModeMsg{NewMode: "select"}
 	}
 
 	return changeModeCmd

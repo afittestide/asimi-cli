@@ -37,6 +37,26 @@ func isMainBranch(branch string) bool {
 	return branch == "main" || branch == "master"
 }
 
+// projectSlug returns the project slug (e.g., "owner/repo") from the git remote origin URL.
+// Returns an empty string if the project root is not a git repository or has no remote.
+func projectSlug(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	remoteURL, err := gitRemoteOriginURL(projectRoot)
+	if err != nil || remoteURL == "" {
+		return ""
+	}
+
+	owner, repo := parseGitRemote(remoteURL)
+	if owner == "" || repo == "" {
+		return ""
+	}
+
+	return owner + "/" + repo
+}
+
 // GetStatus returns a short git status string (e.g., "[!+]")
 // This is cached at the time RepoInfo is created and does not update dynamically
 func (r *RepoInfo) GetStatus() string {
@@ -254,16 +274,13 @@ func GetRepoInfo() RepoInfo {
 	// Detect if branch is a main branch
 	isMain := isMainBranch(branch)
 
-	// Get project slug
-	slug := projectSlug(projectRoot)
-
 	repoInfo := RepoInfo{
 		ProjectRoot:  projectRoot,
 		WorktreePath: worktreePath,
 		Branch:       branch,
 		IsWorktree:   isWorktree,
 		IsMain:       isMain,
-		Slug:         slug,
+		Slug:         projectSlug(projectRoot),
 		status:       status,
 		repo:         repo,
 	}

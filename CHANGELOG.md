@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :init - analyzes the project and creates a `.agents/asimi.toml`, `
 - Each branch has its own prompt & command history
 - `ui.markdown_enabled` configuration toggle to re-enable Glamour-based markdown rendering (defaults to off for faster resizing) (#53)
+- Ctrl-B SCROLL mode for the chat viewport with vi-style paging and `:1` to jump to the first message without re-pinning
 - Warning logging when commands run on host instead of sandbox (partial implementation of #68)
 - Toast notification when container is launched (#77)
 
@@ -51,4 +52,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2025/11/1
 
 A development snapshort made for a friend. Not production ready at all.
-

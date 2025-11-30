@@ -178,7 +178,7 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 
 		// Start persistent reader loops for stdout and stderr
 		slog.Debug("starting persistent reader loops")
-		go r.readStream(stdoutReader, true) // true = stdout
+		go r.readStream(stdoutReader)
 
 		slog.Debug("container attachment established", "repoInfo", r.repoInfo)
 
@@ -251,7 +251,7 @@ func (r *PodmanShellRunner) establishConnection(ctx context.Context) (context.Co
 
 // readStream continuously reads from a stream looking for command markers
 // and populates the outputs map when complete command outputs are found
-func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
+func (r *PodmanShellRunner) readStream(reader io.Reader) {
 	slog.Debug("stream reader started")
 
 	scanner := bufio.NewScanner(reader)
@@ -464,6 +464,7 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	slog.Debug("command written to stdin successfully")
 
 	// Get timeout from config or use default of 10 minutes
+	// TODO: move the default to config.go
 	timeoutMinutes := 10
 	if r.config != nil && r.config.RunInShell.TimeoutMinutes > 0 {
 		timeoutMinutes = r.config.RunInShell.TimeoutMinutes

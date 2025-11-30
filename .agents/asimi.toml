@@ -1,0 +1,17 @@
+[container]
+
+[history]
+
+[llm]
+model = 'claude-opus-4-5-20251101'
+
+[logging]
+
+[run_in_shell]
+image_name = 'localhost/asimi-sandbox-asimi-cli:latest'
+
+[session]
+
+[storage]
+
+[ui]

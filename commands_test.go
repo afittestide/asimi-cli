@@ -22,70 +22,70 @@ func TestFindCommand(t *testing.T) {
 			name:          "exact match with colon",
 			input:         ":quit",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - q",
 			input:         ":q",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - qu",
 			input:         ":qu",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - qui",
 			input:         ":qui",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - h",
 			input:         ":h",
 			expectFound:   true,
-			expectCommand: "/help",
+			expectCommand: "help",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - n",
 			input:         ":n",
 			expectFound:   true,
-			expectCommand: "/new",
+			expectCommand: "new",
 			expectMatches: 1,
 		},
 		{
 			name:            "ambiguous match - c",
 			input:           ":c",
 			expectFound:     false,
-			expectMatches:   2, // /clear-history, /compact, and /context
+			expectMatches:   2, // compact and context
 			expectAmbiguous: true,
 		},
 		{
 			name:            "ambiguous match - co",
 			input:           ":co",
 			expectFound:     false,
-			expectMatches:   2, // /compact and /context
+			expectMatches:   2, // compact and context
 			expectAmbiguous: true,
 		},
 		{
 			name:          "partial disambiguated - com",
 			input:         ":com",
 			expectFound:   true,
-			expectCommand: "/compact",
+			expectCommand: "compact",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial disambiguated - con",
 			input:         ":con",
 			expectFound:   true,
-			expectCommand: "/context",
+			expectCommand: "context",
 			expectMatches: 1,
 		},
 		{
@@ -126,12 +126,14 @@ func TestNormalizeCommandName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{input: ":help", expected: "/help"},
-		{input: ":quit", expected: "/quit"},
-		{input: "/help", expected: "/help"},
-		{input: "/quit", expected: "/quit"},
+		{input: ":help", expected: "help"},
+		{input: ":quit", expected: "quit"},
+		{input: "/help", expected: "help"},
+		{input: "/quit", expected: "quit"},
 		{input: "", expected: ""},
-		{input: ":new", expected: "/new"},
+		{input: ":new", expected: "new"},
+		{input: "help", expected: "help"},
+		{input: "quit", expected: "quit"},
 	}
 
 	for _, tt := range tests {

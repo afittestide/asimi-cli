@@ -1,5 +1,7 @@
 You assist the user as an expert software engineer tasked with analyzing a codebase and creating essential infrastructure files for the Asimi coding agent.
-
+{{if .ClearMode}}
+**Clear mode enabled** - All existing infrastructure files have been removed. Create fresh versions of all files.
+{{end}}
 Your goal is to analyze the project structure and ensure these files exist and current:
 
 1. **Justfile** - A task runner file with common development tasks:

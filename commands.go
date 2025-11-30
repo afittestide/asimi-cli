@@ -57,9 +57,9 @@ func normalizeCommandName(name string) string {
 	if name == "" {
 		return ""
 	}
-	if strings.HasPrefix(name, ":") {
-		return "/" + strings.TrimPrefix(name, ":")
-	}
+	// Strip both : and / prefixes to store commands without prefix
+	name = strings.TrimPrefix(name, ":")
+	name = strings.TrimPrefix(name, "/")
 	return name
 }
 
@@ -69,17 +69,18 @@ func NewCommandRegistry() CommandRegistry {
 		Commands: make(map[string]Command),
 	}
 
-	// Register built-in commands
-	registry.RegisterCommand("/help", "Show help (usage: :help [topic])", handleHelpCommand)
-	registry.RegisterCommand("/new", "Start a new session", handleNewSessionCommand)
-	registry.RegisterCommand("/quit", "Quit the application", handleQuitCommand)
-	registry.RegisterCommand("/login", "Login with OAuth provider selection", handleLoginCommand)
-	registry.RegisterCommand("/models", "Select AI model", handleModelsCommand)
-	registry.RegisterCommand("/context", "Show context usage details", handleContextCommand)
-	registry.RegisterCommand("/resume", "Resume a previous session", handleResumeCommand)
-	registry.RegisterCommand("/export", "Export conversation to file and open in $EDITOR (usage: /export [full|conversation])", handleExportCommand)
-	registry.RegisterCommand("/init", "Init project to work with asimi (usage: /init [clear])", handleInitCommand)
-	registry.RegisterCommand("/compact", "Compact conversation history to reduce context usage", handleCompactCommand)
+	// Register built-in commands (stored without prefix)
+	registry.RegisterCommand("help", "Show help (usage: :help [topic])", handleHelpCommand)
+	registry.RegisterCommand("new", "Start a new session", handleNewSessionCommand)
+	registry.RegisterCommand("quit", "Quit the application", handleQuitCommand)
+	registry.RegisterCommand("login", "Login with OAuth provider selection", handleLoginCommand)
+	registry.RegisterCommand("models", "Select AI model", handleModelsCommand)
+	registry.RegisterCommand("context", "Show context usage details", handleContextCommand)
+	registry.RegisterCommand("resume", "Resume a previous session", handleResumeCommand)
+	registry.RegisterCommand("export", "Export conversation to file and open in $EDITOR (usage: :export [full|conversation])", handleExportCommand)
+	registry.RegisterCommand("init", "Init project to work with asimi (usage: /init [clear])", handleInitCommand)
+	registry.RegisterCommand("compact", "Compact conversation history to reduce context usage", handleCompactCommand)
+	registry.RegisterCommand("1", "Jump to the beginning of the chat history", handleScrollTopCommand)
 
 	return registry
 }
@@ -125,11 +126,9 @@ func (cr CommandRegistry) FindCommand(prefix string) (exactMatch Command, matche
 
 	// Try prefix matching
 	var matchedCommands []string
-	searchPrefix := strings.TrimPrefix(normalized, "/")
 
 	for _, cmdName := range cr.order {
-		cmdNameWithoutSlash := strings.TrimPrefix(cmdName, "/")
-		if strings.HasPrefix(cmdNameWithoutSlash, searchPrefix) {
+		if strings.HasPrefix(cmdName, normalized) {
 			matchedCommands = append(matchedCommands, cmdName)
 		}
 	}
@@ -409,7 +408,8 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		}
 
 		// Get the project slug from RepoInfo
-		slug := model.session.repoInfo.Slug
+		repoInfo := GetRepoInfo()
+		slug := repoInfo.Slug
 
 		// Extract just the project name from the slug (last part after /)
 		// For "owner/repo" or "host/owner/repo", we want just "repo"
@@ -628,4 +628,12 @@ func handleCompactCommand(model *TUIModel, args []string) tea.Cmd {
 		// Send the compact request
 		return compactConversationMsg{}
 	}
+}
+
+func handleScrollTopCommand(model *TUIModel, args []string) tea.Cmd {
+	if model == nil || model.content.GetActiveView() != ViewChat {
+		return nil
+	}
+	model.content.Chat.ScrollToTop()
+	return nil
 }

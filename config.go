@@ -487,7 +487,7 @@ func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry ti
 	if err := SaveTokenToKeyring(provider, accessToken, refreshToken, expiry); err != nil {
 		// Fall back to file storage with warning
 		log.Printf("Warning: Failed to save tokens to keyring, falling back to file storage: %v", err)
-		return updateOAuthTokensInFile(provider, accessToken, refreshToken, expiry)
+		return updateOAuthTokensInFile(provider, accessToken, refreshToken)
 	}
 
 	// Only save provider info in the config file (not the tokens)
@@ -581,7 +581,7 @@ func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry ti
 }
 
 // updateOAuthTokensInFile is the fallback method for storing tokens in file (less secure)
-func updateOAuthTokensInFile(provider, accessToken, refreshToken string, expiry time.Time) error {
+func updateOAuthTokensInFile(provider, accessToken, refreshToken string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home dir: %w", err)
