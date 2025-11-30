@@ -283,6 +283,7 @@ COMMAND-LINE mode, then type the command and press Enter.
   :new              - Start a new conversation
   :resume           - Resume a previous session
   :quit             - Quit Asimi (also saves session)
+  :update           - Check for and install updates
 
 ## Configuration
 
@@ -766,6 +767,7 @@ const helpQuickRef = `# Quick Reference
   :new             - New session
   :resume          - Resume session
   :quit            - Quit
+  :update          - Check for updates
   :login           - Login to provider
   :models          - Select model
   :context         - Show context info

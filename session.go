@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	debug "runtime/debug"
 	"strings"
 	"time"
 
@@ -65,7 +64,6 @@ type Session struct {
 func (s *Session) formatMetadata(exportType ExportType, exportedAt time.Time) string {
 	var b strings.Builder
 	exported := exportedAt.Format("2006-01-02 15:04:05")
-	version := asimiVersion()
 
 	b.WriteString(fmt.Sprintf("**Asimi Version:** %s \n", version))
 	b.WriteString(fmt.Sprintf("**Export Type:** %s\n", exportType))
@@ -900,46 +898,6 @@ Feel free to commit whenever you can summarize the changes in a meaningful commi
 	}
 
 	return env.String()
-}
-
-func asimiVersion() string {
-	if strings.TrimSpace(version) != "" {
-		return strings.TrimSpace(version)
-	}
-
-	if v := os.Getenv("ASIMI_VERSION"); v != "" {
-		return v
-	}
-
-	if info, ok := debug.ReadBuildInfo(); ok {
-		if normalized := normalizeBuildVersion(info.Main.Version); normalized != "" {
-			return normalized
-		}
-
-		var revision string
-		var modified bool
-		for _, setting := range info.Settings {
-			switch setting.Key {
-			case "vcs.revision":
-				revision = setting.Value
-			case "vcs.modified":
-				modified = setting.Value == "true"
-			}
-		}
-
-		if revision != "" {
-			shortRev := revision
-			if len(shortRev) > 7 {
-				shortRev = shortRev[:7]
-			}
-			if modified {
-				return fmt.Sprintf("dev-%s-dirty", shortRev)
-			}
-			return fmt.Sprintf("dev-%s", shortRev)
-		}
-	}
-
-	return "dev"
 }
 
 func normalizeBuildVersion(v string) string {

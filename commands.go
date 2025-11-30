@@ -59,6 +59,7 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("init", "Init project to work with asimi", handleInitCommand)
 	registry.RegisterCommand("compact", "Compact conversation history to reduce context usage", handleCompactCommand)
 	registry.RegisterCommand("1", "Jump to the beginning of the chat history", handleScrollTopCommand)
+	registry.RegisterCommand("update", "Check for and install updates", handleUpdateCommand)
 
 	return registry
 }
@@ -409,4 +410,54 @@ func handleScrollTopCommand(model *TUIModel, args []string) tea.Cmd {
 	}
 	model.content.Chat.ScrollToTop()
 	return nil
+}
+
+type updateCheckMsg struct {
+	hasUpdate bool
+	latest    string
+	err       error
+}
+
+type updateCompleteMsg struct {
+	success bool
+	err     error
+}
+
+func handleUpdateCommand(model *TUIModel, args []string) tea.Cmd {
+	return func() tea.Msg {
+		// Show checking message
+		if program != nil {
+			program.Send(showContextMsg{content: "Checking for updates..."})
+		}
+
+		// Check for updates
+		latest, hasUpdate, err := CheckForUpdates(version)
+		if err != nil {
+			return updateCheckMsg{hasUpdate: false, err: err}
+		}
+
+		if !hasUpdate {
+			return updateCheckMsg{hasUpdate: false, latest: version}
+		}
+
+		// Update available - show confirmation
+		return updateCheckMsg{hasUpdate: true, latest: latest.Version.String()}
+	}
+}
+
+func handleUpdateConfirm(model *TUIModel) tea.Cmd {
+	return func() tea.Msg {
+		// Show updating message
+		if program != nil {
+			program.Send(showContextMsg{content: "Downloading and installing update...\nThis may take a moment."})
+		}
+
+		// Perform update
+		err := SelfUpdate(version)
+		if err != nil {
+			return updateCompleteMsg{success: false, err: err}
+		}
+
+		return updateCompleteMsg{success: true}
+	}
 }

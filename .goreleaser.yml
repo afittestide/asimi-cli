@@ -21,10 +21,16 @@ builds:
     flags:
       - -mod=vendor
       - -tags=containers_image_openpgp
+    ldflags:
+      - -s -w
 
 archives:
   - id: asimi
     name_template: 'asimi_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
     files:
       - README.md
       - LICENSE
@@ -44,31 +50,111 @@ changelog:
       - '^docs:'
       - '^test:'
       - '^chore:'
+      - '^ci:'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance Improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
 
 release:
   github:
-    owner: tuzig
+    owner: afittestide
     name: asimi-cli
   draft: false
   prerelease: auto
   mode: replace
   header: |
     ## Release {{ .Tag }}
+    
+    ### Installation
+    
+    #### Homebrew (macOS/Linux)
+    ```bash
+    brew install afittestide/tap/asimi
+    ```
+    
+    #### Binary Download
+    Download the appropriate binary for your platform below.
+    
   footer: |
     ---
-    **Full Changelog**: https://github.com/tuzig/asimi/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/afittestide/asimi-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-# brews:
+brews:
+  - name: asimi
+    repository:
+      owner: afittestide
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/afittestide/asimi-cli
+    description: "AI-powered CLI assistant with container support - safe, opinionated coding agent"
+    license: MIT
+    folder: Formula
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    dependencies:
+      - name: podman
+        type: optional
+    install: |
+      bin.install "asimi"
+      
+      # Install example configuration
+      (etc/"asimi").install "conf.toml.example" => "asimi.toml.example"
+      
+      # Install shell completions if available
+      if File.exist?("completions/asimi.bash")
+        bash_completion.install "completions/asimi.bash" => "asimi"
+      end
+      if File.exist?("completions/asimi.zsh")
+        zsh_completion.install "completions/asimi.zsh" => "_asimi"
+      end
+      if File.exist?("completions/asimi.fish")
+        fish_completion.install "completions/asimi.fish"
+      end
+    test: |
+      system "#{bin}/asimi", "--version"
+      assert_match "asimi version", shell_output("#{bin}/asimi --version")
+    caveats: |
+      Asimi requires Podman for containerized shell execution.
+      Install it with: brew install podman
+      
+      Example configuration has been installed to:
+        #{etc}/asimi/asimi.toml.example
+      
+      Copy it to get started:
+        mkdir -p ~/.config/asimi
+        cp #{etc}/asimi/asimi.toml.example ~/.config/asimi/asimi.toml
+      
+      For more information, see: https://github.com/afittestide/asimi-cli
+
+# Uncomment if you want to create a cask for GUI distribution
+# This would be useful if you later add a GUI wrapper or want to distribute
+# the CLI as a macOS application bundle
+# casks:
 #   - name: asimi
 #     repository:
-#       owner: tuzig
+#       owner: afittestide
 #       name: homebrew-tap
 #       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-#     homepage: https://github.com/tuzig/asimi
+#     homepage: https://github.com/afittestide/asimi-cli
 #     description: "AI-powered CLI assistant with container support"
-#     license: MIT
-#     folder: Formula
-#     install: |
-#       bin.install "asimi"
-#     test: |
-#       system "#{bin}/asimi", "--version"
+#     folder: Casks
+#     commit_author:
+#       name: goreleaserbot
+#       email: bot@goreleaser.com
+#     commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
+#     name: Asimi
+#     app: asimi.app
+#     # For a CLI tool distributed as a cask, you might use:
+#     # binary: asimi
+#     # Or create an app bundle structure

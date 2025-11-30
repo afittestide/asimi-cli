@@ -83,7 +83,13 @@ Asimi mimics the vi/vim/neovim interface:
 - `O` - Open line above
 
 **Entering Command Mode:**
-- ':' - In normal mode or as first character is Visual
+- ':' - In normal mode or as first character in Visual
+
+**Common Commands:**
+- `:update` - Check for and install updates
+- `:help` - Show help
+- `:new` - Start new session
+- `:quit` - Exit Asimi
 
 **Navigation (Normal Mode):**
 - `h/j/k/l` - Left/Down/Up/Right

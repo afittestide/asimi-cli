@@ -78,11 +78,6 @@ infrabuild:
     @echo "Building new asimi-dev image..."
     podman build -t asimi-shell:latest -f .agents/Sandbox .
 
-# Build production container
-build-container:
-    @mkdir -p infra
-    podman build -t asimi:latest -f .asimi/Dockerfile .
-
 # Clean up container resources
 infraclean:
     # podman machine stop

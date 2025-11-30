@@ -189,7 +189,7 @@ func main() {
 
 	// Handle --version flag
 	if cli.Version {
-		fmt.Printf("Asimi CLI v%s\n", asimiVersion())
+		fmt.Printf("Asimi CLI v%s\n", version)
 		os.Exit(0)
 	}
 
@@ -299,6 +299,11 @@ func main() {
 		<-done
 
 		os.Exit(0)
+	}
+
+	// Check for updates in background (non-blocking)
+	if AutoCheckForUpdates(version) {
+		slog.Info("Update available! Run :update to install the latest version.")
 	}
 
 	// Interactive mode

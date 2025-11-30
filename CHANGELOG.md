@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `:update` command to check for and install updates from GitHub releases
+- Automatic update checking on startup (non-blocking, 5-second timeout)
+- Self-update capability using go-github-selfupdate
+
 ### Removed
 
 - non-vi mode is no longer supported - vi FTW!

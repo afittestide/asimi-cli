@@ -42,6 +42,7 @@ type ChatComponent struct {
 }
 
 const (
+	asimiPrefix            = "> "
 	shellOutputFinalPrefix = " ╰"
 	shellOutputMidPrefix   = " │"
 	shellUserPrefix        = "You:$"
@@ -404,11 +405,11 @@ func (c *ChatComponent) UpdateContent() {
 				content := strings.TrimPrefix(message, "Asimi: ")
 				rendered := c.renderMarkdown(content)
 				// Add "Asimi: " prefix back with styling
-				asimiPrefix := lipgloss.NewStyle().
+				prefix := lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#01FAFA")). // Terminal7 text color
 					Bold(true).
-					Render("Asimi: ")
-				messageViews = append(messageViews, asimiPrefix+"\n"+rendered)
+					Render(asimiPrefix)
+				messageViews = append(messageViews, prefix+rendered)
 			} else {
 				// Other messages (system, tool calls, etc.)
 				messageStyle = lipgloss.NewStyle().

@@ -1471,6 +1471,39 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.Chat.AddMessage(msg.content)
 		m.sessionActive = true
 
+	case updateCheckMsg:
+		if msg.err != nil {
+			m.content.Chat.AddMessage(fmt.Sprintf("❌ Failed to check for updates: %v", msg.err))
+			return m, nil
+		}
+
+		if !msg.hasUpdate {
+			m.content.Chat.AddMessage(fmt.Sprintf("✓ You're running the latest version (%s)", msg.latest))
+			return m, nil
+		}
+
+		// Update available - ask for confirmation
+		question := fmt.Sprintf("Update available: %s → %s\n\nDo you want to update now?", version, msg.latest)
+		return m, m.commandLine.EnterYesNoMode(question)
+
+	case yesNoResponseMsg:
+		if msg.answer {
+			// User confirmed update
+			return m, handleUpdateConfirm(&m)
+		}
+		// User declined
+		m.content.Chat.AddMessage("Update cancelled. Run :update again when you're ready.")
+		return m, nil
+
+	case updateCompleteMsg:
+		if msg.err != nil {
+			m.content.Chat.AddMessage(fmt.Sprintf("❌ Update failed: %v\n\nTry updating manually with: %s", msg.err, GetUpdateCommand()))
+			return m, nil
+		}
+
+		m.content.Chat.AddMessage("✓ Update successful!\n\nPlease restart asimi to use the new version.")
+		return m, nil
+
 	case waitingTickMsg:
 		if m.waitingForResponse {
 			return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return waitingTickMsg{} })
