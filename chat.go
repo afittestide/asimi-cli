@@ -42,8 +42,9 @@ type ChatComponent struct {
 }
 
 const (
-	asimiPrefix     = "🎏 "
+	asimiPrefix     = "🎏  "
 	systemPrefix    = "🛠️  "
+	checkPrefix     = "✓"
 	treeFinalPrefix = " ╰"
 	treeMidPrefix   = " │"
 	shellUserPrefix = "You:$"
@@ -674,7 +675,7 @@ func (c *ChatComponent) HandleToolCallExecuting(msg ToolCallExecutingMsg) {
 
 // HandleToolCallSuccess handles a successful tool call message
 func (c *ChatComponent) HandleToolCallSuccess(msg ToolCallSuccessMsg) {
-	formatted := formatToolCall(msg.Call.Tool.Name(), "✅", msg.Call.Input, msg.Call.Result, nil)
+	formatted := formatToolCall(msg.Call.Tool.Name(), checkPrefix, msg.Call.Input, msg.Call.Result, nil)
 	// Update the existing message if we have its index
 	if idx, exists := c.GetToolCallMessageIndex(msg.Call.ID); exists && idx < len(c.Messages) {
 		c.Messages[idx] = formatted
