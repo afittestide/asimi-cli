@@ -27,6 +27,7 @@ func parseVersion(v string) (semver.Version, error) {
 // CheckForUpdates checks if a newer version is available on GitHub
 func CheckForUpdates(currentVersion string) (*selfupdate.Release, bool, error) {
 	slug := fmt.Sprintf("%s/%s", githubOwner, githubRepo)
+	slog.Debug("Checking updates", "project", slug)
 	latest, found, err := selfupdate.DetectLatest(slug)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to detect latest version: %w", err)

@@ -42,10 +42,11 @@ type ChatComponent struct {
 }
 
 const (
-	asimiPrefix            = "> "
-	shellOutputFinalPrefix = " ╰"
-	shellOutputMidPrefix   = " │"
-	shellUserPrefix        = "You:$"
+	asimiPrefix     = "> "
+	systemPrefix    = "🛠️  "
+	treeFinalPrefix = " ╰"
+	treeMidPrefix   = " │"
+	shellUserPrefix = "You:$"
 )
 
 // NewChatComponent creates a new chat component
@@ -293,14 +294,14 @@ func splitShellLines(text string) []string {
 
 func renderShellLines(lines []string) string {
 	if len(lines) == 0 {
-		return shellOutputFinalPrefix + "\n"
+		return treeFinalPrefix + "\n"
 	}
 
 	var builder strings.Builder
 	for i, line := range lines {
-		prefix := shellOutputMidPrefix
+		prefix := treeMidPrefix
 		if i == len(lines)-1 {
-			prefix = shellOutputFinalPrefix
+			prefix = treeFinalPrefix
 		}
 		builder.WriteString(prefix)
 		builder.WriteString(line)

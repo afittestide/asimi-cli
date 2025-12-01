@@ -26,9 +26,6 @@ var sandboxDefaultConfig string
 //go:embed dotagents/sandbox/bashrc
 var sandboxBashrc string
 
-// GuardrailPrefix is the prefix for all guardrail messages
-const GuardrailPrefix = "🛠️  "
-
 // InitTemplateData holds data for the initialization prompt template
 type InitTemplateData struct {
 	ProjectName  string
@@ -376,7 +373,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		missingFiles := checkMissingInfraFiles()
 
 		if len(missingFiles) == 0 && !clearMode {
-			return showContextMsg{content: strings.Join([]string{GuardrailPrefix + "All infrastructure files already exist:",
+			return showContextMsg{content: strings.Join([]string{systemPrefix + "All infrastructure files already exist:",
 				"✓ AGENTS.md",
 				"✓ Justfile",
 				"✓ .agents/sandbox/Dockerfile",
@@ -484,13 +481,13 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 		report := func(message string) {
 			results = append(results, message)
 			if program != nil {
-				program.Send(showContextMsg{content: shellOutputMidPrefix + " " + message})
+				program.Send(showContextMsg{content: treeMidPrefix + " " + message})
 			}
 		}
 
 		// Send initial message
 		if program != nil {
-			msg := "\n" + GuardrailPrefix + "Testing infrastructure"
+			msg := "\n" + systemPrefix + "Testing infrastructure"
 			if retryCount > 0 {
 				msg += fmt.Sprintf(" (attempt %d/%d)", retryCount+1, maxRetries+1)
 			}
@@ -796,7 +793,7 @@ func handleUpdateCommand(model *TUIModel, args []string) tea.Cmd {
 	return func() tea.Msg {
 		// Show checking message
 		if program != nil {
-			program.Send(showContextMsg{content: "Checking for updates..."})
+			program.Send(showContextMsg{content: systemPrefix + "Checking for updates..."})
 		}
 
 		// Check for updates
@@ -818,7 +815,7 @@ func handleUpdateConfirm(model *TUIModel) tea.Cmd {
 	return func() tea.Msg {
 		// Show updating message
 		if program != nil {
-			program.Send(showContextMsg{content: "Downloading and installing update...\nThis may take a moment."})
+			program.Send(showContextMsg{content: treeMidPrefix + " Downloading and installing update...\n" + treeMidPrefix + " This may take a moment."})
 		}
 
 		// Perform update

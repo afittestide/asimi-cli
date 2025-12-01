@@ -43,6 +43,7 @@ type TUIModel struct {
 	completionMode       string // "file" or "command"
 	sessionActive        bool
 	rawMode              bool // Toggle between chat and raw session view
+	updateAvailable      bool // True when a newer version is available
 
 	streamingActive        bool
 	streamingCancel        context.CancelFunc
@@ -359,14 +360,17 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCtrlZ()
 	}
 
-	// Handle command line input when in command mode - MUST be before other handlers
-	if m.commandLine.IsInCommandMode() {
+	// Handle command line input when in command mode or yes/no mode - MUST be before other handlers
+	if m.commandLine.IsInCommandMode() || m.commandLine.IsInYesNoMode() {
 		cmd, handled := m.commandLine.HandleKey(msg)
-		if handled && cmd != nil {
-			// Component handled the key and returned a message
+		if handled {
+			// Component handled the key
 			return m, cmd
 		}
-		// Component didn't handle it or returned nil
+		// Component didn't handle it - in YesNo mode, ignore unhandled keys
+		if m.commandLine.IsInYesNoMode() {
+			return m, nil
+		}
 		return m, nil
 	}
 
@@ -1459,18 +1463,24 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateCheckMsg:
 		if msg.err != nil {
-			m.content.Chat.AddMessage(fmt.Sprintf("❌ Failed to check for updates: %v", msg.err))
+			m.content.Chat.AddMessage(fmt.Sprintf("%s❌ Failed to check for updates: %v", systemPrefix, msg.err))
 			return m, nil
 		}
 
 		if !msg.hasUpdate {
-			m.content.Chat.AddMessage(fmt.Sprintf("✓ You're running the latest version (%s)", msg.latest))
+			m.content.Chat.AddMessage(fmt.Sprintf("%s✓ You're running the latest version (%s)", systemPrefix, msg.latest))
 			return m, nil
 		}
 
 		// Update available - ask for confirmation
-		question := fmt.Sprintf("Update available: %s → %s\n\nDo you want to update now?", version, msg.latest)
+		question := fmt.Sprintf("%sUpdate available: %s → %s. Do you want to update now?", systemPrefix, version, msg.latest)
 		return m, m.commandLine.EnterYesNoMode(question)
+
+	case updateAvailableMsg:
+		// Background update check found a new version - just set the flag
+		// The home view will display the notification
+		m.updateAvailable = true
+		return m, nil
 
 	case yesNoResponseMsg:
 		if msg.answer {
@@ -1478,16 +1488,17 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, handleUpdateConfirm(&m)
 		}
 		// User declined
-		m.content.Chat.AddMessage("Update cancelled. Run :update again when you're ready.")
+		m.content.Chat.AddMessage(fmt.Sprintf("%sUpdate cancelled.\n%s Please run :update again when ready", systemPrefix, treeFinalPrefix))
 		return m, nil
 
 	case updateCompleteMsg:
 		if msg.err != nil {
-			m.content.Chat.AddMessage(fmt.Sprintf("❌ Update failed: %v\n\nTry updating manually with: %s", msg.err, GetUpdateCommand()))
+			m.content.Chat.AddMessage(fmt.Sprintf("%s❌ Update failed: %v\n%s Try updating manually with: %s", systemPrefix, msg.err, treeFinalPrefix, GetUpdateCommand()))
 			return m, nil
 		}
 
-		m.content.Chat.AddMessage("✓ Update successful!\n\nPlease restart asimi to use the new version.")
+		m.content.Chat.AddMessage(fmt.Sprintf("%s✓ Update successful!\n%s Please restart asimi to use the new version.", systemPrefix, treeFinalPrefix))
+		return m, nil
 		return m, nil
 
 	case waitingTickMsg:
@@ -1618,6 +1629,9 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prompt.EnterViScrollMode()
 		case "command":
 			m.prompt.EnterViCommandLineMode()
+		case "yesno":
+			// Yes/No mode - blur prompt so cursor doesn't appear there
+			m.prompt.Blur()
 		case "learning":
 			m.prompt.EnterViLearningMode()
 		case "select", "resume", "models", "help":
@@ -2284,12 +2298,23 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to visual mode  🎂")
 
+	// Create update notification if available
+	var updateNotice string
+	if m.updateAvailable {
+		updateStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#00FF00")). // Bright green for visibility
+			Align(lipgloss.Center).
+			Width(width)
+		updateNotice = updateStyle.Render("🚀 Update available! Run :update to install the latest version.")
+	}
+
 	// Create a list of helpful commands
 	commands := []string{
 		"▶ Mode base UI, starting in INSERT",
-		"▶ Press `ESC` to switch modes",
 		"▶ Press `CTRL-B` for SCROLL mode",
 		"▶ Press `CTRL-C` to stop the model, press again to exit",
+		"▶ Press `ESC` to switch modes",
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Type `:init` to setup the project",
 		"▶ Press `!` in COMMAND to run a command in the sandbox",
@@ -2311,7 +2336,12 @@ func (m TUIModel) renderHomeView(width, height int) string {
 	commandsView := lipgloss.JoinVertical(lipgloss.Left, commandViews...)
 
 	// Center the content vertically
-	content := lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle, "", commandsView)
+	var content string
+	if m.updateAvailable {
+		content = lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle, "", updateNotice, "", commandsView)
+	} else {
+		content = lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle, "", commandsView)
+	}
 
 	// Create a container that centers the content
 	container := lipgloss.NewStyle().

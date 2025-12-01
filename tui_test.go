@@ -707,6 +707,19 @@ func TestRenderHomeView(t *testing.T) {
 	require.Contains(t, view, "Asimi")
 }
 
+// TestRenderHomeViewWithUpdateAvailable tests the home view shows update notification
+func TestRenderHomeViewWithUpdateAvailable(t *testing.T) {
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
+	model.width = 80
+	model.height = 24
+	model.updateAvailable = true
+
+	view := model.renderHomeView(80, 24)
+	require.NotEmpty(t, view)
+	require.Contains(t, view, "Update available")
+	require.Contains(t, view, ":update")
+}
+
 // TestColonCommandCompletion tests command completion with colon prefix in vi mode
 func TestColonCommandCompletion(t *testing.T) {
 	model := newTestModel(t)

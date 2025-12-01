@@ -31,7 +31,7 @@ import (
 )
 
 // Update the version as part of the version release process
-var version = "0.2.0-rc.3"
+var version = "0.2.0-rc.2"
 
 var program *tea.Program
 
@@ -139,6 +139,13 @@ func runInteractiveMode() error {
 
 	slog.Debug("[TIMING] fx app initialized", "duration", time.Since(startTime))
 
+	// Check for updates in background (non-blocking)
+	go func() {
+		if AutoCheckForUpdates(version) {
+			program.Send(updateAvailableMsg{})
+		}
+	}()
+
 	// If profile-exit-ms is set, schedule an exit after that duration
 	if cli.ProfileExitMs > 0 {
 		go func() {
@@ -182,6 +189,9 @@ type compactCompleteMsg struct {
 type compactErrorMsg struct {
 	err error
 }
+
+// updateAvailableMsg is sent when a newer version is available
+type updateAvailableMsg struct{}
 
 func main() {
 	startTime := time.Now()
@@ -299,11 +309,6 @@ func main() {
 		<-done
 
 		os.Exit(0)
-	}
-
-	// Check for updates in background (non-blocking)
-	if AutoCheckForUpdates(version) {
-		slog.Info("Update available! Run :update to install the latest version.")
 	}
 
 	// Interactive mode

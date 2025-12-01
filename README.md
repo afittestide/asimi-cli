@@ -4,7 +4,16 @@
 
 > A safe, opinionated coding agent
 
-Asimi is an opinionated command-line interface that brings AI-powered coding assistance directly to your terminal. Built with modern Go libraries and a focus on developer experience, Asimi helps you write better code faster.
+Asimi is a opinionated, safe & fast coding agent for the terminal
+
+## Principals
+
+- The user comes first, before the 🦙
+- Mimcking over innovation
+- visual model and the `ex` editor are a 
+- User's host is scared and the 🦙 access should be as limited as possible
+- 
+- and need a sandbox for the agent's shell. that brings AI-powered coding assistance directly to your terminal. Built with modern Go libraries and a focus on developer experience, Asimi helps you write better code faster.
 
 ## ✨ Features
 
@@ -12,16 +21,34 @@ Asimi is an opinionated command-line interface that brings AI-powered coding ass
 - 🎨 **vi mimicry** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
 - 🤖 **Multiple AI Providers** - Support for Ollama and Claude foe now. More are comming [TODO: Add a link to issues with a label of "new providers"]
 -  **Less Clutter** - Asimi's special files are under `.agents` directory and TOML is used for .conf
-- 🔧 Fast Shell** - Asimi's persistent, containerized shell is >100 times faster than the others
+- 🔧 **Fast Shell** - Asimi's shell runs in a container and is >100 times faster than the others
 - 📊 Context Awareness** - Smart token counting and context visualization
 - 🎯 Session Management** - Save and resume your coding sessions
 
-We're still missing MCP support. If it's critical for you, please consider helping out #
+## 🗺️ Roadmap
+
+Asimi is just starting out. It's been used to develop itself since version 0.1.0, well over a month now and it rarely breaks 🪬🪬🪬
+
+| Feature | Description |
+|---------|-------------|
+| [#56 - MCP Support](https://github.com/afittestide/asimi-cli/issues/56) | Model Context Protocol integration |
+| [#24 - Sub-agents & Roles](https://github.com/afittestide/asimi-cli/issues/24) | Task delegation with orchestrator role |
+| [#8 - Git Integration](https://github.com/afittestide/asimi-cli/issues/8) | `:branch` command and tighter git workflows |
+| [#68 - Shell Firewall](https://github.com/afittestide/asimi-cli/issues/68) | Required approval to run commands on host |
+
+> 💡 Have a feature request? [Open an issue](https://github.com/afittestide/asimi-cli/issues/new)!
 
 
 ## 🚀 Quick Start
 
-Please choose your installer flavor:
+Please choose the installer flavor:
+
+### brew
+
+```bash
+brew tap afittestide/tap
+brew install asimi
+```
 
 ### Go
 
@@ -31,13 +58,7 @@ go install github.com/affitestide/asimi-cli
 
 ### Binaries
 
-TODO: Release 0.2.0
-
 Download the binary from your platform from [latest releases](https://github.com/afittestide/asimi-cli/releases/latest) and copy to your favorite bin directory e.g, `/usr/local/bin`.
-
-### One liner
-
-TODO: add a one line installer probably at https://asimi.dev/installer
 
 ### First Steps
 
@@ -287,16 +308,6 @@ use `:login`
 # Start a new conversation
 /new
 ```
-
-## 📊 Roadmap
-
-See issues for planned issues
-
-### Upcoming Features
-
-- [ ] MCP Support
-- [ ] Task delegation with sub-agents
-- [ ] 
 
 ## 📄 License
 

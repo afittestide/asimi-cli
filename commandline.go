@@ -142,7 +142,7 @@ func (cl *CommandLineComponent) IsInCommandMode() bool {
 func (cl *CommandLineComponent) EnterYesNoMode(question string) tea.Cmd {
 	cl.mode = CommandLineYesNo
 	cl.yesNoQuestion = question
-	cl.showCursor = false
+	cl.showCursor = true
 	return func() tea.Msg {
 		return ChangeModeMsg{NewMode: "yesno"}
 	}
@@ -263,10 +263,18 @@ func (cl *CommandLineComponent) Update() {
 func (cl *CommandLineComponent) View() string {
 	// Priority 1: Show yes/no prompt if in yes/no mode
 	if cl.mode == CommandLineYesNo {
+		promptText := cl.yesNoQuestion + " (y/n) "
+		var displayText string
+		if cl.showCursor {
+			cursorStyle := lipgloss.NewStyle().Reverse(true)
+			displayText = promptText + cursorStyle.Render(" ")
+		} else {
+			displayText = promptText
+		}
 		promptStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("11")). // Yellow for attention
+			Foreground(globalTheme.Warning).
 			Width(cl.width)
-		return promptStyle.Render(cl.yesNoQuestion + " (y/n)")
+		return promptStyle.Render(displayText)
 	}
 
 	// Priority 2: Show command if in command mode
