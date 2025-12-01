@@ -2309,8 +2309,7 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		"▶ Press `:` in NORMAL for COMMAND mode",
 		"▶ Type `:init` to setup the project",
 		"▶ Press `!` in COMMAND to run a command in the sandbox",
-		"",
-		"     ⌨️  ESC:!uname -aENTER ⌨️",
+		"     e.g, ⌨️ ESC:!uname -aENTER⌨️",
 	}
 
 	// Style for commands

@@ -318,31 +318,17 @@ func (s StatusComponent) renderLeftSection() string {
 
 // renderMiddleSection renders the middle section with token usage andsession age
 func (s StatusComponent) renderMiddleSection() string {
+	statusStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 	// Return token usage and session age e.g, `🪣 63%   1h23:45 ⏱`
 	if s.Session == nil {
-		return ""
+		return statusStyle.Render("🪣 0%")
 	}
 
 	// Get context usage percentage
 	usagePercent := s.Session.GetContextUsagePercent()
 
-	// Get session duration
-	duration := s.Session.GetSessionDuration()
-
-	// Format duration as h:mm:ss or mm:ss
-	hours := int(duration.Hours())
-	minutes := int(duration.Minutes()) % 60
-	seconds := int(duration.Seconds()) % 60
-
-	var durationStr string
-	if hours > 0 {
-		durationStr = fmt.Sprintf("%dh%02d:%02d", hours, minutes, seconds)
-	} else {
-		durationStr = fmt.Sprintf("%02d:%02d", minutes, seconds)
-	}
-
 	// Format the output with icons
-	statusStr := fmt.Sprintf("🪣 %.0f%%   %s ⏱", usagePercent, durationStr)
+	statusStr := fmt.Sprintf("🪣 %.0f%%", usagePercent)
 	if s.waitingForResponse && !s.waitingSince.IsZero() {
 		waitSeconds := int(time.Since(s.waitingSince).Seconds())
 		if waitSeconds >= 3 {
@@ -351,7 +337,6 @@ func (s StatusComponent) renderMiddleSection() string {
 	}
 
 	// Style with theme text color
-	statusStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 	return statusStyle.Render(statusStr)
 }
 
