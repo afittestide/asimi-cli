@@ -459,3 +459,83 @@ func TestUpdateUserLLMAuthIntegration(t *testing.T) {
 		assert.NoError(t, err, "Config file should be created")
 	})
 }
+
+func TestEnsureUserConfigExists(t *testing.T) {
+	t.Run("creates config file on first run", func(t *testing.T) {
+		// Create a temporary home directory
+		tempHome := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempHome)
+		defer os.Setenv("HOME", originalHome)
+
+		// Ensure config doesn't exist
+		configPath := filepath.Join(tempHome, ".config", "asimi", "asimi.conf")
+		_, err := os.Stat(configPath)
+		require.True(t, os.IsNotExist(err), "Config should not exist before test")
+
+		// Call EnsureUserConfigExists
+		created, err := EnsureUserConfigExists()
+		require.NoError(t, err)
+		assert.True(t, created, "Should return true when config is created")
+
+		// Verify config file was created
+		_, err = os.Stat(configPath)
+		require.NoError(t, err, "Config file should exist after EnsureUserConfigExists")
+
+		// Verify content contains expected comments
+		content, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "# Asimi Default Configuration File")
+		assert.Contains(t, string(content), "[llm]")
+	})
+
+	t.Run("returns false when config already exists", func(t *testing.T) {
+		// Create a temporary home directory
+		tempHome := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempHome)
+		defer os.Setenv("HOME", originalHome)
+
+		// Create config directory and file
+		configDir := filepath.Join(tempHome, ".config", "asimi")
+		err := os.MkdirAll(configDir, 0755)
+		require.NoError(t, err)
+
+		configPath := filepath.Join(configDir, "asimi.conf")
+		existingContent := "[llm]\nprovider = \"anthropic\"\n"
+		err = os.WriteFile(configPath, []byte(existingContent), 0644)
+		require.NoError(t, err)
+
+		// Call EnsureUserConfigExists
+		created, err := EnsureUserConfigExists()
+		require.NoError(t, err)
+		assert.False(t, created, "Should return false when config already exists")
+
+		// Verify content was not modified
+		content, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, existingContent, string(content), "Existing config should not be modified")
+	})
+
+	t.Run("creates directory if it doesn't exist", func(t *testing.T) {
+		// Create a temporary home directory
+		tempHome := t.TempDir()
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempHome)
+		defer os.Setenv("HOME", originalHome)
+
+		// Ensure .config directory doesn't exist
+		configDir := filepath.Join(tempHome, ".config", "asimi")
+		_, err := os.Stat(configDir)
+		require.True(t, os.IsNotExist(err), "Config directory should not exist before test")
+
+		// Call EnsureUserConfigExists
+		created, err := EnsureUserConfigExists()
+		require.NoError(t, err)
+		assert.True(t, created)
+
+		// Verify directory was created
+		_, err = os.Stat(configDir)
+		require.NoError(t, err, "Config directory should exist after EnsureUserConfigExists")
+	})
+}

@@ -44,6 +44,7 @@ type TUIModel struct {
 	sessionActive        bool
 	rawMode              bool // Toggle between chat and raw session view
 	updateAvailable      bool // True when a newer version is available
+	configCreated        bool // True when config file was created on first run
 
 	streamingActive        bool
 	streamingCancel        context.CancelFunc
@@ -131,6 +132,7 @@ func NewTUIModel(config *Config, repoInfo *RepoInfo, promptHistory *PromptHistor
 		completionMode:       "",
 		sessionActive:        false,
 		rawMode:              false,
+		configCreated:        ConfigCreated, // Set from global flag
 
 		// Command registry
 		commandRegistry: registry,
@@ -2298,17 +2300,6 @@ func (m TUIModel) renderHomeView(width, height int) string {
 
 	subtitle := subtitleStyle.Render("🎂  Happy 50th Birthday to visual mode  🎂")
 
-	// Create update notification if available
-	var updateNotice string
-	if m.updateAvailable {
-		updateStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#00FF00")). // Bright green for visibility
-			Align(lipgloss.Center).
-			Width(width)
-		updateNotice = updateStyle.Render("🚀 Update available! Run :update to install the latest version.")
-	}
-
 	// Create a list of helpful commands
 	commands := []string{
 		"▶ Mode base UI, starting in INSERT",
@@ -2333,15 +2324,34 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		commandViews = append(commandViews, commandStyle.Render(command))
 	}
 
-	commandsView := lipgloss.JoinVertical(lipgloss.Left, commandViews...)
+	// Build content parts in order: commands, notification, title, subtitle
+	var contentParts []string
+	contentParts = append(contentParts, lipgloss.JoinVertical(
+		lipgloss.Left, commandViews...))
 
-	// Center the content vertically
-	var content string
+	// Add notification if available (centered)
 	if m.updateAvailable {
-		content = lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle, "", updateNotice, "", commandsView)
-	} else {
-		content = lipgloss.JoinVertical(lipgloss.Center, title, "", subtitle, "", commandsView)
+		updateStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#00FF00")). // Bright green for visibility
+			Align(lipgloss.Center).
+			Width(width)
+		contentParts = append(contentParts, "",
+			updateStyle.Render("🚀 Update available! Run :update to install the latest version"))
+	} else if m.configCreated {
+		configStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#00BFFF")). // Deep sky blue for visibility
+			Align(lipgloss.Center).
+			Width(width)
+		contentParts = append(contentParts, "",
+			configStyle.Render("📝 Config file created at ~/.config/asimi/asimi.conf"))
 	}
+
+	// Add title and subtitle at the top (prepend)
+	contentParts = append([]string{title, "", subtitle, ""}, contentParts...)
+
+	content := lipgloss.JoinVertical(lipgloss.Center, contentParts...)
 
 	// Create a container that centers the content
 	container := lipgloss.NewStyle().

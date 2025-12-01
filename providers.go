@@ -27,6 +27,16 @@ func ProvideLogger() (LoggerResult, error) {
 // ProvideConfig loads and returns the application configuration
 func ProvideConfig(logger *slog.Logger) (*Config, error) {
 	logger.Info("loading configuration")
+
+	// Ensure user config file exists (creates it on first run)
+	created, err := EnsureUserConfigExists()
+	if err != nil {
+		logger.Warn("failed to ensure user config exists", "error", err)
+	} else if created {
+		logger.Info("created user config file on first run")
+		ConfigCreated = true
+	}
+
 	config, err := LoadConfig()
 	if err != nil {
 		logger.Info("using default configuration due to load failure")

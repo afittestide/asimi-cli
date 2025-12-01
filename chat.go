@@ -42,7 +42,7 @@ type ChatComponent struct {
 }
 
 const (
-	asimiPrefix     = "> "
+	asimiPrefix     = "🎏 "
 	systemPrefix    = "🛠️  "
 	treeFinalPrefix = " ╰"
 	treeMidPrefix   = " │"

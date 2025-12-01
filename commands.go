@@ -20,9 +20,6 @@ var initializePrompt string
 //go:embed prompts/compact.txt
 var compactPrompt string
 
-//go:embed dotagents/asimi.conf
-var sandboxDefaultConfig string
-
 //go:embed dotagents/sandbox/bashrc
 var sandboxBashrc string
 
@@ -351,7 +348,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		// These are simple files we can provide directly
 		projectConfigPath := ".agents/asimi.conf"
 		if _, err := os.Stat(projectConfigPath); os.IsNotExist(err) || clearMode {
-			if err := os.WriteFile(projectConfigPath, []byte(sandboxDefaultConfig), 0o644); err != nil {
+			if err := os.WriteFile(projectConfigPath, []byte(defaultConfContent), 0o644); err != nil {
 				return showContextMsg{content: fmt.Sprintf("Error writing project config file %s: %v", projectConfigPath, err)}
 			}
 			if program != nil && !clearMode {

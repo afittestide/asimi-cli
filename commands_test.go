@@ -180,7 +180,7 @@ func TestHandleInitCommand(t *testing.T) {
 		// Check that the content matches the embedded default
 		content, err := os.ReadFile(projectConfigPath)
 		require.NoError(t, err)
-		require.Equal(t, sandboxDefaultConfig, string(content))
+		require.Equal(t, defaultConfContent, string(content))
 
 		// Clean up for the next test
 		err = os.RemoveAll(".agents")
@@ -277,7 +277,7 @@ func TestHandleInitCommand(t *testing.T) {
 		projectConfigPath := ".agents/asimi.conf"
 		content, err := os.ReadFile(projectConfigPath)
 		require.NoError(t, err)
-		require.Equal(t, sandboxDefaultConfig, string(content))
+		require.Equal(t, defaultConfContent, string(content))
 
 		// bashrc should be recreated with embedded content
 		bashrcPath := ".agents/sandbox/bashrc"

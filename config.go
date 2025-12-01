@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,9 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	koanf "github.com/knadh/koanf/v2"
 )
+
+//go:embed dotagents/asimi.conf
+var defaultConfContent string
 
 type oauthProviderConfig struct {
 	AuthURL      string
@@ -138,6 +142,50 @@ type RunInShellConfig struct {
 	AllowHostFallback bool   `koanf:"allow_host_fallback"`
 	NoCleanup         bool   `koanf:"no_cleanup"`
 	ImageName         string `koanf:"image_name"` // Container image name (default: asimi-sandbox-<project>:latest)
+}
+
+// TODO: find a better way and remove this global
+// ConfigCreated tracks whether the config file was created on this run
+var ConfigCreated bool
+
+// userConfigPath returns the path to the user config directory and file.
+// Returns (cfgDir, cfgPath, error).
+func userConfigPath() (string, string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	cfgDir := filepath.Join(homeDir, ".config", "asimi")
+	cfgPath := filepath.Join(cfgDir, "asimi.conf")
+	return cfgDir, cfgPath, nil
+}
+
+// EnsureUserConfigExists checks if the user config file exists and creates it if not.
+// Returns true if the config file was created (first run), false otherwise.
+func EnsureUserConfigExists() (bool, error) {
+	cfgDir, cfgPath, err := userConfigPath()
+	if err != nil {
+		return false, err
+	}
+
+	// Check if config file already exists
+	if _, err := os.Stat(cfgPath); err == nil {
+		return false, nil // Config exists, not first run
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("failed to check config file: %w", err)
+	}
+
+	// Config doesn't exist - create it
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		return false, fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(cfgPath, []byte(defaultConfContent), 0o644); err != nil {
+		return false, fmt.Errorf("failed to create config file: %w", err)
+	}
+
+	log.Printf("Created user config file at %s", cfgPath)
+	return true, nil
 }
 
 // LoadConfig loads configuration from multiple sources
@@ -281,15 +329,13 @@ func UpdateUserLLMAuth(provider, apiKey, model string) error {
 		return updateAPIKeyInFile(provider, apiKey, model)
 	}
 
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	// If file does not exist, create minimal content
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
@@ -397,15 +443,13 @@ func UpdateUserLLMAuth(provider, apiKey, model string) error {
 
 // updateAPIKeyInFile is the fallback method for storing API keys in file (less secure)
 func updateAPIKeyInFile(provider, apiKey, model string) error {
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	// If file does not exist, create minimal content
 	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
@@ -515,15 +559,13 @@ func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry ti
 	}
 
 	// Only save provider info in the config file (not the tokens)
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	data := []byte{}
 	if b, err := os.ReadFile(cfgPath); err == nil {
@@ -606,15 +648,13 @@ func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry ti
 
 // updateOAuthTokensInFile is the fallback method for storing tokens in file (less secure)
 func updateOAuthTokensInFile(provider, accessToken, refreshToken string) error {
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "asimi.conf")
 
 	data := []byte{}
 	if b, err := os.ReadFile(cfgPath); err == nil {
