@@ -53,7 +53,7 @@ type commandOutput struct {
 func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
 	noCleanup := false
-	imageName := "localhost/asimi-shell:latest" // default for backward compatibility
+	imageName := fmt.Sprintf("localhost/asimi-sandbox-%s:latest", repoInfo.Slug)
 
 	if config != nil {
 		if config.RunInShell.NoCleanup {
@@ -62,6 +62,8 @@ func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo)
 		if config.RunInShell.ImageName != "" {
 			imageName = config.RunInShell.ImageName
 		}
+	} else {
+		slog.Debug("Config is nil, using image: ", "name", imageName)
 	}
 
 	ret := &PodmanShellRunner{

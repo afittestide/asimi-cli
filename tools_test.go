@@ -176,11 +176,11 @@ func TestReadFileToolWithOffsetAndLimit(t *testing.T) {
 func TestPodmanShellRunner(t *testing.T) {
 	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
+	assert.NotNil(t, runner)
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo hello",
 	})
-
 	require.NoError(t, err)
 	assert.Contains(t, output.Output, "hello")
 	assert.Equal(t, "0", output.ExitCode)
@@ -199,6 +199,7 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 
 	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(false, nil, repoInfo)
+	assert.NotNil(t, runner)
 
 	// First command
 	output1, err := runner.Run(context.Background(), RunInShellInput{
@@ -220,6 +221,7 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 func TestPodmanShellRunnerWithStderr(t *testing.T) {
 	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
+	assert.NotNil(t, runner)
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo 'stdout msg' && echo 'stderr msg' >&2",

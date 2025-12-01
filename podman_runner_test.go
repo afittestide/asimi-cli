@@ -9,8 +9,9 @@ import (
 func TestPodmanRunnerStub(t *testing.T) {
 	// Test that the stub implementation works
 	repoInfo := repoInfoWithProjectRoot(t)
+	repoInfo.Slug = "BADWOLF"
 	runner := newPodmanShellRunner(true, nil, repoInfo)
 	require.NotNil(t, runner)
-	require.Equal(t, "localhost/asimi-shell:latest", runner.imageName)
+	require.Equal(t, "localhost/asimi-sandbox-BADWOLF:latest", runner.imageName)
 	require.True(t, runner.allowFallback)
 }
