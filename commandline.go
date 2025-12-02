@@ -322,13 +322,13 @@ func (cl *CommandLineComponent) View() string {
 
 		switch toast.Type {
 		case "info":
-			style = style.Background(lipgloss.NoColor{})
+			style = style.Background(lipgloss.NoColor{}).Foreground(globalTheme.TextColor)
 		case "success":
-			style = style.Background(lipgloss.Color("76")) // Green
+			style = style.Background(lipgloss.NoColor{}).Foreground(globalTheme.TextColor)
 		case "warning":
-			style = style.Background(lipgloss.Color("11")) // Yellow
+			style = style.Background(lipgloss.NoColor{}).Foreground(globalTheme.Warning)
 		case "error":
-			style = style.Background(lipgloss.Color("124")) // Red
+			style = style.Background(globalTheme.Error)
 		}
 
 		return style.Render(toast.Message)
