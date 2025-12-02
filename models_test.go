@@ -73,8 +73,17 @@ func TestFetchAllModels_ReturnsEmptyWithoutAuth(t *testing.T) {
 
 	models := fetchAllModels(config)
 
-	assert.Equal(t, 1, len(models))
+	// Should have 2 models: login and help options
+	assert.Equal(t, 2, len(models))
+
+	// First should be login
 	assert.Contains(t, models[0].DisplayName, "Login")
+	assert.Equal(t, "login", models[0].Status)
+
+	// Second should be help
+	assert.Contains(t, models[1].DisplayName, "Learn about model configuration")
+	assert.Equal(t, "login", models[1].Status)
+	assert.Equal(t, "help", models[1].Provider)
 }
 
 // TestFetchAllModels_WithAPIKey verifies that models show as ready when API key is available

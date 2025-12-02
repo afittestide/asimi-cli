@@ -123,6 +123,7 @@ func (h *HelpWindow) getHelpTopic(topic string) string {
 		"sessions":   helpSessions,
 		"context":    helpContext,
 		"config":     helpConfig,
+		"models":     helpModels,
 		"quickref":   helpQuickRef,
 	}
 
@@ -148,6 +149,7 @@ Type :help followed by one of these topics:
   :help sessions    - Session management
   :help context     - Context and token usage
   :help config      - Configuration options
+  :help models      - Model selection and LLM configuration
   :help quickref    - Quick reference guide
 
 Press 'q' or ESC to close this help window.
@@ -182,6 +184,7 @@ Asimi uses ':' for sending commmands and starts in INSERT mode.
   :help files       - File operations and @ references
   :help sessions    - Session management and resume
   :help context     - Context and token usage
+  :help models      - Model selection and LLM configuration
   :help config      - Configuration options
   :help quickref    - Quick reference guide
 
@@ -612,6 +615,151 @@ Asimi counts tokens for:
 3. Reference files only when needed
 4. Export important conversations before starting new sessions
 5. Use :clear-history to reset prompt history (doesn't affect context)
+`
+
+const helpModels = `# Model Selection and LLM Configuration
+
+Asimi supports multiple AI providers and models. You can switch between them
+using the :models command or configure them via environment variables.
+
+## Selecting a Model
+
+  :models          - Open interactive model selector
+                     Shows all available models from configured providers
+
+The model selector displays:
+  - Available models from all providers
+  - Current active model (marked with ✓)
+  - Models requiring authentication (marked with 🔒)
+  - Provider icons (🅰️  Anthropic, 🤖 OpenAI, 🔷 Google, 🦙 Ollama)
+
+Navigation:
+  ↓/↑              - Navigate through models
+  Enter            - Select model
+  ESC              - Cancel
+
+## Supported Providers
+
+### Anthropic (Claude)
+Models: claude-3-5-sonnet-latest, claude-3-opus-latest, etc.
+
+Authentication options:
+  1. OAuth (recommended): Use :login to authenticate
+  2. API Key via environment: ANTHROPIC_API_KEY=sk-ant-...
+  3. API Key via keyring: Stored securely in OS keyring
+
+Custom endpoint:
+  ANTHROPIC_BASE_URL=https://custom-endpoint.com
+
+### Ollama (Local Models)
+Models: Any model you've pulled locally (llama2, codellama, etc.)
+
+Setup:
+  1. Install Ollama: https://ollama.ai
+  2. Pull a model: ollama pull llama2
+  3. Asimi will auto-detect running Ollama instance
+
+Custom host:
+  OLLAMA_HOST=http://localhost:11434
+
+## Environment Variables
+
+### API Keys
+  ANTHROPIC_API_KEY     - Anthropic API key
+
+### Base URLs (for custom endpoints)
+  ANTHROPIC_BASE_URL    - Custom Anthropic endpoint
+  OLLAMA_HOST           - Ollama server URL
+
+### OAuth Tokens (Advanced)
+  ANTHROPIC_OAUTH_TOKEN - Override stored OAuth token
+  ANTHROPIC_CLIENT_ID   - Custom OAuth client ID
+  ANTHROPIC_CLIENT_SECRET - Custom OAuth client secret
+
+## Configuration File
+
+You can also configure models in ~/.config/asimi/asimi.conf:
+
+  [llm]
+  provider = "anthropic"
+  model = "claude-3-5-sonnet-latest"
+  api_key = "sk-ant-..."
+  base_url = "https://api.anthropic.com"
+
+## Authentication Methods
+
+### 1. API Keys via Environment
+  export ANTHROPIC_API_KEY=sk-ant-...
+  asimi
+
+### 2. API Keys via Keyring
+Asimi automatically stores API keys in your OS keyring when you login
+or when configured in the config file.
+
+## Switching Providers
+
+To switch between providers:
+  1. Use :models to see all available models
+  2. Select a model from a different provider
+  3. Asimi will automatically switch providers
+
+Or configure directly:
+  ASIMI_LLM_PROVIDER=openai asimi
+
+## Custom Endpoints
+
+For custom or self-hosted LLM endpoints:
+
+  # OpenAI-compatible endpoint
+  OPENAI_BASE_URL=https://my-llm.company.com
+  OPENAI_API_KEY=my-key
+  asimi
+
+  # Anthropic-compatible endpoint
+  ANTHROPIC_BASE_URL=https://my-claude.company.com
+  ANTHROPIC_API_KEY=my-key
+  asimi
+
+## Troubleshooting
+
+### No models available
+  - Check authentication: :models or set API keys
+  - Verify network connectivity
+  - Check provider status pages
+
+### Model not found
+  - Use :models to see available models
+  - Check provider documentation for model names
+  - Verify API key has access to the model
+
+### Authentication errors
+  - Re-authenticate: :login
+  - Check API key validity
+  - Verify environment variables are set correctly
+
+### Ollama not detected
+  - Ensure Ollama is running: ollama serve
+  - Check OLLAMA_HOST is correct
+  - Verify you've pulled at least one model
+
+## Examples
+
+  # Use Claude with OAuth
+  :login
+  # Select Anthropic, complete OAuth flow
+  :models
+  # Select claude-3-5-sonnet-latest
+
+  # Use local Ollama
+  ollama pull llama2
+  asimi
+  :models
+  # Select llama2
+
+  # Use custom endpoint
+  export OPENAI_BASE_URL=https://my-llm.company.com
+  export OPENAI_API_KEY=my-key
+  asimi
 `
 
 const helpConfig = `# Configuration

@@ -20,7 +20,7 @@ type Model struct {
 	DisplayName string // Human-readable name
 	Provider    string // Provider key (e.g., "anthropic", "openai", "googleai")
 	Description string // Optional description
-	Status      string // "active" (currently selected), "ready" (key found), "login_required"
+	Status      string // "active" (currently selected), "ready" (key found), "login_required", "login"
 	// TODO: if not nil, it should be called on selecting the model
 	OnSelect tea.Cmd
 }
@@ -175,7 +175,7 @@ func fetchAllModels(config *Config) []Model {
 			DisplayName: "Login to Anthropic",
 			Provider:    "anthropic",
 			Description: "Use Claude Pro/Max account",
-			Status:      "login_required",
+			Status:      "login",
 			OnSelect: func() tea.Msg {
 				slog.Debug("Login selected line")
 				return providerSelectedMsg{provider: &Provider{
@@ -183,6 +183,19 @@ func fetchAllModels(config *Config) []Model {
 					Description: "Claude Pro/Max",
 					Key:         "anthropic",
 				}}
+			},
+		})
+		// Add help option for learning about model configuration
+		// TODO: ensure this is the right place for this.
+		allModels = append(allModels, Model{
+			ID:          "help",
+			DisplayName: "Learn about model configuration",
+			Provider:    "help",
+			Description: "API keys, environment variables, and more",
+			Status:      "login",
+			OnSelect: func() tea.Msg {
+				slog.Debug("Help models selected")
+				return showHelpMsg{topic: "models"}
 			},
 		})
 	}
@@ -273,8 +286,7 @@ func fetchAllModels(config *Config) []Model {
 	// Sort models: active first, then ready, then error, then login_required
 	// Within each status, sort by provider then by display name
 	sort.Slice(allModels, func(i, j int) bool {
-		// Status priority: active > ready > error > login_required
-		statusPriority := map[string]int{"active": 0, "ready": 1, "error": 2, "login_required": 3}
+		statusPriority := map[string]int{"active": 0, "login": 1, "ready": 2, "help": 3, "error": 4, "login_required": 5}
 		if statusPriority[allModels[i].Status] != statusPriority[allModels[j].Status] {
 			return statusPriority[allModels[i].Status] < statusPriority[allModels[j].Status]
 		}
@@ -645,6 +657,8 @@ func getProviderIcon(provider string) string {
 		return "🔷"
 	case "ollama":
 		return "🦙"
+	case "help":
+		return "📖"
 	default:
 		return "  "
 	}
@@ -657,6 +671,8 @@ func getStatusIcon(status string) string {
 		return "✓"
 	case "ready":
 		return "●"
+	case "login":
+		return "🔑"
 	case "login_required":
 		return "🔒"
 	case "error":

@@ -2361,10 +2361,10 @@ func (m TUIModel) renderHomeView(width, height int) string {
 	commands := []string{
 		"▶ Mode base UI, starting in INSERT",
 		"▶ Press `CTRL-B` for SCROLL mode",
-		"▶ Press `CTRL-C` to stop the model, press again to exit",
+		"▶ Press `CTRL-C` to stop the model, twice to exit",
 		"▶ Press `ESC` to switch modes",
-		"▶ Press `:` in NORMAL for COMMAND mode",
-		"▶ Type `:init` to setup the project",
+		"▶ Type `:model` to setup the model",
+		"▶ Press `:init` to init th project",
 		"▶ Press `!` in COMMAND to run a command in the sandbox",
 		"     e.g, ⌨️ ESC:!uname -aENTER⌨️",
 	}
