@@ -42,12 +42,15 @@ type ChatComponent struct {
 }
 
 const (
-	asimiPrefix     = "🎏  "
-	systemPrefix    = "🛠️  "
-	checkPrefix     = "✓"
-	treeFinalPrefix = " ╰"
-	treeMidPrefix   = " │"
-	shellUserPrefix = "You:$"
+	asimiPrefix           = "🎏  "
+	completeSuccessPrefix = "🐉  "
+	completeFailurePrefix = "🦐  "
+	failureToken          = "[[FAILURE]]"
+	systemPrefix          = "🛠️  "
+	checkPrefix           = "✓"
+	treeFinalPrefix       = " ╰"
+	treeMidPrefix         = " │"
+	shellUserPrefix       = "You:$"
 )
 
 // NewChatComponent creates a new chat component
@@ -339,6 +342,37 @@ func (c *ChatComponent) AppendToLastMessage(text string) {
 	c.UpdateContent()
 }
 
+// FinalizeLastAIMessage marks the last AI message as complete, checking for failure token.
+// If the message contains [[FAILURE]], it's marked as a failure response.
+// Returns true if the message was a failure, false otherwise.
+func (c *ChatComponent) FinalizeLastAIMessage() bool {
+	if len(c.Messages) == 0 {
+		return false
+	}
+
+	lastMsg := c.Messages[len(c.Messages)-1]
+	if !strings.HasPrefix(lastMsg, "Asimi:") {
+		return false
+	}
+
+	content := strings.TrimPrefix(lastMsg, "Asimi: ")
+	isFailure := strings.HasPrefix(content, failureToken)
+
+	if isFailure {
+		// Remove the [[FAILURE]] token from the content
+		content = strings.TrimPrefix(content, failureToken)
+		content = strings.TrimSpace(content)
+		// Mark as failure by using a special prefix
+		c.Messages[len(c.Messages)-1] = "Asimi:FAILURE: " + content
+	} else {
+		// Mark as success by using a special prefix
+		c.Messages[len(c.Messages)-1] = "Asimi:SUCCESS: " + content
+	}
+
+	c.UpdateContent()
+	return isFailure
+}
+
 // UpdateContent updates the viewport content based on the messages
 func (c *ChatComponent) UpdateContent() {
 	var messageViews []string
@@ -403,14 +437,28 @@ func (c *ChatComponent) UpdateContent() {
 					messageStyle.Render(strings.Join(lines, "\n")))
 			} else if strings.HasPrefix(message, "Asimi:") {
 				// Render AI messages with markdown
-				// Remove "Asimi: " prefix for markdown rendering
-				content := strings.TrimPrefix(message, "Asimi: ")
+				// Check for success/failure markers and determine prefix
+				var content string
+				var prefix string
+
+				if strings.HasPrefix(message, "Asimi:SUCCESS: ") {
+					content = strings.TrimPrefix(message, "Asimi:SUCCESS: ")
+					prefix = lipgloss.NewStyle().
+						Bold(true).
+						Render(completeSuccessPrefix)
+				} else if strings.HasPrefix(message, "Asimi:FAILURE: ") {
+					content = strings.TrimPrefix(message, "Asimi:FAILURE: ")
+					prefix = lipgloss.NewStyle().
+						Bold(true).
+						Render(completeFailurePrefix)
+				} else {
+					content = strings.TrimPrefix(message, "Asimi: ")
+					prefix = lipgloss.NewStyle().
+						Bold(true).
+						Render(asimiPrefix)
+				}
+
 				rendered := c.renderMarkdown(content)
-				// Add "Asimi: " prefix back with styling
-				prefix := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#01FAFA")). // Terminal7 text color
-					Bold(true).
-					Render(asimiPrefix)
 				messageViews = append(messageViews, prefix+rendered)
 			} else {
 				// Other messages (system, tool calls, etc.)

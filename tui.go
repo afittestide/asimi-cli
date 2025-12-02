@@ -68,8 +68,8 @@ type TUIModel struct {
 	historyPresentChatSnapshot    int
 
 	// Persistent history stores (survive app restarts)
-	persistentPromptHistory  *PromptHistory  // SQLite-backed prompt history
-	persistentCommandHistory *CommandHistory // SQLite-backed command history
+	persistentPromptHistory  *PromptHistory
+	persistentCommandHistory *CommandHistory
 
 	// Waiting indicator state
 	waitingForResponse bool
@@ -1406,6 +1406,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slog.Debug("streamCompleteMsg", "messages_count", len(m.content.Chat.Messages))
 		m.stopStreaming()
 
+		// Finalize the last AI message with success/failure prefix
+		isFailure := m.content.Chat.FinalizeLastAIMessage()
+		if isFailure {
+			slog.Debug("AI response marked as failure")
+		}
+
 		// Run guardrail callback if one was set
 		var guardrailCmd tea.Cmd
 		if m.streamCompleteCallback != nil {
@@ -1514,6 +1520,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		provider := msg.provider.Key
 
 		// Handle Anthropic specially - show code input modal immediately
+		// TODO: move to performOAuthLogin
 		if provider == "anthropic" {
 			auth := &AuthAnthropic{}
 			authURL, verifier, err := auth.authorize()
@@ -1677,6 +1684,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "scroll":
 			m.prompt.EnterViScrollMode()
+			m.prompt.Blur()
 		case "command":
 			m.prompt.EnterViCommandLineMode()
 		case "yesno":
@@ -1909,6 +1917,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.config != nil {
 				markdownEnabled = m.config.UI.MarkdownEnabled
 			}
+			// TODO: We're calling NewChatComponent too many times. be better to add Chat.clear()
 			m.content.Chat = NewChatComponent(chat.Width, chat.Height, markdownEnabled)
 
 			// Reset prompt history and waiting state

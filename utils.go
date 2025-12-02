@@ -675,5 +675,3 @@ func summarizeStatus(status gogit.Status) string {
 	}
 	return result
 }
-
-

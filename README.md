@@ -212,17 +212,6 @@ markdown_enabled = false
 run_on_host = ['^gh ']
 ```
 
-### Configuration Options
-
-- **`vi_mode`** - Enable/disable vi-style keybindings (default: `true`)
-  - Set to `false` to use standard editing mode
-  - Can also be set via environment variable: `ASIMI_LLM_VI_MODE=false`
-- **`provider`** - AI provider (anthropic, openai, googleai, qwen)
-- **`model`** - Model name (provider-specific)
-- **`max_output_tokens`** - Maximum tokens in AI responses
-- **`max_turns`** - Maximum conversation turns before stopping
-- **`ui.markdown_enabled`** - Enable Glamour markdown rendering when `true` (default: `false`); when `false`, Asimi uses lightweight word wrapping for faster UI resizing. Override via `ASIMI_UI_MARKDOWN_ENABLED=true|false`.
-
 ### Environment Variables
 
 #### General Configuration
