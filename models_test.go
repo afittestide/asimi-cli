@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // TestMain sets up test environment
@@ -25,6 +27,127 @@ func TestMain(m *testing.M) {
 
 	// Exit with test result code
 	os.Exit(code)
+}
+
+// TestFetchAllModels_ReturnsEmptyWithoutAuth verifies that fetchAllModels returns
+// an empty list when no providers are authenticated
+func TestFetchAllModels_ReturnsEmptyWithoutAuth(t *testing.T) {
+	// Clear any existing credentials
+	DeleteTokenFromKeyring("anthropic")
+	DeleteAPIKeyFromKeyring("anthropic")
+	DeleteTokenFromKeyring("openai")
+	DeleteAPIKeyFromKeyring("openai")
+	DeleteTokenFromKeyring("googleai")
+	DeleteAPIKeyFromKeyring("googleai")
+
+	// Clear environment variables for this test
+	originalAnthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	originalOpenAIKey := os.Getenv("OPENAI_API_KEY")
+	originalGeminiKey := os.Getenv("GEMINI_API_KEY")
+	originalGoogleKey := os.Getenv("GOOGLE_API_KEY")
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	os.Unsetenv("OPENAI_API_KEY")
+	os.Unsetenv("GEMINI_API_KEY")
+	os.Unsetenv("GOOGLE_API_KEY")
+	defer func() {
+		if originalAnthropicKey != "" {
+			os.Setenv("ANTHROPIC_API_KEY", originalAnthropicKey)
+		}
+		if originalOpenAIKey != "" {
+			os.Setenv("OPENAI_API_KEY", originalOpenAIKey)
+		}
+		if originalGeminiKey != "" {
+			os.Setenv("GEMINI_API_KEY", originalGeminiKey)
+		}
+		if originalGoogleKey != "" {
+			os.Setenv("GOOGLE_API_KEY", originalGoogleKey)
+		}
+	}()
+
+	config := &Config{
+		LLM: LLMConfig{
+			Provider: "anthropic",
+			Model:    "claude-3-5-sonnet-latest",
+		},
+	}
+
+	models := fetchAllModels(config)
+
+	assert.Equal(t, 1, len(models))
+	assert.Contains(t, models[0].DisplayName, "Login")
+}
+
+// TestFetchAllModels_WithAPIKey verifies that models show as ready when API key is available
+// or error items are added when API fails
+func TestFetchAllModels_WithAPIKey(t *testing.T) {
+	// Clear any existing credentials
+	DeleteTokenFromKeyring("openai")
+	DeleteAPIKeyFromKeyring("openai")
+
+	// Set OpenAI API key in environment
+	originalKey := os.Getenv("OPENAI_API_KEY")
+	os.Setenv("OPENAI_API_KEY", "test-key")
+	defer func() {
+		if originalKey != "" {
+			os.Setenv("OPENAI_API_KEY", originalKey)
+		} else {
+			os.Unsetenv("OPENAI_API_KEY")
+		}
+	}()
+
+	config := &Config{
+		LLM: LLMConfig{
+			Provider: "openai",
+			Model:    "gpt-4o",
+		},
+	}
+
+	models := fetchAllModels(config)
+
+	// With an API key set, we should get either models or an error item
+	hasOpenAI := false
+	for _, m := range models {
+		if m.Provider == "openai" {
+			hasOpenAI = true
+			// Should be ready, active, or error (if API call failed)
+			if m.Status != "ready" && m.Status != "active" && m.Status != "error" {
+				t.Errorf("Expected OpenAI model %s to be 'ready', 'active', or 'error', got %s", m.ID, m.Status)
+			}
+		}
+	}
+
+	if !hasOpenAI {
+		t.Error("Expected at least one OpenAI item (model or error)")
+	}
+}
+
+// TestCheckProviderAuth verifies provider authentication detection
+func TestCheckProviderAuth(t *testing.T) {
+	// Clear credentials
+	DeleteTokenFromKeyring("anthropic")
+	DeleteAPIKeyFromKeyring("anthropic")
+
+	// Clear environment
+	originalKey := os.Getenv("ANTHROPIC_API_KEY")
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	defer func() {
+		if originalKey != "" {
+			os.Setenv("ANTHROPIC_API_KEY", originalKey)
+		}
+	}()
+
+	// Test with no credentials
+	info := checkProviderAuth("anthropic")
+	if info.HasAPIKey || info.HasOAuth {
+		t.Error("Expected no auth when no credentials are set")
+	}
+
+	// Test with environment variable
+	os.Setenv("ANTHROPIC_API_KEY", "test-key")
+	info = checkProviderAuth("anthropic")
+	if !info.HasAPIKey {
+		t.Error("Expected HasAPIKey to be true when ANTHROPIC_API_KEY is set")
+	}
 }
 
 // TestFetchAnthropicModels_LoadsFromKeyring verifies that fetchAnthropicModels
@@ -114,6 +237,15 @@ func TestFetchAnthropicModels_NoCredentials(t *testing.T) {
 	// Make sure no credentials are in keyring
 	DeleteTokenFromKeyring("anthropic")
 	DeleteAPIKeyFromKeyring("anthropic")
+
+	// Clear environment variable
+	originalKey := os.Getenv("ANTHROPIC_API_KEY")
+	os.Unsetenv("ANTHROPIC_API_KEY")
+	defer func() {
+		if originalKey != "" {
+			os.Setenv("ANTHROPIC_API_KEY", originalKey)
+		}
+	}()
 
 	// Call fetchAnthropicModels - it should return an error
 	_, err := fetchAnthropicModels(config)

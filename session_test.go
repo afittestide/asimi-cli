@@ -1332,3 +1332,45 @@ func TestChatComponent_AppendToLastMessage(t *testing.T) {
 	assert.Equal(t, 2, len(chat.Messages))
 	assert.Equal(t, "Asimi: This is streaming", chat.Messages[1])
 }
+
+func TestChatComponent_FinalizeLastAIMessage(t *testing.T) {
+	t.Run("success message", func(t *testing.T) {
+		chat := NewChatComponent(80, 20, false)
+		chat.AddMessage("Asimi: This is a successful response")
+
+		isFailure := chat.FinalizeLastAIMessage()
+
+		assert.False(t, isFailure)
+		assert.Equal(t, "Asimi:SUCCESS: This is a successful response", chat.Messages[len(chat.Messages)-1])
+	})
+
+	t.Run("failure message", func(t *testing.T) {
+		chat := NewChatComponent(80, 20, false)
+		chat.AddMessage("Asimi: [[FAILURE]] I cannot do that because of reasons")
+
+		isFailure := chat.FinalizeLastAIMessage()
+
+		assert.True(t, isFailure)
+		assert.Equal(t, "Asimi:FAILURE: I cannot do that because of reasons", chat.Messages[len(chat.Messages)-1])
+	})
+
+	t.Run("non-AI message", func(t *testing.T) {
+		chat := NewChatComponent(80, 20, false)
+		chat.AddMessage("You: Hello")
+
+		isFailure := chat.FinalizeLastAIMessage()
+
+		assert.False(t, isFailure)
+		// Message should remain unchanged
+		assert.Equal(t, "You: Hello", chat.Messages[len(chat.Messages)-1])
+	})
+
+	t.Run("empty messages", func(t *testing.T) {
+		chat := NewChatComponent(80, 20, false)
+		chat.Messages = []string{} // Clear all messages
+
+		isFailure := chat.FinalizeLastAIMessage()
+
+		assert.False(t, isFailure)
+	})
+}

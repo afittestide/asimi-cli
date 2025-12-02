@@ -258,6 +258,52 @@ func LoadConfig() (*Config, error) {
 		config.Session.Enabled = true // Default to enabled
 	}
 
+	// Auto-discovery: If no provider is configured, detect from environment variables
+	// Priority: Anthropic > OpenAI > Google AI
+	if config.LLM.Provider == "" {
+		if anthropicKey := os.Getenv("ANTHROPIC_API_KEY"); anthropicKey != "" {
+			config.LLM.Provider = "anthropic"
+			config.LLM.Model = "claude-sonnet-4-20250514"
+			config.LLM.APIKey = anthropicKey
+			log.Printf("Auto-configured provider: anthropic (from ANTHROPIC_API_KEY)")
+		} else if openaiKey := os.Getenv("OPENAI_API_KEY"); openaiKey != "" {
+			config.LLM.Provider = "openai"
+			config.LLM.Model = "gpt-4o"
+			config.LLM.APIKey = openaiKey
+			log.Printf("Auto-configured provider: openai (from OPENAI_API_KEY)")
+		} else if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+			config.LLM.Provider = "googleai"
+			config.LLM.Model = "gemini-2.5-flash"
+			config.LLM.APIKey = geminiKey
+			log.Printf("Auto-configured provider: googleai (from GEMINI_API_KEY)")
+		} else if googleKey := os.Getenv("GOOGLE_API_KEY"); googleKey != "" {
+			config.LLM.Provider = "googleai"
+			config.LLM.Model = "gemini-2.5-flash"
+			config.LLM.APIKey = googleKey
+			log.Printf("Auto-configured provider: googleai (from GOOGLE_API_KEY)")
+		}
+	}
+
+	// If provider is set but API key is not, try to load from environment
+	if config.LLM.Provider != "" && config.LLM.APIKey == "" {
+		switch config.LLM.Provider {
+		case "anthropic":
+			if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			}
+		case "openai":
+			if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			}
+		case "googleai":
+			if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			} else if key := os.Getenv("GOOGLE_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			}
+		}
+	}
+
 	return &config, nil
 }
 
@@ -300,7 +346,10 @@ func SaveConfig(config *Config) error {
 		}
 	}
 
-	// Update the model setting
+	// Update the provider and model settings
+	if err := k.Set("llm.provider", config.LLM.Provider); err != nil {
+		return fmt.Errorf("failed to update provider in config: %w", err)
+	}
 	if err := k.Set("llm.model", config.LLM.Model); err != nil {
 		return fmt.Errorf("failed to update model in config: %w", err)
 	}

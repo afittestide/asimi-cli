@@ -360,6 +360,21 @@ func TestSaveConfig(t *testing.T) {
 	})
 
 	t.Run("save config updates existing file", func(t *testing.T) {
+		// Clear environment variables that could trigger auto-configuration
+		envVars := []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"}
+		originalEnvs := make(map[string]string)
+		for _, env := range envVars {
+			originalEnvs[env] = os.Getenv(env)
+			os.Unsetenv(env)
+		}
+		defer func() {
+			for env, val := range originalEnvs {
+				if val != "" {
+					os.Setenv(env, val)
+				}
+			}
+		}()
+
 		// Create initial config
 		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
@@ -375,7 +390,8 @@ model = "gpt-3.5-turbo"
 		// Update config
 		config := &Config{
 			LLM: LLMConfig{
-				Model: "gpt-4",
+				Provider: "openai",
+				Model:    "gpt-4",
 			},
 		}
 
@@ -389,6 +405,22 @@ model = "gpt-3.5-turbo"
 	})
 
 	t.Run("save config preserves other settings", func(t *testing.T) {
+		// Clear environment variables that could trigger auto-configuration
+		// TODO: make it a util: `defer ClearEnv(envVars)`
+		envVars := []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"}
+		originalEnvs := make(map[string]string)
+		for _, env := range envVars {
+			originalEnvs[env] = os.Getenv(env)
+			os.Unsetenv(env)
+		}
+		defer func() {
+			for env, val := range originalEnvs {
+				if val != "" {
+					os.Setenv(env, val)
+				}
+			}
+		}()
+
 		// Create config with multiple settings
 		err := os.MkdirAll(".agents", 0755)
 		require.NoError(t, err)
@@ -406,10 +438,11 @@ max_sessions = 50
 		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
 		require.NoError(t, err)
 
-		// Update only model
+		// Update provider and model (SaveConfig now saves both)
 		config := &Config{
 			LLM: LLMConfig{
-				Model: "gpt-4",
+				Provider: "openai",
+				Model:    "gpt-4",
 			},
 		}
 

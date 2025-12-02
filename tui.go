@@ -1557,23 +1557,67 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.completeAnthropicOAuth(msg.code, msg.verifier)
 
 	case modelSelectedMsg:
+		if msg.onSelect != nil {
+			return m, msg.onSelect
+		}
+		oldProvider := m.config.LLM.Provider
 		oldModel := m.config.LLM.Model
+
+		// Update provider and model
+		m.config.LLM.Provider = msg.model.Provider
 		m.config.LLM.Model = msg.model.ID
+
+		// Load API key for the new provider if needed
+		if msg.model.Provider != oldProvider {
+			// Clear existing auth tokens when switching providers
+			m.config.LLM.AuthToken = ""
+			m.config.LLM.RefreshToken = ""
+			m.config.LLM.APIKey = ""
+
+			// Try to load credentials for the new provider
+			switch msg.model.Provider {
+			case "anthropic":
+				if tokenData, err := GetOauthToken("anthropic"); err == nil && tokenData != nil {
+					m.config.LLM.AuthToken = tokenData.AccessToken
+					m.config.LLM.RefreshToken = tokenData.RefreshToken
+				} else if key, err := GetAPIKeyFromKeyring("anthropic"); err == nil && key != "" {
+					m.config.LLM.APIKey = key
+				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+					m.config.LLM.APIKey = key
+				}
+			case "openai":
+				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+					m.config.LLM.APIKey = key
+				} else if key, err := GetAPIKeyFromKeyring("openai"); err == nil && key != "" {
+					m.config.LLM.APIKey = key
+				}
+			case "googleai":
+				if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+					m.config.LLM.APIKey = key
+				} else if key := os.Getenv("GOOGLE_API_KEY"); key != "" {
+					m.config.LLM.APIKey = key
+				} else if key, err := GetAPIKeyFromKeyring("googleai"); err == nil && key != "" {
+					m.config.LLM.APIKey = key
+				}
+			}
+		}
 
 		// Save config and reinitialize session
 		if err := SaveConfig(m.config); err != nil {
 			slog.Error("Failed to save config", "error", err)
-			m.commandLine.AddToast("Failed to save config: %v", "error", 4000)
-			// Revert model change
+			m.commandLine.AddToast("Failed to save config", "error", 4000)
+			// Revert changes
+			m.config.LLM.Provider = oldProvider
 			m.config.LLM.Model = oldModel
 		} else {
 			// Reinitialize session with new model
 			if err := m.reinitializeSession(); err != nil {
 				slog.Error("Failed to reinitialize session", "error", err)
 				m.commandLine.AddToast("Failed to re-init model. Please try again", "error", 4000)
-				// Revert model change
+				// Revert changes
+				m.config.LLM.Provider = oldProvider
 				m.config.LLM.Model = oldModel
-				if err := SaveConfig(m.config); err != nil { // Try to save the reverted config
+				if err := SaveConfig(m.config); err != nil {
 					slog.Error("Failed to save reverted config", "error", err)
 				}
 			} else {
@@ -1581,13 +1625,17 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if modelName == "" {
 					modelName = msg.model.ID
 				}
-				m.commandLine.AddToast(fmt.Sprintf("Model changed to %s", modelName), "success", 3000)
+				providerChanged := ""
+				if msg.model.Provider != oldProvider {
+					providerChanged = fmt.Sprintf(" (switched to %s)", msg.model.Provider)
+				}
+				m.commandLine.AddToast(fmt.Sprintf("Model changed to %s%s", modelName, providerChanged), "success", 3000)
 			}
 		}
 		return m, nil
 
 	case modelsLoadedMsg:
-		return m, m.content.ShowModels(msg.models, m.config.LLM.Model)
+		return m, m.content.ShowUnifiedModels(msg.models, m.config.LLM.Model)
 
 	case modelsLoadErrorMsg:
 		m.content.SetModelsError(msg.error)
@@ -1638,7 +1686,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prompt.EnterViLearningMode()
 		case "select", "resume", "models", "help":
 			// These modes don't need prompt updates, just placeholder changes
-			m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | ESC to abort"
+			m.prompt.TextArea.Placeholder = "j/k, CTRL-D/U to navigate | Enter to select | ESC to abort"
 		}
 
 		return m, nil

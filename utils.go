@@ -676,29 +676,4 @@ func summarizeStatus(status gogit.Status) string {
 	return result
 }
 
-// lineRenderer helps render content with consistent height by tracking lines
-type lineRenderer struct {
-	content      strings.Builder
-	linesWritten int
-	targetLines  int
-}
 
-// writeLine writes a line and increments the counter
-func (lr *lineRenderer) writeLine(text string) {
-	lr.content.WriteString(text)
-	lr.content.WriteString("\n")
-	lr.linesWritten++
-}
-
-// padToTarget pads with empty lines until we reach targetLines
-func (lr *lineRenderer) padToTarget() {
-	for lr.linesWritten < lr.targetLines {
-		lr.content.WriteString("\n")
-		lr.linesWritten++
-	}
-}
-
-// String returns the final rendered content
-func (lr *lineRenderer) String() string {
-	return lr.content.String()
-}
