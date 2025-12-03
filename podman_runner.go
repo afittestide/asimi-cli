@@ -616,3 +616,6 @@ func (r *PodmanShellRunner) Close(ctx context.Context) error {
 	slog.Debug("podman shell runner closed successfully")
 	return nil
 }
+func (r *PodmanShellRunner) AllowFallback(allow bool) {
+	r.allowFallback = allow
+}

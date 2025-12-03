@@ -106,7 +106,8 @@ func defaultConfig() Config {
 			SaveInterval: 300,
 		},
 		RunInShell: RunInShellConfig{
-			RunOnHost: []string{`^gh\s.*`},
+			RunOnHost:     []string{`^gh\s`, `^podman\s`},
+			SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)`},
 		},
 	}
 }
@@ -135,8 +136,11 @@ type ContainerConfig struct {
 // RunInShellConfig holds configuration for the run_in_shell tool
 type RunInShellConfig struct {
 	// RunOnHost is a list of regex patterns for commands that should run on the host
-	// instead of in the container
+	// instead of in the container. These commands require user approval before execution.
 	RunOnHost []string `koanf:"run_on_host"`
+	// SafeRunOnHost is a list of regex patterns for commands that can run on the host
+	// without requiring user approval (e.g., read-only commands like `gh issue view`)
+	SafeRunOnHost []string `koanf:"safe_run_on_host"`
 	// TimeoutMinutes is the timeout for shell commands in minutes (default: 10)
 	TimeoutMinutes    int    `koanf:"timeout_minutes"`
 	AllowHostFallback bool   `koanf:"allow_host_fallback"`

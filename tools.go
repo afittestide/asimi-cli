@@ -517,6 +517,10 @@ type RunInShell struct {
 type RunInShellInput struct {
 	Command     string `json:"command"`
 	Description string `json:"description"`
+	// RequestApproval is an internal field (not included in JSON schema) that indicates
+	// whether this command requires user approval before execution on the host.
+	// This is set by the tool based on config patterns, not by the LLM.
+	RequestApproval bool `json:"-"`
 }
 
 // RunInShellOutput is the output of the RunInShell tool
@@ -529,6 +533,7 @@ type shellRunner interface {
 	Run(context.Context, RunInShellInput) (RunInShellOutput, error)
 	Restart(context.Context) error
 	Close(context.Context) error
+	AllowFallback(bool)
 }
 
 var (
@@ -574,23 +579,38 @@ func getShellRunner() shellRunner {
 }
 
 // shouldRunOnHost checks if a command matches any of the run_on_host patterns
-func (t RunInShell) shouldRunOnHost(command string) bool {
+// and whether it requires user approval (i.e., not in safe_run_on_host patterns).
+func (t RunInShell) shouldRunOnHost(command string) (runOnHost, requiresApproval bool) {
 	if t.config == nil || len(t.config.RunInShell.RunOnHost) == 0 {
-		return false
+		return
 	}
-
-	for _, pattern := range t.config.RunInShell.RunOnHost {
+	// First check if command matches any safe_run_on_host pattern (no approval needed)
+	for _, pattern := range t.config.RunInShell.SafeRunOnHost {
 		matched, err := regexp.MatchString(pattern, command)
 		if err != nil {
 			// Log warning but continue checking other patterns
 			continue
 		}
 		if matched {
-			return true
+			runOnHost = true
+			requiresApproval = false
+			return
 		}
 	}
 
-	return false
+	// Check if command matches any run_on_host pattern
+	for _, pattern := range t.config.RunInShell.RunOnHost {
+		matched, _ := regexp.MatchString(pattern, command)
+		if matched {
+			runOnHost = true
+			requiresApproval = true
+			return
+		}
+	}
+
+	runOnHost = false
+	requiresApproval = false
+	return
 }
 
 func (t RunInShell) Name() string {
@@ -612,25 +632,14 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	var runErr error
 
 	// Check if command should run on host based on config patterns
-	if t.shouldRunOnHost(params.Command) {
-		// Log warning about host command execution (#68)
-		slog.Warn("Executing command on HOST (not in sandbox)", "command", params.Command)
+	runOnHost, requiresApproval := t.shouldRunOnHost(params.Command)
+	if runOnHost {
+		slog.Info("Executing safe command on HOST", "needs approval", requiresApproval, "command", params.Command)
 
-		// TODO #68: Implement user confirmation for host commands
-		// Approach:
-		// 1. Before executing, send ToolCallWaitingForApprovalMsg through notify callback
-		// 2. Create a confirmation modal in TUI (similar to providerModal/codeInputModal)
-		// 3. Wait for user response (approve/deny) via a channel
-		// 4. Proceed with execution only if approved
-		// 5. Return error if denied
-		//
-		// This requires:
-		// - Adding approval channel to ToolCall struct
-		// - Creating ConfirmationModal component in TUI
-		// - Handling approval/denial messages in TUI
-		// - Making tool execution wait for approval
+		// Set the approval flag based on config patterns
+		params.RequestApproval = requiresApproval
 
-		// Run directly on host
+		// Run directly on host using hostRun (which handles approval internally)
 		output, runErr = hostRun(ctx, params)
 	} else {
 		runner := getShellRunner()
@@ -717,6 +726,22 @@ func (t RunInShell) Format(input, result string, err error) string {
 func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	var output RunInShellOutput
 
+	// Check if approval is required
+	if params.RequestApproval {
+		approved, err := requestHostCommandApproval(ctx, params.Command)
+		if err != nil {
+			output.Output = fmt.Sprintf("Error requesting approval: %v", err)
+			output.ExitCode = "1"
+			return output, err
+		}
+
+		if !approved {
+			output.Output = "Command execution denied by user"
+			output.ExitCode = "1"
+			return output, fmt.Errorf("command denied by user: %s", params.Command)
+		}
+	}
+
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", params.Command)
@@ -748,6 +773,52 @@ func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, err
 	}
 
 	return output, nil
+}
+
+// HostCommandApprovalRequest represents a request for user approval to run a host command
+type HostCommandApprovalRequest struct {
+	Command      string
+	ResponseChan chan bool
+}
+
+// hostCommandApprovalChan is used to send approval requests to the TUI
+var hostCommandApprovalChan chan HostCommandApprovalRequest
+
+// SetHostCommandApprovalChannel sets the channel used for host command approval requests
+// This should be called by the TUI during initialization
+func SetHostCommandApprovalChannel(ch chan HostCommandApprovalRequest) {
+	hostCommandApprovalChan = ch
+}
+
+// requestHostCommandApproval sends an approval request to the TUI and waits for a response
+func requestHostCommandApproval(ctx context.Context, command string) (bool, error) {
+	if hostCommandApprovalChan == nil {
+		// No approval channel configured - deny by default for safety
+		slog.Warn("Host command approval requested but no approval channel configured", "command", command)
+		return false, fmt.Errorf("no approval mechanism configured")
+	}
+
+	responseChan := make(chan bool, 1)
+	request := HostCommandApprovalRequest{
+		Command:      command,
+		ResponseChan: responseChan,
+	}
+
+	// Send the approval request
+	select {
+	case hostCommandApprovalChan <- request:
+		// Request sent successfully
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+
+	// Wait for the response
+	select {
+	case approved := <-responseChan:
+		return approved, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
 }
 
 type PodmanUnavailableError struct {

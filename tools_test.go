@@ -1,18 +1,78 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// TestShellRunner runs commands directly on the host machine.
+// It's used for testing and for --run-on-host mode.
+type TestShellRunner struct{}
+
+// NewTestShellRunner creates a new test shell runner
+func NewTestShellRunner() *TestShellRunner {
+	return &TestShellRunner{}
+}
+
+// Run executes a command directly on the host machine
+func (h *TestShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
+	var output RunInShellOutput
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", params.Command)
+	} else {
+		cmd = exec.CommandContext(ctx, "bash", "-c", params.Command)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	output.Output = stdout.String() + stderr.String()
+
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			output.ExitCode = fmt.Sprintf("%d", exitErr.ExitCode())
+		} else {
+			output.ExitCode = "-1"
+		}
+	} else {
+		output.ExitCode = "0"
+	}
+
+	return output, nil
+}
+
+// Restart is a no-op for test shell runner since it doesn't maintain state
+func (h *TestShellRunner) Restart(ctx context.Context) error {
+	return nil
+}
+
+// Close is a no-op for test shell runner
+func (h *TestShellRunner) Close(ctx context.Context) error {
+	return nil
+}
+
+// Another no-op
+// TODO: store this and use to verify
+func (h *TestShellRunner) AllowFallback(allow bool) {
+	return
+}
+
 func TestRunInShell(t *testing.T) {
-	restore := setShellRunnerForTesting(NewHostShellRunner())
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -30,7 +90,7 @@ func TestRunInShell(t *testing.T) {
 }
 
 func TestRunInShellError(t *testing.T) {
-	restore := setShellRunnerForTesting(NewHostShellRunner())
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -63,7 +123,7 @@ func TestRunInShellFailsWhenPodmanUnavailable(t *testing.T) {
 // The HostShellRunner passes this test, but podman runner would truncate output
 // See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellLargeOutput(t *testing.T) {
-	restore := setShellRunnerForTesting(NewHostShellRunner())
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -89,7 +149,7 @@ func TestRunInShellLargeOutput(t *testing.T) {
 // This test demonstrates the fragile exit code parsing in podman runner
 // See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellExitCodeWithMarkerInOutput(t *testing.T) {
-	restore := setShellRunnerForTesting(NewHostShellRunner())
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -247,6 +307,9 @@ func (failingPodmanRunner) Close(ctx context.Context) error {
 	return nil
 }
 
+func (failingPodmanRunner) AllowFallback(allow bool) {
+	return
+}
 func TestValidatePathWithinProject(t *testing.T) {
 	// Create a temporary directory to act as project root
 	tempDir := t.TempDir()

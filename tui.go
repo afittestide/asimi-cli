@@ -75,6 +75,9 @@ type TUIModel struct {
 	waitingForResponse bool
 	waitingStart       time.Time
 	ctrlCPressedTime   time.Time
+
+	// Host command approval state
+	pendingHostApproval *HostCommandApprovalRequest
 }
 
 type promptHistoryEntry struct {
@@ -90,6 +93,11 @@ type shellCommandResultMsg struct {
 	output   string
 	exitCode string
 	err      error
+}
+
+// hostCommandApprovalMsg is sent when a host command needs user approval
+type hostCommandApprovalMsg struct {
+	request HostCommandApprovalRequest
 }
 
 // NewTUIModel creates a new TUI model
@@ -255,8 +263,20 @@ func (m *TUIModel) shutdown() {
 
 // Init implements bubbletea.Model
 func (m TUIModel) Init() tea.Cmd {
+	// Set up the host command approval channel
+	approvalChan := make(chan HostCommandApprovalRequest, 1)
+	SetHostCommandApprovalChannel(approvalChan)
+
+	// Start a goroutine to listen for approval requests and forward them to the TUI
+	go func() {
+		for request := range approvalChan {
+			if program != nil {
+				program.Send(hostCommandApprovalMsg{request: request})
+			}
+		}
+	}()
+
 	// Bubbletea will automatically send a WindowSizeMsg after Init
-	// We don't need to do anything special here
 	return nil
 }
 
@@ -300,27 +320,29 @@ func (m TUIModel) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// These are responses to terminal queries (background color, cursor position, etc.)
 	keyStr := msg.String()
 
-	// Ignore OSC (Operating System Command) responses like ]11;rgb:...
-	// These come from terminal background color queries
-	if strings.HasPrefix(keyStr, "]") || strings.Contains(keyStr, "rgb:") || strings.Contains(keyStr, ";rgb") {
-		return m, nil
-	}
-
-	// Ignore CSI (Control Sequence Introducer) responses like cursor position reports [1;1R
-	// Check for pattern: starts with [ and ends with R and contains ;
-	if (strings.HasPrefix(keyStr, "[") || strings.HasPrefix(keyStr, "\x1b[")) &&
-		strings.HasSuffix(keyStr, "R") && strings.Contains(keyStr, ";") {
-		return m, nil
-	}
-
-	// Ignore any key that looks like a terminal response (contains escape sequences)
-	// This catches malformed or partial escape sequences
-	if len(keyStr) > 3 && (strings.Contains(keyStr, "\x1b") || strings.Contains(keyStr, "\\")) {
-		// But allow normal escape key
-		if keyStr != "esc" && keyStr != "escape" {
+	/*
+		// Ignore OSC (Operating System Command) responses like ]11;rgb:...
+		// These come from terminal background color queries
+		if strings.HasPrefix(keyStr, "]") || strings.Contains(keyStr, "rgb:") || strings.Contains(keyStr, ";rgb") {
 			return m, nil
 		}
-	}
+
+		// Ignore CSI (Control Sequence Introducer) responses like cursor position reports [1;1R
+		// Check for pattern: starts with [ and ends with R and contains ;
+		if (strings.HasPrefix(keyStr, "[") || strings.HasPrefix(keyStr, "\x1b[")) &&
+			strings.HasSuffix(keyStr, "R") && strings.Contains(keyStr, ";") {
+			return m, nil
+		}
+
+		// Ignore any key that looks like a terminal response (contains escape sequences)
+		// This catches malformed or partial escape sequences
+		if len(keyStr) > 3 && (strings.Contains(keyStr, "\x1b") || strings.Contains(keyStr, "\\")) {
+			// But allow normal escape key
+			if keyStr != "esc" && keyStr != "escape" {
+				return m, nil
+			}
+		}
+	*/
 
 	// Always handle Ctrl+C first
 	var cmd tea.Cmd
@@ -1491,6 +1513,20 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case yesNoResponseMsg:
+		// Check if this is a response to a host command approval request
+		if m.pendingHostApproval != nil {
+			// Send the response back to the waiting goroutine
+			m.pendingHostApproval.ResponseChan <- msg.answer
+			if msg.answer {
+				m.content.Chat.AddMessage(fmt.Sprintf("✓ Approved host command: %s", m.pendingHostApproval.Command))
+			} else {
+				m.content.Chat.AddMessage(fmt.Sprintf("✗ Denied host command: %s", m.pendingHostApproval.Command))
+			}
+			m.pendingHostApproval = nil
+			return m, nil
+		}
+
+		// Otherwise, this is an update confirmation
 		if msg.answer {
 			// User confirmed update
 			return m, handleUpdateConfirm(&m)
@@ -1499,6 +1535,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.content.Chat.AddMessage(fmt.Sprintf("%sUpdate cancelled.\n%s Please run :update again when ready", systemPrefix, treeFinalPrefix))
 		return m, nil
 
+	case hostCommandApprovalMsg:
+		// Store the pending approval request
+		m.pendingHostApproval = &msg.request
+		return m, m.commandLine.EnterYesNoMode("Allow this command?")
+
 	case updateCompleteMsg:
 		if msg.err != nil {
 			m.content.Chat.AddMessage(fmt.Sprintf("%s❌ Update failed: %v\n%s Try updating manually with: %s", systemPrefix, msg.err, treeFinalPrefix, GetUpdateCommand()))
@@ -1506,7 +1547,6 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.content.Chat.AddMessage(fmt.Sprintf("%s✓ Update successful!\n%s Please restart asimi to use the new version.", systemPrefix, treeFinalPrefix))
-		return m, nil
 		return m, nil
 
 	case waitingTickMsg:
@@ -1887,19 +1927,12 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Set the shell runner based on RunOnHost flag
 		if msg.RunOnHost {
 			slog.Debug("using host shell runner for this conversation")
-			shellRunnerMu.Lock()
-			previousRunner := currentShellRunner
-			currentShellRunner = NewHostShellRunner()
-			shellRunnerMu.Unlock()
+			currentShellRunner.AllowFallback(true)
 
 			// Wrap the caller's func with code to restore the previous runner
 			originalCallback := msg.onStreamComplete
 			msg.onStreamComplete = func(model *TUIModel) tea.Cmd {
-				// Restore the previous shell runner
-				shellRunnerMu.Lock()
-				currentShellRunner = previousRunner
-				shellRunnerMu.Unlock()
-				slog.Debug("restored previous shell runner")
+				currentShellRunner.AllowFallback(false)
 
 				// Call the original callback if it exists
 				if originalCallback != nil {
