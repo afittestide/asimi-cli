@@ -460,6 +460,119 @@ max_sessions = 50
 	})
 }
 
+func TestSetProjectConfig(t *testing.T) {
+	// Create a temporary directory for test
+	tempDir := t.TempDir()
+
+	// Save current directory and change to temp
+	originalDir, err := os.Getwd()
+	require.NoError(t, err)
+	defer os.Chdir(originalDir)
+
+	err = os.Chdir(tempDir)
+	require.NoError(t, err)
+
+	t.Run("creates directory and file if not exists", func(t *testing.T) {
+		err := SetProjectConfig("session", "agents_file", "CLAUDE.md")
+		require.NoError(t, err)
+
+		// Check that .agents directory was created
+		_, err = os.Stat(".agents")
+		assert.NoError(t, err)
+
+		// Check that config file was created with the value
+		content, err := os.ReadFile(".agents/asimi.conf")
+		require.NoError(t, err)
+		assert.Contains(t, string(content), `agents_file = "CLAUDE.md"`)
+	})
+
+	t.Run("updates existing file preserving other settings", func(t *testing.T) {
+		// Create initial config
+		err := os.MkdirAll(".agents", 0755)
+		require.NoError(t, err)
+
+		initialContent := `[llm]
+provider = "openai"
+model = "gpt-4"
+
+[session]
+enabled = true
+`
+		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
+		require.NoError(t, err)
+
+		// Set agents_file
+		err = SetProjectConfig("session", "agents_file", "CLAUDE.md")
+		require.NoError(t, err)
+
+		// Verify content
+		content, err := os.ReadFile(".agents/asimi.conf")
+		require.NoError(t, err)
+		contentStr := string(content)
+
+		// Should have the new value
+		assert.Contains(t, contentStr, `agents_file = "CLAUDE.md"`)
+		// Should preserve existing settings
+		assert.Contains(t, contentStr, `provider = "openai"`)
+		assert.Contains(t, contentStr, `model = "gpt-4"`)
+		assert.Contains(t, contentStr, `enabled = true`)
+	})
+
+	t.Run("updates existing key value", func(t *testing.T) {
+		// Create initial config with agents_file already set
+		err := os.MkdirAll(".agents", 0755)
+		require.NoError(t, err)
+
+		initialContent := `[session]
+agents_file = "AGENTS.md"
+`
+		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
+		require.NoError(t, err)
+
+		// Update agents_file
+		err = SetProjectConfig("session", "agents_file", "CLAUDE.md")
+		require.NoError(t, err)
+
+		// Verify content
+		content, err := os.ReadFile(".agents/asimi.conf")
+		require.NoError(t, err)
+		contentStr := string(content)
+
+		// Should have the updated value
+		assert.Contains(t, contentStr, `agents_file = "CLAUDE.md"`)
+		// Should not have the old value
+		assert.NotContains(t, contentStr, `agents_file = "AGENTS.md"`)
+	})
+
+	t.Run("sets multiple key-value pairs", func(t *testing.T) {
+		// Clean up from previous test
+		os.RemoveAll(".agents")
+
+		// Set multiple values at once
+		err := SetProjectConfig("session",
+			"agents_file", "CLAUDE.md",
+			"enabled", "true",
+			"max_sessions", "100",
+		)
+		require.NoError(t, err)
+
+		// Verify content
+		content, err := os.ReadFile(".agents/asimi.conf")
+		require.NoError(t, err)
+		contentStr := string(content)
+
+		assert.Contains(t, contentStr, `agents_file = "CLAUDE.md"`)
+		assert.Contains(t, contentStr, `enabled = "true"`)
+		assert.Contains(t, contentStr, `max_sessions = "100"`)
+	})
+
+	t.Run("errors on odd number of key-value args", func(t *testing.T) {
+		err := SetProjectConfig("session", "agents_file")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "even number")
+	})
+}
+
 // NOTE: UpdateUserLLMAuth tests are disabled because they trigger system keyring dialogs.
 // To test this function manually, set ASIMI_TEST_KEYRING=1 and run:
 //   ASIMI_TEST_KEYRING=1 go test -v -run TestUpdateUserLLMAuthIntegration

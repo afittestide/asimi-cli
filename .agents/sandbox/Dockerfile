@@ -1,7 +1,7 @@
 FROM golang:1.25-bookworm
 
-# Install common development tools and C libraries for Go dependencies
-RUN apt-get update && apt-get install -y \
+# Install common development tools and build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     ripgrep \
@@ -11,8 +11,10 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install just task runner
+# Install just
 RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
+COPY Justfile .
+RUN just bootstrap
 COPY .agents/sandbox/bashrc /root/.bashrc
-CMD ["/bin/bash"]
+CMD ["just install && /bin/bash"]

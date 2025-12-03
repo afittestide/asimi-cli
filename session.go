@@ -182,10 +182,14 @@ func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify Notif
 	}
 	parts = append(parts, llms.TextPart(sys))
 
-	// Add AGENTS.md to system message if it exists
-	projectContext := readProjectContext()
+	// Add agents file (AGENTS.md or CLAUDE.md) to system message if it exists
+	agentsFile := "AGENTS.md"
+	if cfg != nil && cfg.Session.AgentsFile != "" {
+		agentsFile = cfg.Session.AgentsFile
+	}
+	projectContext := readProjectContext(agentsFile)
 	if projectContext != "" {
-		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: AGENTS.md ---\n%s\n--- End of Directions from: AGENTS.md ---", projectContext)))
+		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: %s ---\n%s\n--- End of Directions from: %s ---", agentsFile, projectContext, agentsFile)))
 	}
 
 	if s.config != nil && s.config.Provider == "ollama" {
@@ -907,13 +911,13 @@ func normalizeBuildVersion(v string) string {
 	return strings.TrimPrefix(v, "v")
 }
 
-// readProjectContext reads the contents of AGENTS.md from the current working directory.
-func readProjectContext() string {
+// readProjectContext reads the contents of the agents file (AGENTS.md or CLAUDE.md) from the current working directory.
+func readProjectContext(agentsFile string) string {
 	wd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
-	path := filepath.Join(wd, "AGENTS.md")
+	path := filepath.Join(wd, agentsFile)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return ""

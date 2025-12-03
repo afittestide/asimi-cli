@@ -243,7 +243,7 @@ func TestAGENTSmdInSystemPrompt(t *testing.T) {
 
 	// System prompt should include AGENTS.md content if it exists
 	// Check if AGENTS.md exists by trying to read it
-	projectContext := readProjectContext()
+	projectContext := readProjectContext("AGENTS.md")
 	if projectContext != "" {
 		t.Logf("AGENTS.md found with %d characters", len(projectContext))
 

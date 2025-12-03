@@ -115,12 +115,13 @@ func defaultConfig() Config {
 
 // SessionConfig holds session persistence configuration
 type SessionConfig struct {
-	Enabled      bool `koanf:"enabled"`
-	MaxSessions  int  `koanf:"max_sessions"`
-	MaxAgeDays   int  `koanf:"max_age_days"`
-	ListLimit    int  `koanf:"list_limit"`
-	AutoSave     bool `koanf:"auto_save"`
-	SaveInterval int  `koanf:"save_interval"`
+	Enabled      bool   `koanf:"enabled"`
+	MaxSessions  int    `koanf:"max_sessions"`
+	MaxAgeDays   int    `koanf:"max_age_days"`
+	ListLimit    int    `koanf:"list_limit"`
+	AutoSave     bool   `koanf:"auto_save"`
+	SaveInterval int    `koanf:"save_interval"`
+	AgentsFile   string `koanf:"agents_file"` // Project context file name (default: AGENTS.md, can be CLAUDE.md)
 }
 
 // ContainerMount represents a mount point for the container
@@ -350,6 +351,40 @@ func SaveConfig(config *Config) error {
 	// Update provider and model using comment-preserving helpers
 	content = updateOrInsertTOMLValue(content, "llm", "provider", config.LLM.Provider)
 	content = updateOrInsertTOMLValue(content, "llm", "model", config.LLM.Model)
+
+	if err := os.WriteFile(projectConfigPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// SetProjectConfig updates keys in the project config file (.agents/asimi.conf).
+// It accepts a section name followed by key-value pairs, similar to slog.Info().
+// Example: SetProjectConfig("session", "agents_file", "CLAUDE.md", "enabled", "true")
+// It preserves all comments in the existing file.
+func SetProjectConfig(section string, keyValues ...string) error {
+	if len(keyValues)%2 != 0 {
+		return fmt.Errorf("SetProjectConfig requires an even number of key-value arguments")
+	}
+
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
+	if err := os.MkdirAll(".agents", 0o755); err != nil {
+		return fmt.Errorf("failed to create .agents directory: %w", err)
+	}
+
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(projectConfigPath); err == nil {
+		content = string(data)
+	}
+
+	// Update each key-value pair
+	for i := 0; i < len(keyValues); i += 2 {
+		key := keyValues[i]
+		value := keyValues[i+1]
+		content = updateOrInsertTOMLValue(content, section, key, value)
+	}
 
 	if err := os.WriteFile(projectConfigPath, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)

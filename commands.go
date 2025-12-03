@@ -29,6 +29,7 @@ type InitTemplateData struct {
 	ProjectSlug  string
 	MissingFiles []string
 	ClearMode    bool
+	AgentsFile   string // The agents file name (AGENTS.md or CLAUDE.md)
 }
 
 // Command represents a slash command
@@ -319,6 +320,9 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 	}
 
 	return func() tea.Msg {
+		// Collect messages to display after clearing history
+		var initialMessages []string
+
 		// Check if user wants to clear and regenerate everything
 		clearMode := len(args) > 0 && args[0] == "clear"
 
@@ -339,9 +343,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			for _, file := range filesToRemove {
 				os.Remove(file) // Ignore errors - file might not exist
 			}
-			if program != nil {
-				program.Send(showContextMsg{content: "Cleared existing infrastructure files. Starting fresh initialization...\n"})
-			}
+			initialMessages = append(initialMessages, "Cleared existing infrastructure files. Starting fresh initialization...\n")
 		}
 
 		// Always write embedded files (asimi.conf and bashrc)
@@ -351,8 +353,8 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			if err := os.WriteFile(projectConfigPath, []byte(defaultConfContent), 0o644); err != nil {
 				return showContextMsg{content: fmt.Sprintf("Error writing project config file %s: %v", projectConfigPath, err)}
 			}
-			if program != nil && !clearMode {
-				program.Send(showContextMsg{content: fmt.Sprintf("Initialized %s from embedded default\n", projectConfigPath)})
+			if !clearMode {
+				initialMessages = append(initialMessages, fmt.Sprintf("Initialized %s from embedded default\n", projectConfigPath))
 			}
 		}
 
@@ -361,17 +363,29 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			if err := os.WriteFile(bashrcPath, []byte(sandboxBashrc), 0o644); err != nil {
 				return showContextMsg{content: fmt.Sprintf("Error writing bashrc file %s: %v", bashrcPath, err)}
 			}
-			if program != nil && !clearMode {
-				program.Send(showContextMsg{content: fmt.Sprintf("Initialized %s from embedded default\n", bashrcPath)})
+			if !clearMode {
+				initialMessages = append(initialMessages, fmt.Sprintf("Initialized %s from embedded default\n", bashrcPath))
 			}
 		}
 
-		// Check for missing infrastructure files (AGENTS.md, Justfile, Dockerfile)
-		missingFiles := checkMissingInfraFiles()
+		// Determine the agents file name - use CLAUDE.md if it exists, otherwise AGENTS.md
+		agentsFile := "AGENTS.md"
+		if _, err := os.Stat("CLAUDE.md"); err == nil {
+			agentsFile = "CLAUDE.md"
+			// Update the config file to set agents_file
+			if err := SetProjectConfig("session", "agents_file", agentsFile); err != nil {
+				initialMessages = append(initialMessages, fmt.Sprintf("Warning: Could not update config with agents_file: %v\n", err))
+			} else {
+				initialMessages = append(initialMessages, fmt.Sprintf("Detected %s, configured as agents file\n", agentsFile))
+			}
+		}
+
+		// Check for missing infrastructure files (agents file, Justfile, Dockerfile)
+		missingFiles := checkMissingInfraFiles(agentsFile)
 
 		if len(missingFiles) == 0 && !clearMode {
 			return showContextMsg{content: strings.Join([]string{systemPrefix + "All infrastructure files already exist:",
-				"✓ AGENTS.md",
+				fmt.Sprintf("✓ %s", agentsFile),
 				"✓ Justfile",
 				"✓ .agents/sandbox/Dockerfile",
 				"✓ .agents/sandbox/bashrc",
@@ -388,10 +402,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 				message.WriteString(fmt.Sprintf("✗ %s\n", file))
 			}
 			message.WriteString("\nStarting initialization process. Embrace yourself for much approvalsas there's no sandbox yet.\n")
-
-			if program != nil {
-				program.Send(showContextMsg{content: message.String()})
-			}
+			initialMessages = append(initialMessages, message.String())
 		}
 
 		// Get the project slug from RepoInfo
@@ -410,6 +421,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			ProjectSlug:  slug,
 			MissingFiles: missingFiles,
 			ClearMode:    clearMode,
+			AgentsFile:   agentsFile,
 		}
 
 		// Parse and execute the template
@@ -432,8 +444,9 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		// Send the initialization prompt to the session with guardrails
 		// Use host shell runner for init to avoid container issues
 		return startConversationMsg{
-			prompt:       initPrompt.String(),
-			clearHistory: true,
+			prompt:          initPrompt.String(),
+			clearHistory:    true,
+			initialMessages: initialMessages,
 			onStreamComplete: func(model *TUIModel) tea.Cmd {
 				return verifyInit(model, originalRunner)
 			},
@@ -446,6 +459,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 type startConversationMsg struct {
 	prompt           string
 	clearHistory     bool
+	initialMessages  []string                // Messages to display after clearing history (before streaming starts)
 	onStreamComplete func(*TUIModel) tea.Cmd // Optional guardrail function to run after stream completes
 	RunOnHost        bool                    // When true, use host shell runner instead of podman
 }
@@ -493,9 +507,15 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 
 		slog.Debug("Starting verification checks", "retryCount", retryCount)
 
+		// Determine agents file from config
+		agentsFile := "AGENTS.md"
+		if model.config != nil && model.config.Session.AgentsFile != "" {
+			agentsFile = model.config.Session.AgentsFile
+		}
+
 		// Check required files exist - collect all failures before returning
 		slog.Debug("Checking required files")
-		agentsMdExists := checkFileExists("AGENTS.md", "AGENTS.md created", report)
+		agentsMdExists := checkFileExists(agentsFile, agentsFile+" created", report)
 		justfileExists := checkFileExists("Justfile", "Justfile created", report)
 
 		if !agentsMdExists || !justfileExists {
@@ -546,7 +566,7 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 
 		// Stage all added/changed files in .agents/ and root infrastructure files
 		filesToStage := []string{
-			"AGENTS.md",
+			agentsFile,
 			"Justfile",
 			".agents/",
 		}
@@ -726,11 +746,11 @@ func handleVerificationFailure(model *TUIModel, containerRunner shellRunner, ret
 }
 
 // checkMissingInfraFiles checks which infrastructure files are missing
-func checkMissingInfraFiles() []string {
+func checkMissingInfraFiles(agentsFile string) []string {
 	var missing []string
 
 	for _, file := range []string{
-		"AGENTS.md",
+		agentsFile,
 		"Justfile",
 		".agents/asimi.conf",
 		".agents/sandbox/Dockerfile",

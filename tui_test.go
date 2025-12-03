@@ -1097,6 +1097,36 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 	require.False(t, updatedModelValue.waitingForResponse)
 }
 
+// TestStartConversationMsg_InitialMessages tests that initialMessages are displayed after clearing history
+func TestStartConversationMsg_InitialMessages(t *testing.T) {
+	model := newTestModel(t)
+
+	// Add some messages to the chat
+	model.content.Chat.AddMessage("existing message 1")
+	model.content.Chat.AddMessage("existing message 2")
+	require.Len(t, model.content.Chat.Messages, 3) // Welcome + 2 messages
+
+	// Create a startConversationMsg with initialMessages
+	msg := startConversationMsg{
+		clearHistory: true,
+		initialMessages: []string{
+			"Initial message 1",
+			"Initial message 2",
+		},
+	}
+
+	// Process the message
+	updatedModel, _ := model.Update(msg)
+	updatedModelValue, ok := updatedModel.(TUIModel)
+	require.True(t, ok, "Expected TUIModel")
+
+	// Verify that the chat was cleared and initialMessages were added
+	// The chat should have: Welcome message + 2 initial messages
+	require.Len(t, updatedModelValue.content.Chat.Messages, 3)
+	require.Contains(t, updatedModelValue.content.Chat.Messages[1], "Initial message 1")
+	require.Contains(t, updatedModelValue.content.Chat.Messages[2], "Initial message 2")
+}
+
 // TestHistoryNavigation_WithArrowKeys tests arrow key handling
 func TestHistoryNavigation_WithArrowKeys(t *testing.T) {
 	model := newTestModel(t)

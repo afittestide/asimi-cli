@@ -28,8 +28,8 @@ Your goal is to analyze the project structure and ensure these files exist and a
 ```
 # Build the sandbox container
 build-sandbox:
-    podman machine init --disk-size 30 || true
-    podman machine start || true
+    podman machine init --disk-size 30 >/dev/null 2>&1 || true
+    podman machine start >/dev/null 2>&1 || true
     podman build -t localhost/asimi-sandbox-{{`{{PROJECT_NAME}}`}}:latest -f .agents/sandbox/Dockerfile .
 
 # Clean up the sandbox container
@@ -37,7 +37,7 @@ clean-sandbox:
     podman rmi localhost/asimi-sandbox-{{`{{PROJECT_NAME}}`}}:latest
 ```
 
-2. **AGENTS.md** - A concise guide containing:
+2. **{{.AgentsFile}}** - A concise guide containing:
    - Specify the languages used 
    - Build commands using just (install, compile, etc.)
    - Test commands using just (run all tests, run single test)
@@ -63,8 +63,10 @@ clean-sandbox:
    - End with the following lines:
 
 ```
+COPY Justfile .
+RUN just bootstrap
 COPY .agents/sandbox/bashrc /root/.bashrc
-CMD ["/bin/bash"]
+CMD ["just install && /bin/bash"]
 ```
 
 
@@ -78,14 +80,14 @@ CMD ["/bin/bash"]
    - Code organization patterns
 
 2. **Check for existing files**:
-   - If AGENTS.md exists, improve it rather than replace it
+   - If {{.AgentsFile}} exists, improve it rather than replace it
    - Look for existing Justfile, Makefile, or package.json scripts
    - Check for existing Sandbox or container setup
 
 3. **Create concise, actionable content**:
-   - AGENTS.md should be ~20 lines, focused on essential commands and conventions
+   - {{.AgentsFile}} should be concise, focused on essential commands and conventions
    - Justfile should have practical, working commands
-   - Sandbox should be minimal but functional
+   - Sandbox should be minimal, simple and functional
 
 4. **Follow project conventions**:
    - Match existing code style and patterns

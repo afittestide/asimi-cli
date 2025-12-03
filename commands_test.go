@@ -171,6 +171,8 @@ func TestHandleInitCommand(t *testing.T) {
 		require.NotEmpty(t, initMsg.prompt)
 		require.True(t, initMsg.clearHistory)
 		require.NotNil(t, initMsg.onStreamComplete)
+		// initialMessages should contain the status messages
+		require.NotEmpty(t, initMsg.initialMessages, "Expected initialMessages to contain status messages")
 
 		// Check that .agents/asimi.conf was created
 		projectConfigPath := ".agents/asimi.conf"

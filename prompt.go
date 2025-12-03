@@ -251,7 +251,7 @@ func (p *PromptComponent) EnterViLearningMode() {
 	p.viPendingOp = ""
 	// Use insert keymap for learning mode editing
 	p.TextArea.KeyMap = p.viInsertKeyMap
-	p.TextArea.Placeholder = "Enter learning note (will be appended to AGENTS.md)..."
+	p.TextArea.Placeholder = "Enter learning note (will be appended to project's memory file)"
 	p.updateViModeStyle()
 }
 

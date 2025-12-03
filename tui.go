@@ -1015,23 +1015,26 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle learning mode - append to AGENTS.md
+	// Handle learning mode - append to agents file
 	if m.Mode == "learning" {
 		// Remove the leading "#" and trim whitespace
 		learningNote := strings.TrimSpace(strings.TrimPrefix(content, "#"))
 		if learningNote != "" {
-			// Append to AGENTS.md
+			// Determine agents file from config
 			agentsPath := "AGENTS.md"
+			if m.config != nil && m.config.Session.AgentsFile != "" {
+				agentsPath = m.config.Session.AgentsFile
+			}
 			f, err := os.OpenFile(agentsPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 			if err != nil {
-				m.commandLine.AddToast(fmt.Sprintf("Failed to open AGENTS.md: %v", err), "error", time.Second*3)
+				m.commandLine.AddToast(fmt.Sprintf("Failed to open %s: %v", agentsPath, err), "error", time.Second*3)
 			} else {
 				defer f.Close()
 				_, err = f.WriteString("\n" + learningNote + "\n")
 				if err != nil {
-					m.commandLine.AddToast(fmt.Sprintf("Failed to write to AGENTS.md: %v", err), "error", time.Second*3)
+					m.commandLine.AddToast(fmt.Sprintf("Failed to write to %s: %v", agentsPath, err), "error", time.Second*3)
 				} else {
-					m.commandLine.AddToast("Added to AGENTS.md", "success", time.Second*2)
+					m.commandLine.AddToast(fmt.Sprintf("Added to %s", agentsPath), "success", time.Second*2)
 					m.content.Chat.AddMessage(fmt.Sprintf("📝 Learning added: %s", learningNote))
 					m.sessionActive = true
 				}
@@ -1684,6 +1687,10 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modelsLoadedMsg:
 		return m, m.content.ShowUnifiedModels(msg.models, m.config.LLM.Model)
 
+	case showModelSelectionMsg:
+		// Trigger model selection after login completes
+		return m, handleModelsCommand(&m, nil)
+
 	case modelsLoadErrorMsg:
 		m.content.SetModelsError(msg.error)
 
@@ -1913,7 +1920,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case llmInitErrorMsg:
 		// LLM initialization failed
 		slog.Warn("LLM initialization failed", "error", msg.err)
-		m.commandLine.AddToast("Warning: Running without an LLM", "warning", 5000)
+		m.commandLine.AddToast("Running without a model, use `:models` to set", "warning", 5000)
 
 	case startConversationMsg:
 		// Handle starting a new conversation (used by init, new, and other commands)
@@ -1960,6 +1967,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Reset session conversation history
 			m.session.ClearHistory()
+		}
+
+		// Display initial messages after clearing history (before streaming starts)
+		for _, initialMsg := range msg.initialMessages {
+			m.content.Chat.AddMessage(initialMsg)
 		}
 
 		// Store the callback for later use
@@ -2434,7 +2446,7 @@ func (m TUIModel) renderHomeView(width, height int) string {
 			Align(lipgloss.Center).
 			Width(width)
 		contentParts = append(contentParts, "",
-			configStyle.Render("📝 Config file created at ~/.config/asimi/asimi.conf"))
+			configStyle.Render("📝 User's config file created at ~/.config/asimi/asimi.conf"))
 	}
 
 	// Add title and subtitle at the top (prepend)
