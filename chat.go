@@ -61,7 +61,9 @@ func NewChatComponent(width, height int, markdownEnabled bool) *ChatComponent {
 // NewChatComponentWithStatus creates a new chat component with a status callback
 func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStatus func() string) *ChatComponent {
 	vp := viewport.New(width, height)
-	vp.SetContent("Welcome to Asimi CLI! Send a message to start chatting.")
+
+	title := systemPrefix + " New session at " + time.Now().Format("2 January, 3:04 PM MST")
+	vp.SetContent(title)
 
 	var renderer *glamour.TermRenderer
 	if markdownEnabled {
@@ -77,7 +79,7 @@ func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStat
 
 	ret := ChatComponent{
 		Viewport:             vp,
-		Messages:             []string{"Welcome to Asimi CLI! Send a message to start chatting."},
+		Messages:             []string{title},
 		Width:                width,
 		Height:               height,
 		AutoScroll:           true,  // Enable auto-scroll by default
@@ -91,15 +93,14 @@ func NewChatComponentWithStatus(width, height int, markdownEnabled bool, getStat
 		rawSessionHistory:    make([]string, 0),
 		toolCallMessageIndex: make(map[string]int),
 		Style: lipgloss.NewStyle().
-			Background(lipgloss.Color("#11051E")). // Terminal7 chat background
 			Width(width).
 			Height(height),
 	}
 	return &ret
 }
 
-// SetWidth updates the width of the chat component
-func (c *ChatComponent) SetWidth(width int) {
+// SetSize updates the width & height of the chat component
+func (c *ChatComponent) SetSize(width, height int) {
 	c.Width = width
 	c.Style = c.Style.Width(width)
 	c.Viewport.Width = width
@@ -123,18 +124,13 @@ func (c *ChatComponent) SetWidth(width int) {
 			c.markdownRenderer = renderer
 		}
 	}
-
-	c.UpdateContent()
-}
-
-// SetHeight updates the height of the chat component
-func (c *ChatComponent) SetHeight(height int) {
 	if height < 0 {
 		height = 0
 	}
 	c.Height = height
-	c.Style = c.Style.Height(height)
-	c.Viewport.Height = height
+	c.Style = c.Style.Height(c.Height)
+	c.Viewport.Height = c.Height
+	// TODO: Do we need this? the content didn't change
 	c.UpdateContent()
 }
 

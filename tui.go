@@ -1730,18 +1730,21 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prompt.Style = m.prompt.Style.BorderForeground(globalTheme.PromptOffBorder)
 			}
 		case "scroll":
-			m.prompt.EnterViScrollMode()
 			m.prompt.Blur()
+			m.prompt.EnterViScrollMode()
 		case "command":
 			m.prompt.EnterViCommandLineMode()
 		case "yesno":
 			// Yes/No mode - blur prompt so cursor doesn't appear there
 			m.prompt.Blur()
+			m.prompt.Style = m.prompt.Style.BorderForeground(globalTheme.PromptOffBorder)
 		case "learning":
 			m.prompt.EnterViLearningMode()
 		case "select", "resume", "models", "help":
 			// These modes don't need prompt updates, just placeholder changes
+			m.prompt.Blur()
 			m.prompt.TextArea.Placeholder = "j/k, CTRL-D/U to navigate | Enter to select | ESC to abort"
+			m.prompt.Style = m.prompt.Style.BorderForeground(globalTheme.PromptOffBorder)
 		}
 
 		return m, nil
@@ -2334,14 +2337,11 @@ func (m TUIModel) overlayCompletionDialog(baseView, promptView, commandLineView 
 		return baseView
 	}
 
-	commandLineHeight := 0
-	if commandLineView != "" {
-		commandLineHeight = 1
-	}
+	// 2 is tor the command and status lines
 	// TODO: bring it down and cover part of the prompt. Need to wait for bubbletea 2.0
-	bottomOffset := commandLineHeight + lipgloss.Height(promptView)
+	bottomOffset := 2 + lipgloss.Height(promptView)
 	if m.completionMode == "file" {
-		// Command completion needs extra spacing
+		// File completion needs extra spacing
 		bottomOffset++
 	}
 
@@ -2408,9 +2408,9 @@ func (m TUIModel) renderHomeView(width, height int) string {
 		"▶ Press `CTRL-B` for SCROLL mode",
 		"▶ Press `CTRL-C` to stop the model, twice to exit",
 		"▶ Press `ESC` to switch modes",
+		"▶ Press `!` in COMMAND to run in the sandbox's shell",
 		"▶ Type `:model` to setup the model",
-		"▶ Press `:init` to init th project",
-		"▶ Press `!` in COMMAND to run a command in the sandbox",
+		"▶ Type `:init` to init th project",
 		"     e.g, ⌨️ ESC:!uname -aENTER⌨️",
 	}
 

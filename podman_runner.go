@@ -1,6 +1,3 @@
-//go:build !ignore
-// +build !ignore
-
 package main
 
 import (
@@ -475,9 +472,9 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	}
 	slog.Debug("command written to stdin successfully")
 
-	// Get timeout from config or use default of 10 minutes
+	// Get timeout from config or use default of 2 minutes
 	// TODO: move the default to config.go
-	timeoutMinutes := 10
+	timeoutMinutes := 2
 	if r.config != nil && r.config.RunInShell.TimeoutMinutes > 0 {
 		timeoutMinutes = r.config.RunInShell.TimeoutMinutes
 	}

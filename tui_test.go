@@ -336,9 +336,9 @@ func TestPromptComponent(t *testing.T) {
 func TestChatComponent(t *testing.T) {
 	chat := NewChatComponent(50, 10, false)
 
-	// Should have initial welcome message
+	// Should have initial title message
 	require.Equal(t, 1, len(chat.Messages))
-	require.Equal(t, "Welcome to Asimi CLI! Send a message to start chatting.", chat.Messages[0])
+	require.Contains(t, chat.Messages[0], "New session")
 
 	// Test adding a message
 	testMessage := "Test message"
@@ -347,10 +347,8 @@ func TestChatComponent(t *testing.T) {
 	require.Equal(t, testMessage, chat.Messages[1])
 
 	// Test dimensions
-	chat.SetWidth(60)
+	chat.SetSize(60, 15)
 	require.Equal(t, 60, chat.Width)
-
-	chat.SetHeight(15)
 	require.Equal(t, 15, chat.Height)
 }
 

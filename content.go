@@ -68,12 +68,11 @@ func (c *ContentComponent) SetSize(width, height int) {
 	c.height = height
 	c.viewport.Width = width
 	c.viewport.Height = height
-	//TODO refactor to chat.SetSize
-	c.Chat.SetWidth(width)
-	c.Chat.SetHeight(height)
-	c.help.SetSize(width, height)
-	c.models.SetSize(width, height)
-	c.resume.SetSize(width, height)
+	h := height - 1
+	c.Chat.SetSize(width, h)
+	c.help.SetSize(width, h)
+	c.models.SetSize(width, h)
+	c.resume.SetSize(width, h)
 }
 
 // GetActiveView returns the current view type

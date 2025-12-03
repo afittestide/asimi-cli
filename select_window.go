@@ -30,8 +30,8 @@ func NewSelectWindow[T any]() SelectWindow[T] {
 func (s *SelectWindow[T]) SetSize(width, height int) {
 	s.Width = width
 	s.Height = height
-	// Account for title line (1) and height constraint adjustment (1)
-	s.MaxVisible = height - 2
+	// Account for title line
+	s.MaxVisible = height - 1
 	if s.MaxVisible < 1 {
 		s.MaxVisible = 1
 	}

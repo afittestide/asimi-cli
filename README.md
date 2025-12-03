@@ -35,13 +35,19 @@ Asimi is just starting out. It's been used to develop itself since version 0.1.0
 | [#24 - Sub-agents & Roles](https://github.com/afittestide/asimi-cli/issues/24) | Task delegation with orchestrator role |
 | [#8 - Git Integration](https://github.com/afittestide/asimi-cli/issues/8) | `:branch` command and tighter git workflows |
 | [#68 - Shell Firewall](https://github.com/afittestide/asimi-cli/issues/68) | Required approval to run commands on host |
-
+| A few directories | While flat is better than nested, there comes a time for dirs|
 > 💡 Have a feature request? [Open an issue](https://github.com/afittestide/asimi-cli/issues/new)!
 
 
 ## 🚀 Quick Start
 
-Please choose the installer flavor:
+First, there are two great tools required on your system:
+
+- [Podman](https://podman.io/docs/installation) for the sandbox: like `docker` but safer
+- [Just](https://github.com/casey/just) to collect all the scripts in a Justfile
+
+
+Then, choose your installer flavor:
 
 ### brew
 
@@ -129,11 +135,11 @@ Asimi mimics the vi/vim/neovim interface:
 ### Prerequisites
 
 - Go 1.25 or higher
-- [Just](https://github.com/casey/just) command runner
+- `just bootstrap`
 
 ### Common Tasks
 
-We're using a `Justfile` to collect all our script.
+We're using a `Justfile` to collect all our scripts.
 If you need a new script please add a recipe in the Justfile.
 
 ```bash

@@ -26,13 +26,12 @@ just lint             # Run golangci-lint
 just fmt              # Format code
 
 # Infrastructure
-just bootstrap        # Install dev tools (golangci-lint, podman)
-just infrabuild       # Build container image
-just infraclean       # Clean container resources
+just bootstrap        # Install dev tools (golangci-lint, goimports)
+just build-sandbox    # Build container image for sandboxed execution
+just clean-sandbox    # Clean up container image
 
 # Performance analysis
-just profile          # Profile startup performance
-just measure          # Measure run_in_shell performance (parallel execution test)
+just measure          # Profile startup performance
 
 # Run single test
 go test -v -run TestName ./...
@@ -110,6 +109,7 @@ Asimi is a vi-inspired, terminal-based AI coding agent with containerized shell 
 - **Config**: `~/.config/asimi/asimi.toml` (user) or `.agents/asimi.toml` (project)
 - **Database**: `~/.local/share/asimi/asimi.sqlite` (see `storage/schema.go`)
 - **Project files**: All Asimi-specific files live under `.agents/` directory
+- **Container image**: Configured in `.agents/asimi.conf` under `[run_in_shell]` section as `image_name`
 
 ## Release Workflow
 

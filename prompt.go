@@ -50,6 +50,11 @@ func NewPromptComponent(width, height int) PromptComponent {
 	ta := textarea.New()
 	ta.Placeholder = PlaceholderDefault
 	ta.ShowLineNumbers = false
+
+	// Remove background color from textarea styles
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+
 	ta.Focus()
 
 	// Set the dimensions

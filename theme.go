@@ -14,7 +14,7 @@ type Theme struct {
 	Warning          lipgloss.Color
 	Error            lipgloss.Color
 	PromptBackground lipgloss.Color
-	ChatBackground   lipgloss.Color
+	StatusBackground lipgloss.Color
 	TextError        lipgloss.Color
 	PaneBackground   lipgloss.Color
 	DarkBorder       lipgloss.Color
@@ -48,7 +48,7 @@ func NewTheme() *Theme {
 	warning := lipgloss.Color("#F4DB53")
 	errorColor := lipgloss.Color("#F54545")
 	promptBackground := lipgloss.Color("#271D30")
-	chatBackground := lipgloss.Color("#11051E")
+
 	textError := lipgloss.Color("#004444")
 	paneBackground := lipgloss.Color("#000000")
 	darkBorder := lipgloss.Color("#373702")
@@ -65,7 +65,6 @@ func NewTheme() *Theme {
 		Warning:          warning,
 		Error:            errorColor,
 		PromptBackground: promptBackground,
-		ChatBackground:   chatBackground,
 		TextError:        textError,
 		PaneBackground:   paneBackground,
 		DarkBorder:       darkBorder,

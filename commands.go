@@ -401,7 +401,7 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 			for _, file := range missingFiles {
 				message.WriteString(fmt.Sprintf("✗ %s\n", file))
 			}
-			message.WriteString("\nStarting initialization process. Embrace yourself for much approvalsas there's no sandbox yet.\n")
+			message.WriteString("\nStarting initialization process. Embrace yourself for much approvals as there's no sandbox yet.\n")
 			initialMessages = append(initialMessages, message.String())
 		}
 
