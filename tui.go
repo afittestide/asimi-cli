@@ -1624,32 +1624,8 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.config.LLM.RefreshToken = ""
 			m.config.LLM.APIKey = ""
 
-			// Try to load credentials for the new provider
-			switch msg.model.Provider {
-			case "anthropic":
-				if tokenData, err := GetOauthToken("anthropic"); err == nil && tokenData != nil {
-					m.config.LLM.AuthToken = tokenData.AccessToken
-					m.config.LLM.RefreshToken = tokenData.RefreshToken
-				} else if key, err := GetAPIKeyFromKeyring("anthropic"); err == nil && key != "" {
-					m.config.LLM.APIKey = key
-				} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-					m.config.LLM.APIKey = key
-				}
-			case "openai":
-				if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-					m.config.LLM.APIKey = key
-				} else if key, err := GetAPIKeyFromKeyring("openai"); err == nil && key != "" {
-					m.config.LLM.APIKey = key
-				}
-			case "googleai":
-				if key := os.Getenv("GEMINI_API_KEY"); key != "" {
-					m.config.LLM.APIKey = key
-				} else if key := os.Getenv("GOOGLE_API_KEY"); key != "" {
-					m.config.LLM.APIKey = key
-				} else if key, err := GetAPIKeyFromKeyring("googleai"); err == nil && key != "" {
-					m.config.LLM.APIKey = key
-				}
-			}
+			// Credentials will be loaded by getModelClient() from keyring
+			// No need to load them here - getModelClient handles expiration and refresh
 		}
 
 		// Save config and reinitialize session

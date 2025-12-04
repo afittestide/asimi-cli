@@ -341,7 +341,12 @@ func TestSaveConfig(t *testing.T) {
 	err = os.Chdir(tempDir)
 	require.NoError(t, err)
 
-	t.Run("save config creates directory", func(t *testing.T) {
+	t.Run("save config falls back to user config", func(t *testing.T) {
+		// Mock HOME to point to temp dir so we can verify user config creation
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempDir)
+		defer os.Setenv("HOME", originalHome)
+
 		config := &Config{
 			LLM: LLMConfig{
 				Model: "gpt-4",
@@ -351,41 +356,36 @@ func TestSaveConfig(t *testing.T) {
 		err := SaveConfig(config)
 		require.NoError(t, err)
 
-		// Check that .agents directory was created
-		_, err = os.Stat(".agents")
+		// Check that .config/asimi directory was created in temp HOME
+		_, err = os.Stat(".config/asimi")
 		assert.NoError(t, err)
 
-		// Check that config file was created
-		_, err = os.Stat(".agents/asimi.conf")
+		// Check that user config file was created
+		_, err = os.Stat(".config/asimi/asimi.conf")
 		assert.NoError(t, err)
+
+		// Ensure .agents was NOT created
+		_, err = os.Stat(".agents")
+		assert.Error(t, err)
+		assert.True(t, os.IsNotExist(err))
 	})
 
 	t.Run("save config updates existing file", func(t *testing.T) {
-		// Clear environment variables that could trigger auto-configuration
-		envVars := []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"}
-		originalEnvs := make(map[string]string)
-		for _, env := range envVars {
-			originalEnvs[env] = os.Getenv(env)
-			os.Unsetenv(env)
-		}
-		defer func() {
-			for env, val := range originalEnvs {
-				if val != "" {
-					os.Setenv(env, val)
-				}
-			}
-		}()
+		// Mock HOME to point to temp dir
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempDir)
+		defer os.Setenv("HOME", originalHome)
 
-		// Create initial config
-		err := os.MkdirAll(".agents", 0755)
+		// Create initial user config
+		configDir := filepath.Join(tempDir, ".config", "asimi")
+		err := os.MkdirAll(configDir, 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".agents")
 
 		initialContent := `[llm]
 provider = "openai"
 model = "gpt-3.5-turbo"
 `
-		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
+		err = os.WriteFile(filepath.Join(configDir, "asimi.conf"), []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		// Update config
@@ -399,15 +399,19 @@ model = "gpt-3.5-turbo"
 		err = SaveConfig(config)
 		require.NoError(t, err)
 
-		// Load and verify
+		// Load and verify (LoadConfig will read from user config in temp home)
 		loadedConfig, err := LoadConfig()
 		require.NoError(t, err)
 		assert.Equal(t, "gpt-4", loadedConfig.LLM.Model)
 	})
 
 	t.Run("save config preserves other settings", func(t *testing.T) {
+		// Mock HOME to point to temp dir
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempDir)
+		defer os.Setenv("HOME", originalHome)
+
 		// Clear environment variables that could trigger auto-configuration
-		// TODO: make it a util: `defer ClearEnv(envVars)`
 		envVars := []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"}
 		originalEnvs := make(map[string]string)
 		for _, env := range envVars {
@@ -423,9 +427,9 @@ model = "gpt-3.5-turbo"
 		}()
 
 		// Create config with multiple settings
-		err := os.MkdirAll(".agents", 0755)
+		configDir := filepath.Join(tempDir, ".config", "asimi")
+		err := os.MkdirAll(configDir, 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".agents")
 
 		initialContent := `[llm]
 provider = "openai"
@@ -436,10 +440,10 @@ api_key = "test-key"
 enabled = true
 max_sessions = 50
 `
-		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
+		err = os.WriteFile(filepath.Join(configDir, "asimi.conf"), []byte(initialContent), 0644)
 		require.NoError(t, err)
 
-		// Update provider and model (SaveConfig now saves both)
+		// Update provider and model
 		config := &Config{
 			LLM: LLMConfig{
 				Provider: "openai",
@@ -1119,10 +1123,15 @@ func TestSaveConfigPreservesComments(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("preserves comments when updating", func(t *testing.T) {
-		// Create config with comments
-		err := os.MkdirAll(".agents", 0755)
+		// Mock HOME to point to temp dir
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempDir)
+		defer os.Setenv("HOME", originalHome)
+
+		// Create config with comments in user config location
+		configDir := filepath.Join(tempDir, ".config", "asimi")
+		err := os.MkdirAll(configDir, 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".agents")
 
 		initialContent := `# Project configuration
 # This file configures the LLM settings
@@ -1137,7 +1146,7 @@ model = "gpt-3.5-turbo" # default model
 # Enable history tracking
 enabled = true
 `
-		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
+		err = os.WriteFile(filepath.Join(configDir, "asimi.conf"), []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		// Update config
@@ -1152,7 +1161,7 @@ enabled = true
 		require.NoError(t, err)
 
 		// Read and verify comments are preserved
-		content, err := os.ReadFile(".agents/asimi.conf")
+		content, err := os.ReadFile(filepath.Join(configDir, "asimi.conf"))
 		require.NoError(t, err)
 		contentStr := string(content)
 
@@ -1173,15 +1182,21 @@ enabled = true
 	})
 
 	t.Run("preserves inline comments", func(t *testing.T) {
-		err := os.MkdirAll(".agents", 0755)
+		// Mock HOME to point to temp dir
+		originalHome := os.Getenv("HOME")
+		os.Setenv("HOME", tempDir)
+		defer os.Setenv("HOME", originalHome)
+
+		// Create config with inline comments in user config location
+		configDir := filepath.Join(tempDir, ".config", "asimi")
+		err := os.MkdirAll(configDir, 0755)
 		require.NoError(t, err)
-		defer os.RemoveAll(".agents")
 
 		initialContent := `[llm]
 provider = "openai" # cloud provider
 model = "gpt-3.5" # fast model
 `
-		err = os.WriteFile(".agents/asimi.conf", []byte(initialContent), 0644)
+		err = os.WriteFile(filepath.Join(configDir, "asimi.conf"), []byte(initialContent), 0644)
 		require.NoError(t, err)
 
 		config := &Config{
@@ -1194,7 +1209,7 @@ model = "gpt-3.5" # fast model
 		err = SaveConfig(config)
 		require.NoError(t, err)
 
-		content, err := os.ReadFile(".agents/asimi.conf")
+		content, err := os.ReadFile(filepath.Join(configDir, "asimi.conf"))
 		require.NoError(t, err)
 		contentStr := string(content)
 

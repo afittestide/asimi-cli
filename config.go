@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -202,7 +203,7 @@ func LoadConfig() (*Config, error) {
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Failed to get user home directory: %v", err)
+		slog.Error("Failed to get user home directory", "error", err)
 	} else {
 		userConfigPath := filepath.Join(homeDir, ".config", "asimi", "asimi.conf")
 		if err := k.Load(file.Provider(userConfigPath), koanftoml.Parser()); err != nil {
@@ -337,23 +338,29 @@ func (c *Config) ReloadProjectConf() error {
 	return nil
 }
 
-// SaveConfig saves the current config to the project-level asimi.conf file
+// SaveConfig saves the current config to the user-level config file (~/.config/asimi/asimi.conf).
 // It preserves all comments in the existing file.
 func SaveConfig(config *Config) error {
-	projectConfigPath := filepath.Join(".agents", "asimi.conf")
-	if err := os.MkdirAll(".agents", 0o755); err != nil {
-		return fmt.Errorf("failed to create .agents directory: %w", err)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
 	}
+	userConfigPath := filepath.Join(homeDir, ".config", "asimi", "asimi.conf")
 	// Read existing content or start with empty
 	var content string
-	if data, err := os.ReadFile(projectConfigPath); err == nil {
+	if data, err := os.ReadFile(userConfigPath); err == nil {
 		content = string(data)
 	}
 	// Update provider and model using comment-preserving helpers
 	content = updateOrInsertTOMLValue(content, "llm", "provider", config.LLM.Provider)
 	content = updateOrInsertTOMLValue(content, "llm", "model", config.LLM.Model)
 
-	if err := os.WriteFile(projectConfigPath, []byte(content), 0o644); err != nil {
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(userConfigPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(userConfigPath, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -671,7 +678,6 @@ func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry ti
 
 	// Update values using comment-preserving helpers
 	content = updateOrInsertTOMLValue(content, "llm", "provider", provider)
-	content = updateOrInsertTOMLValue(content, "llm", "auth_method", "oauth_keyring")
 
 	// Remove any plaintext tokens from config if they exist (we're using keyring now)
 	content = removeTOMLKey(content, "llm", "auth_token")

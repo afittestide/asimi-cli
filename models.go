@@ -137,7 +137,8 @@ func fetchAllModels(config *Config) []Model {
 	anthropicAuth := checkProviderAuth("anthropic")
 	ollamaAvailable := checkOllamaAvailable()
 
-	// Fetch Anthropic models
+	// Fetch Anthropic models & login option
+	addLogin := false
 	if anthropicAuth.HasAPIKey || anthropicAuth.HasOAuth {
 		anthropicModels, err := fetchAnthropicModels(config)
 		if err == nil && len(anthropicModels) > 0 {
@@ -158,14 +159,19 @@ func fetchAllModels(config *Config) []Model {
 				})
 			}
 		} else if err != nil {
+			// TODO:
 			slog.Warn("failed to fetch Anthropic models", "error", err)
 			allModels = append(allModels, Model{
 				Provider:    "anthropic",
 				Status:      "error",
 				Description: err.Error(),
 			})
+			addLogin = true
 		}
 	} else {
+		addLogin = true
+	}
+	if addLogin {
 		// Add login option for Anthropic
 		slog.Debug("Addign login option")
 		allModels = append(allModels, Model{
@@ -304,50 +310,58 @@ func fetchAllModels(config *Config) []Model {
 
 // fetchAnthropicModels fetches available models from the Anthropic API
 func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
-	// Load credentials from keyring if not already in config
-	// This ensures worktrees can access credentials stored in the OS keyring
-	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
-		// Try OAuth tokens first
-		tokenData, err := GetOauthToken("anthropic")
-		if err == nil && tokenData != nil {
-			if !IsTokenExpired(tokenData) {
-				// Token is still valid - use it
-				config.LLM.AuthToken = tokenData.AccessToken
-				config.LLM.RefreshToken = tokenData.RefreshToken
-			} else {
-				// Token expired - try to refresh for Anthropic
-				auth := &AuthAnthropic{}
-				newAccessToken, refreshErr := auth.access()
-				if refreshErr == nil {
-					config.LLM.AuthToken = newAccessToken
-				}
-			}
-		}
+	// Don't use config.LLM.AuthToken or config.LLM.APIKey as they might be for a different provider
+	// Instead, fetch Anthropic-specific credentials directly
+	var authToken, apiKey string
 
-		// If still no auth token, try API key from keyring
-		if config.LLM.AuthToken == "" {
-			apiKey, err := GetAPIKeyFromKeyring("anthropic")
-			if err == nil && apiKey != "" {
-				config.LLM.APIKey = apiKey
-			}
-		}
-		if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
-			if envKey := os.Getenv("ANTHROPIC_API_KEY"); envKey != "" {
-				config.LLM.APIKey = envKey
+	// Try OAuth tokens first
+	slog.Debug("Fetching Anthropic credentials")
+	tokenData, err := GetOauthToken("anthropic")
+	if err == nil && tokenData != nil {
+		if !IsTokenExpired(tokenData) {
+			// Token is still valid - use it
+			authToken = tokenData.AccessToken
+			slog.Debug("Using valid OAuth token for Anthropic")
+		} else {
+			// Token expired - try to refresh for Anthropic
+			auth := &AuthAnthropic{}
+			newAccessToken, refreshErr := auth.access()
+			if refreshErr == nil {
+				authToken = newAccessToken
+				slog.Debug("Refreshed OAuth token for Anthropic")
 			}
 		}
 	}
 
-	if config.LLM.AuthToken == "" && config.LLM.APIKey == "" {
+	// If no OAuth token, try API key from keyring
+	if authToken == "" {
+		apiKey, err = GetAPIKeyFromKeyring("anthropic")
+		if err != nil {
+			apiKey = ""
+		}
+		if apiKey != "" {
+			slog.Debug("Using API key from keyring for Anthropic")
+		}
+	}
+
+	// If still no credentials, try environment variable
+	if authToken == "" && apiKey == "" {
+		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey != "" {
+			slog.Debug("Using API key from environment for Anthropic")
+		}
+	}
+
+	if authToken == "" && apiKey == "" {
 		return nil, fmt.Errorf("no authentication configured for anthropic provider")
 	}
 
 	// Create HTTP client with appropriate authentication
 	client := &http.Client{}
-	if config.LLM.AuthToken != "" {
+	if authToken != "" {
 		// Use OAuth authentication
 		client.Transport = &anthropicOAuthTransport{
-			token:  config.LLM.AuthToken,
+			token:  authToken,
 			config: config,
 			base:   http.DefaultTransport,
 		}
@@ -360,9 +374,6 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 
 	// Determine base URL
 	baseURL := "https://api.anthropic.com"
-	if config.LLM.BaseURL != "" {
-		baseURL = strings.TrimSuffix(config.LLM.BaseURL, "/")
-	}
 	if envBaseURL := os.Getenv("ANTHROPIC_BASE_URL"); envBaseURL != "" {
 		baseURL = strings.TrimSuffix(envBaseURL, "/")
 	}
@@ -375,8 +386,8 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 
 	// Set headers
 	req.Header.Set("anthropic-version", "2023-06-01")
-	if config.LLM.APIKey != "" {
-		req.Header.Set("x-api-key", config.LLM.APIKey)
+	if apiKey != "" {
+		req.Header.Set("x-api-key", apiKey)
 	}
 
 	// Make request
@@ -401,20 +412,24 @@ func fetchAnthropicModels(config *Config) ([]AnthropicModel, error) {
 
 // fetchOpenAIModels fetches available models from the OpenAI API
 func fetchOpenAIModels(config *Config) ([]OpenAIModel, error) {
-	// Get API key
-	apiKey := ""
-	if config.LLM.Provider == "openai" && config.LLM.APIKey != "" {
-		apiKey = config.LLM.APIKey
+	// Don't use config.LLM.APIKey as it might be for a different provider
+	// Fetch OpenAI-specific credentials directly
+	var apiKey string
+
+	// Try environment variable first
+	apiKey = os.Getenv("OPENAI_API_KEY")
+	if apiKey != "" {
+		slog.Debug("Using API key from environment for OpenAI")
 	}
-	if apiKey == "" {
-		apiKey = os.Getenv("OPENAI_API_KEY")
-	}
+
+	// If no env var, try keyring
 	if apiKey == "" {
 		var err error
 		apiKey, err = GetAPIKeyFromKeyring("openai")
 		if err != nil || apiKey == "" {
 			return nil, fmt.Errorf("no API key configured for OpenAI")
 		}
+		slog.Debug("Using API key from keyring for OpenAI")
 	}
 
 	// Create request
@@ -466,23 +481,27 @@ func fetchOpenAIModels(config *Config) ([]OpenAIModel, error) {
 
 // fetchGoogleModels fetches available models from the Google AI API
 func fetchGoogleModels(config *Config) ([]GoogleModel, error) {
-	// Get API key
-	apiKey := ""
-	if config.LLM.Provider == "googleai" && config.LLM.APIKey != "" {
-		apiKey = config.LLM.APIKey
-	}
-	if apiKey == "" {
-		apiKey = os.Getenv("GEMINI_API_KEY")
-	}
+	// Don't use config.LLM.APIKey as it might be for a different provider
+	// Fetch Google AI-specific credentials directly
+	var apiKey string
+
+	// Try environment variables first (both GEMINI_API_KEY and GOOGLE_API_KEY)
+	apiKey = os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		apiKey = os.Getenv("GOOGLE_API_KEY")
 	}
+	if apiKey != "" {
+		slog.Debug("Using API key from environment for Google AI")
+	}
+
+	// If no env var, try keyring
 	if apiKey == "" {
 		var err error
 		apiKey, err = GetAPIKeyFromKeyring("googleai")
 		if err != nil || apiKey == "" {
 			return nil, fmt.Errorf("no API key configured for Google AI")
 		}
+		slog.Debug("Using API key from keyring for Google AI")
 	}
 
 	// Create request - Google AI uses query parameter for API key
