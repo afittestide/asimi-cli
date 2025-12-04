@@ -22,7 +22,7 @@ const (
 
 // Placeholder text constants
 const (
-	PlaceholderDefault = "Type your message here. Enter to send, ESC to exit insert mode"
+	PlaceholderDefault = "Type your message here. Enter to send, ESC to change mode"
 )
 
 // PromptComponent represents the user input text area

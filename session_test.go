@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
+	lctools "github.com/tmc/langchaingo/tools"
 )
 
 // sessionMockLLM simulates provider-native function/tool calling behavior and streaming.
@@ -1372,5 +1374,179 @@ func TestChatComponent_FinalizeLastAIMessage(t *testing.T) {
 		isFailure := chat.FinalizeLastAIMessage()
 
 		assert.False(t, isFailure)
+	})
+}
+
+// Tests from session_oauth_test.go
+
+// TestIsOAuthTokenExpiredError tests the OAuth error detection function
+func TestIsOAuthTokenExpiredError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "OAuth token expired error",
+			err:      errors.New("anthropic: failed to create message: API returned unexpected status code: 401: OAuth token has expired. Please obtain a new token or refresh your existing token."),
+			expected: true,
+		},
+		{
+			name:     "OAuth token expire error (different case)",
+			err:      errors.New("OAuth Token Has Expired"),
+			expected: true,
+		},
+		{
+			name:     "401 with expire keyword",
+			err:      errors.New("API returned status 401: token will expire soon"),
+			expected: true,
+		},
+		{
+			name:     "Regular 401 without OAuth",
+			err:      errors.New("API returned status 401: Unauthorized"),
+			expected: false,
+		},
+		{
+			name:     "OAuth without expiration",
+			err:      errors.New("OAuth authentication failed"),
+			expected: false,
+		},
+		{
+			name:     "Unrelated error",
+			err:      errors.New("network timeout"),
+			expected: false,
+		},
+		{
+			name:     "API key error",
+			err:      errors.New("Invalid API key"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isOAuthTokenExpiredError(tt.err)
+			assert.Equal(t, tt.expected, result, "Error: %v", tt.err)
+		})
+	}
+}
+
+// mockLLMWithOAuthError is a mock LLM that simulates OAuth token expiration
+type mockLLMWithOAuthError struct {
+	callCount      int
+	failFirstCall  bool
+	oauthError     error
+	successContent string
+}
+
+func (m *mockLLMWithOAuthError) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	m.callCount++
+
+	// Fail on first call if configured
+	if m.failFirstCall && m.callCount == 1 {
+		return nil, m.oauthError
+	}
+
+	// Return success response
+	return &llms.ContentResponse{
+		Choices: []*llms.ContentChoice{
+			{
+				Content:    m.successContent,
+				StopReason: "end_turn",
+			},
+		},
+	}, nil
+}
+
+func (m *mockLLMWithOAuthError) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+// TestSession_OAuthTokenRefreshOnError tests that the session automatically refreshes
+// OAuth tokens when it encounters an expiration error
+func TestSession_OAuthTokenRefreshOnError(t *testing.T) {
+	// Note: This test verifies the error detection logic.
+	// Full integration testing of token refresh would require mocking the AuthAnthropic
+	// and getModelClient functions, which is complex due to package-level dependencies.
+
+	t.Run("detects OAuth expiration error", func(t *testing.T) {
+		// Create a session with a mock LLM that returns an OAuth error
+		mockLLM := &mockLLMWithOAuthError{
+			failFirstCall: true,
+			oauthError: errors.New(
+				"anthropic: failed to create message: API returned unexpected status code: 401: " +
+					"OAuth token has expired. Please obtain a new token or refresh your existing token.",
+			),
+			successContent: "Success after refresh",
+		}
+
+		config := &LLMConfig{
+			Provider: "anthropic",
+			Model:    "claude-3-5-sonnet-20241022",
+		}
+
+		session := &Session{
+			llm:         mockLLM,
+			config:      config,
+			Messages:    []llms.MessageContent{},
+			toolCatalog: map[string]lctools.Tool{},
+			toolDefs:    []llms.Tool{},
+		}
+
+		// Add a user message
+		session.Messages = append(session.Messages, llms.MessageContent{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart("test prompt")},
+		})
+
+		// Try to generate a response - this should detect the OAuth error
+		_, err := session.generateLLMResponse(context.Background(), nil)
+
+		// We expect an error because we can't actually refresh the token in this test
+		// (that would require mocking AuthAnthropic and getModelClient)
+		assert.Error(t, err)
+
+		// Verify the error message indicates OAuth token expiration was detected
+		assert.True(t, strings.Contains(err.Error(), "OAuth token expired"),
+			"Expected error to mention OAuth token expiration, got: %v", err)
+	})
+
+	t.Run("passes through non-OAuth errors", func(t *testing.T) {
+		// Create a session with a mock LLM that returns a non-OAuth error
+		mockLLM := &mockLLMWithOAuthError{
+			failFirstCall: true,
+			oauthError:    errors.New("network timeout"),
+		}
+
+		config := &LLMConfig{
+			Provider: "anthropic",
+			Model:    "claude-3-5-sonnet-20241022",
+		}
+
+		session := &Session{
+			llm:         mockLLM,
+			config:      config,
+			Messages:    []llms.MessageContent{},
+			toolCatalog: map[string]lctools.Tool{},
+			toolDefs:    []llms.Tool{},
+		}
+
+		// Add a user message
+		session.Messages = append(session.Messages, llms.MessageContent{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart("test prompt")},
+		})
+
+		// Try to generate a response
+		_, err := session.generateLLMResponse(context.Background(), nil)
+
+		// We expect the original error to be returned
+		assert.Error(t, err)
+		assert.Equal(t, "network timeout", err.Error())
 	})
 }

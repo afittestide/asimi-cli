@@ -591,3 +591,397 @@ func TestReadFileWithStringNumbers(t *testing.T) {
 		t.Errorf("Expected %q, got %q", expected, result2)
 	}
 }
+
+// Tests from test_shell_runner_test.go
+
+func TestTestShellRunner_Run(t *testing.T) {
+	runner := NewTestShellRunner()
+
+	params := RunInShellInput{
+		Command:     "echo hello",
+		Description: "Test echo",
+	}
+
+	output, err := runner.Run(context.Background(), params)
+	require.NoError(t, err, "unexpected error")
+
+	assert.Equal(t, "0", output.ExitCode, "exit code mismatch")
+	assert.NotEmpty(t, output.Output, "expected non-empty output")
+}
+
+func TestTestShellRunner_RunError(t *testing.T) {
+	runner := NewTestShellRunner()
+
+	params := RunInShellInput{
+		Command:     "exit 42",
+		Description: "Test exit code",
+	}
+
+	output, err := runner.Run(context.Background(), params)
+	require.NoError(t, err, "unexpected error")
+
+	assert.Equal(t, "42", output.ExitCode, "exit code mismatch")
+}
+
+func TestShouldRunOnHost(t *testing.T) {
+	tests := []struct {
+		name              string
+		config            *Config
+		command           string
+		wantRunOnHost     bool
+		wantNeedsApproval bool
+	}{
+		{
+			name:              "nil config",
+			config:            nil,
+			command:           "gh issue view 1",
+			wantRunOnHost:     false,
+			wantNeedsApproval: false,
+		},
+		{
+			name: "command matches run_on_host and safe_run_on_host",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^gh\s.*`},
+					SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)\s.*`},
+				},
+			},
+			command:           "gh issue view 68",
+			wantRunOnHost:     true,
+			wantNeedsApproval: false,
+		},
+		{
+			name: "command matches run_on_host but not safe_run_on_host",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^gh\s.*`},
+					SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)\s.*`},
+				},
+			},
+			command:           "gh issue create --title test",
+			wantRunOnHost:     true,
+			wantNeedsApproval: true,
+		},
+		{
+			name: "command does not match run_on_host",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^gh\s.*`},
+					SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)\s.*`},
+				},
+			},
+			command:           "ls -la",
+			wantRunOnHost:     false,
+			wantNeedsApproval: false,
+		},
+		{
+			name: "podman command requires approval",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^podman\s.*`},
+					SafeRunOnHost: []string{},
+				},
+			},
+			command:           "podman run alpine echo hello",
+			wantRunOnHost:     true,
+			wantNeedsApproval: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool := RunInShell{config: tt.config}
+			runOnHost, requiresApproval := tool.shouldRunOnHost(tt.command)
+
+			assert.Equal(t, tt.wantRunOnHost, runOnHost, "runOnHost mismatch")
+			assert.Equal(t, tt.wantNeedsApproval, requiresApproval, "requiresApproval mismatch")
+		})
+	}
+}
+
+func TestHostCommandApprovalChannel(t *testing.T) {
+	// Test that the approval channel mechanism works
+	approvalChan := make(chan HostCommandApprovalRequest, 1)
+	SetHostCommandApprovalChannel(approvalChan)
+
+	// Simulate a request in a goroutine
+	go func() {
+		request := <-approvalChan
+		assert.Equal(t, "test command", request.Command, "unexpected command")
+		request.ResponseChan <- true
+	}()
+
+	// Request approval
+	approved, err := requestHostCommandApproval(context.Background(), "test command")
+	require.NoError(t, err, "unexpected error")
+	assert.True(t, approved, "expected approval to be true")
+
+	// Clean up
+	SetHostCommandApprovalChannel(nil)
+}
+
+// Tests from tools_security_test.go
+
+// TestReadFileToolPathValidation tests that read_file validates paths are within project
+func TestReadFileToolPathValidation(t *testing.T) {
+	tool := ReadFileTool{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		path        string
+		shouldError bool
+	}{
+		{
+			name:        "read file in current directory",
+			path:        "go.mod",
+			shouldError: false,
+		},
+		{
+			name:        "read file in subdirectory",
+			path:        "testdata/test.txt",
+			shouldError: false,
+		},
+		{
+			name:        "read file outside project with absolute path",
+			path:        "/etc/passwd",
+			shouldError: true,
+		},
+		{
+			name:        "read file outside project with relative path",
+			path:        "../../../etc/passwd",
+			shouldError: true,
+		},
+		{
+			name:        "read file outside project with parent directory",
+			path:        "..",
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := `{"path":"` + tt.path + `"}`
+			_, err := tool.Call(ctx, input)
+
+			if tt.shouldError {
+				require.Error(t, err, "Expected error for path %s", tt.path)
+				assert.Contains(t, err.Error(), "access denied", "Expected 'access denied' error, got: %v", err)
+			} else {
+				// For valid paths, we might get file not found, but not access denied
+				if err != nil {
+					assert.NotContains(t, err.Error(), "access denied", "Unexpected access denied error for valid path %s: %v", tt.path, err)
+				}
+			}
+		})
+	}
+}
+
+// TestListDirectoryToolPathValidation tests that list_files validates paths are within project
+func TestListDirectoryToolPathValidation(t *testing.T) {
+	tool := ListDirectoryTool{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		path        string
+		shouldError bool
+	}{
+		{
+			name:        "list current directory",
+			path:        ".",
+			shouldError: false,
+		},
+		{
+			name:        "list subdirectory",
+			path:        "testdata",
+			shouldError: false,
+		},
+		{
+			name:        "list root directory",
+			path:        "/",
+			shouldError: true,
+		},
+		{
+			name:        "list parent directory",
+			path:        "..",
+			shouldError: true,
+		},
+		{
+			name:        "list /etc",
+			path:        "/etc",
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := `{"path":"` + tt.path + `"}`
+			_, err := tool.Call(ctx, input)
+
+			if tt.shouldError {
+				require.Error(t, err, "Expected error for path %s", tt.path)
+				assert.Contains(t, err.Error(), "access denied", "Expected 'access denied' error, got: %v", err)
+			} else {
+				// For valid paths, we might get file not found, but not access denied
+				if err != nil {
+					assert.NotContains(t, err.Error(), "access denied", "Unexpected access denied error for valid path %s: %v", tt.path, err)
+				}
+			}
+		})
+	}
+}
+
+// TestReadManyFilesToolPathValidation tests that read_many_files validates paths are within project
+func TestReadManyFilesToolPathValidation(t *testing.T) {
+	tool := ReadManyFilesTool{}
+	ctx := context.Background()
+
+	// Create a temporary test file in the project
+	tmpFile := filepath.Join("testdata", "temp_test.txt")
+	err := os.MkdirAll("testdata", 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(tmpFile, []byte("test content"), 0644)
+	require.NoError(t, err)
+	defer os.Remove(tmpFile)
+
+	tests := []struct {
+		name          string
+		paths         []string
+		shouldContain string
+		shouldNotFind bool
+	}{
+		{
+			name:          "read files in project",
+			paths:         []string{"testdata/*.txt"},
+			shouldContain: "test content",
+			shouldNotFind: false,
+		},
+		{
+			name:          "read files outside project should be filtered",
+			paths:         []string{"/etc/passwd", "/etc/hosts"},
+			shouldContain: "",
+			shouldNotFind: true,
+		},
+		{
+			name:          "mixed paths - only project files should be read",
+			paths:         []string{"testdata/*.txt", "/etc/passwd"},
+			shouldContain: "test content",
+			shouldNotFind: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := `{"paths":[`
+			for i, p := range tt.paths {
+				if i > 0 {
+					input += ","
+				}
+				input += `"` + p + `"`
+			}
+			input += `]}`
+
+			result, err := tool.Call(ctx, input)
+			assert.NoError(t, err, "Unexpected error")
+
+			if tt.shouldNotFind {
+				assert.Empty(t, result, "Expected no results for paths outside project")
+			} else if tt.shouldContain != "" {
+				assert.Contains(t, result, tt.shouldContain, "Expected result to contain '%s'", tt.shouldContain)
+			}
+
+			// Verify that /etc/passwd content is never included
+			assert.NotContains(t, result, "root:", "Result should not contain /etc/passwd content")
+			assert.NotContains(t, result, "/etc/passwd", "Result should not contain /etc/passwd content")
+		})
+	}
+}
+
+// Tests from tools_security_demo_test.go
+
+// TestSecurityDemonstration shows the security improvement
+func TestSecurityDemonstration(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ReadFile security", func(t *testing.T) {
+		tool := ReadFileTool{}
+
+		// Test 1: Project file should work
+		t.Run("project file allowed", func(t *testing.T) {
+			input := `{"path":"go.mod"}`
+			_, err := tool.Call(ctx, input)
+			if err != nil {
+				assert.NotContains(t, err.Error(), "access denied", "Project files should be accessible")
+			}
+		})
+
+		// Test 2: System file should be blocked
+		t.Run("system file blocked", func(t *testing.T) {
+			input := `{"path":"/etc/passwd"}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "System files should be blocked")
+			if err != nil {
+				fmt.Printf("✓ /etc/passwd blocked: %v\n", err)
+			}
+		})
+
+		// Test 3: Path traversal should be blocked
+		t.Run("path traversal blocked", func(t *testing.T) {
+			input := `{"path":"../../../etc/passwd"}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "Path traversal should be blocked")
+			if err != nil {
+				fmt.Printf("✓ Path traversal blocked: %v\n", err)
+			}
+		})
+	})
+
+	t.Run("ListFiles security", func(t *testing.T) {
+		tool := ListDirectoryTool{}
+
+		// Test 1: Project directory should work
+		t.Run("project directory allowed", func(t *testing.T) {
+			input := `{"path":"."}`
+			_, err := tool.Call(ctx, input)
+			if err != nil {
+				assert.NotContains(t, err.Error(), "access denied", "Project directory should be accessible")
+			}
+		})
+
+		// Test 2: System directory should be blocked
+		t.Run("system directory blocked", func(t *testing.T) {
+			input := `{"path":"/etc"}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "System directories should be blocked")
+			if err != nil {
+				fmt.Printf("✓ /etc blocked: %v\n", err)
+			}
+		})
+
+		// Test 3: Parent directory should be blocked
+		t.Run("parent directory blocked", func(t *testing.T) {
+			input := `{"path":".."}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "Parent directory should be blocked")
+			if err != nil {
+				fmt.Printf("✓ Parent directory blocked: %v\n", err)
+			}
+		})
+	})
+
+	t.Run("ReadManyFiles security", func(t *testing.T) {
+		tool := ReadManyFilesTool{}
+
+		// Test: System files should be filtered out
+		t.Run("system files filtered", func(t *testing.T) {
+			input := `{"paths":["/etc/passwd","/etc/hosts"]}`
+			result, err := tool.Call(ctx, input)
+			assert.NoError(t, err, "Unexpected error")
+			assert.Empty(t, result, "System files should be filtered out, result should be empty")
+			if result == "" {
+				fmt.Printf("✓ System files filtered out (empty result)\n")
+			}
+		})
+	})
+}

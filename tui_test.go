@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/fake"
@@ -1581,4 +1582,252 @@ func TestLiveAgentE2E(t *testing.T) {
 	// Assert the output
 	require.Contains(t, string(output), "I am ")
 	require.NotContains(t, string(output), "Error")
+}
+
+// Tests from commandline_test.go
+
+func TestYesNoMode(t *testing.T) {
+	cl := NewCommandLineComponent()
+
+	// Test entering yes/no mode
+	cmd := cl.EnterYesNoMode("Are you sure?")
+	assert.True(t, cl.IsInYesNoMode(), "Expected to be in yes/no mode")
+	assert.Equal(t, "Are you sure?", cl.yesNoQuestion, "Question mismatch")
+
+	// Verify mode change message
+	require.NotNil(t, cmd, "Expected mode change command")
+	msg := cmd()
+	modeMsg, ok := msg.(ChangeModeMsg)
+	require.True(t, ok, "Expected ChangeModeMsg")
+	assert.Equal(t, "yesno", modeMsg.NewMode, "Mode mismatch")
+
+	// Test 'y' key
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	cmd, handled := cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected 'y' key to be handled")
+	assert.False(t, cl.IsInYesNoMode(), "Expected to exit yes/no mode after 'y'")
+
+	// Verify response message
+	require.NotNil(t, cmd, "Expected batch command")
+	// The batch command returns multiple messages, we need to check for yesNoResponseMsg
+	// For simplicity, we'll just verify the mode was exited
+
+	// Test entering again and pressing 'n'
+	cl.EnterYesNoMode("Delete everything?")
+	keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	cmd, handled = cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected 'n' key to be handled")
+	assert.False(t, cl.IsInYesNoMode(), "Expected to exit yes/no mode after 'n'")
+
+	// Test entering again and pressing 'esc'
+	cl.EnterYesNoMode("Continue?")
+	keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+	cmd, handled = cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected 'esc' key to be handled")
+	assert.False(t, cl.IsInYesNoMode(), "Expected to exit yes/no mode after 'esc'")
+
+	// Test that other keys are ignored in yes/no mode
+	cl.EnterYesNoMode("Test?")
+	keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	cmd, handled = cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected key to be handled (ignored) in yes/no mode")
+	assert.True(t, cl.IsInYesNoMode(), "Expected to remain in yes/no mode after invalid key")
+}
+
+func TestYesNoModeView(t *testing.T) {
+	// Initialize the global theme for tests
+	if globalTheme == nil {
+		NewTheme()
+	}
+
+	cl := NewCommandLineComponent()
+	cl.SetWidth(80)
+
+	// Test view in yes/no mode
+	cl.EnterYesNoMode("Delete all files?")
+	view := cl.View()
+	require.Contains(t, view, "Delete all files?", "Expected view to contain question")
+	require.Contains(t, view, "(y/n)", "Expected view to contain '(y/n)'")
+}
+
+func TestYesNoModePriority(t *testing.T) {
+	// Initialize the global theme for tests
+	if globalTheme == nil {
+		NewTheme()
+	}
+
+	cl := NewCommandLineComponent()
+	cl.SetWidth(80)
+
+	// Add a toast
+	cl.AddToast("Test toast", "info", 5000)
+
+	// Enter yes/no mode
+	cl.EnterYesNoMode("Confirm?")
+
+	// Yes/no should have priority over toast
+	view := cl.View()
+	require.Contains(t, view, "Confirm?", "Expected yes/no prompt to have priority over toast")
+	require.NotContains(t, view, "Test toast", "Expected toast to be hidden when in yes/no mode")
+}
+
+// Tests from main_branch_test.go
+
+func TestIsMainBranch(t *testing.T) {
+	tests := []struct {
+		name     string
+		branch   string
+		expected bool
+	}{
+		{
+			name:     "main branch",
+			branch:   "main",
+			expected: true,
+		},
+		{
+			name:     "master branch",
+			branch:   "master",
+			expected: true,
+		},
+		{
+			name:     "feature branch",
+			branch:   "feature/test",
+			expected: false,
+		},
+		{
+			name:     "develop branch",
+			branch:   "develop",
+			expected: false,
+		},
+		{
+			name:     "empty branch",
+			branch:   "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isMainBranch(tt.branch)
+			require.Equal(t, tt.expected, result, "isMainBranch(%q)", tt.branch)
+		})
+	}
+}
+
+func TestGetRepoInfo(t *testing.T) {
+	// Test that GetRepoInfo can be called
+	repoInfo := GetRepoInfo()
+	// Just verify the function can be called without panicking
+	// The actual content depends on the test environment
+	t.Logf("GetRepoInfo returned: %+v", repoInfo)
+}
+
+// Tests from select_window_test.go
+
+func TestSelectWindowNavigationHelpers(t *testing.T) {
+	// Create a window with mixed selectable/non-selectable items
+	sw := NewSelectWindow[string]()
+	sw.SetItems([]string{"a", "error1", "b", "c", "error2", "d"})
+
+	// isSelectable returns false for items starting with "error"
+	isSelectable := func(s string) bool {
+		return len(s) < 5 || s[:5] != "error"
+	}
+
+	t.Run("NextSelectableIndex", func(t *testing.T) {
+		// From "a" (0), next selectable is "b" (2), skipping "error1" (1)
+		require.Equal(t, 2, sw.NextSelectableIndex(0, isSelectable))
+
+		// From "b" (2), next selectable is "c" (3)
+		require.Equal(t, 3, sw.NextSelectableIndex(2, isSelectable))
+
+		// From "c" (3), next selectable is "d" (5), skipping "error2" (4)
+		require.Equal(t, 5, sw.NextSelectableIndex(3, isSelectable))
+
+		// From "d" (5), no next selectable, stay at 5
+		require.Equal(t, 5, sw.NextSelectableIndex(5, isSelectable))
+
+		// With nil isSelectable, all items are selectable
+		require.Equal(t, 1, sw.NextSelectableIndex(0, nil))
+	})
+
+	t.Run("PrevSelectableIndex", func(t *testing.T) {
+		// From "d" (5), prev selectable is "c" (3), skipping "error2" (4)
+		require.Equal(t, 3, sw.PrevSelectableIndex(5, isSelectable))
+
+		// From "c" (3), prev selectable is "b" (2)
+		require.Equal(t, 2, sw.PrevSelectableIndex(3, isSelectable))
+
+		// From "b" (2), prev selectable is "a" (0), skipping "error1" (1)
+		require.Equal(t, 0, sw.PrevSelectableIndex(2, isSelectable))
+
+		// From "a" (0), no prev selectable, stay at 0
+		require.Equal(t, 0, sw.PrevSelectableIndex(0, isSelectable))
+
+		// With nil isSelectable, all items are selectable
+		require.Equal(t, 4, sw.PrevSelectableIndex(5, nil))
+	})
+
+	t.Run("FirstSelectableIndex", func(t *testing.T) {
+		// First selectable is "a" (0)
+		require.Equal(t, 0, sw.FirstSelectableIndex(isSelectable))
+
+		// With nil isSelectable, first is 0
+		require.Equal(t, 0, sw.FirstSelectableIndex(nil))
+
+		// Test with items where first is not selectable
+		sw2 := NewSelectWindow[string]()
+		sw2.SetItems([]string{"error1", "error2", "a", "b"})
+		require.Equal(t, 2, sw2.FirstSelectableIndex(isSelectable))
+	})
+
+	t.Run("LastSelectableIndex", func(t *testing.T) {
+		// Last selectable is "d" (5)
+		require.Equal(t, 5, sw.LastSelectableIndex(isSelectable))
+
+		// With nil isSelectable, last is len-1
+		require.Equal(t, 5, sw.LastSelectableIndex(nil))
+
+		// Test with items where last is not selectable
+		sw2 := NewSelectWindow[string]()
+		sw2.SetItems([]string{"a", "b", "error1", "error2"})
+		require.Equal(t, 1, sw2.LastSelectableIndex(isSelectable))
+	})
+
+	t.Run("CountSelectableItems", func(t *testing.T) {
+		// 4 selectable items: a, b, c, d
+		require.Equal(t, 4, sw.CountSelectableItems(isSelectable))
+
+		// With nil isSelectable, all items are counted
+		require.Equal(t, 6, sw.CountSelectableItems(nil))
+	})
+
+	t.Run("EmptyWindow", func(t *testing.T) {
+		empty := NewSelectWindow[string]()
+		empty.SetItems([]string{})
+
+		require.Equal(t, 0, empty.FirstSelectableIndex(isSelectable))
+		require.Equal(t, 0, empty.LastSelectableIndex(isSelectable))
+		require.Equal(t, 0, empty.CountSelectableItems(isSelectable))
+	})
+}
+
+func TestIsModelSelectable(t *testing.T) {
+	tests := []struct {
+		status   string
+		expected bool
+	}{
+		{"active", true},
+		{"ready", true},
+		{"login_required", true},
+		{"error", false},
+		{"unknown", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			model := Model{Status: tt.status}
+			require.Equal(t, tt.expected, IsModelSelectable(model))
+		})
+	}
 }
