@@ -61,6 +61,7 @@ type LLMConfig struct {
 	DisableContextSanitization bool   `koanf:"disable_sanitization"`
 	AuthToken                  string `koanf:"auth_token"`
 	RefreshToken               string `koanf:"refresh_token"`
+	ExperimentalModels         bool   `koanf:"experimental_models"`
 }
 
 // HistoryConfig holds persistent session history configuration

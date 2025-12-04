@@ -1135,7 +1135,7 @@ func (m TUIModel) handleEnterKey() (tea.Model, tea.Cmd) {
 			m.streamingCancel = cancel
 			m.session.AskStream(ctx, content)
 		} else {
-			m.commandLine.AddToast("No LLM configured. Please use :login to configure an API key.", "error", time.Second*5)
+			m.commandLine.AddToast("No model configured, use :models to configure a model", "error", time.Second*5)
 			m.prompt.SetValue("")
 		}
 		m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
@@ -1334,7 +1334,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamingCancel = cancel
 			m.session.AskStream(ctx, content)
 		} else {
-			m.commandLine.AddToast("No LLM configured. Please use :login to configure an API key.", "error", time.Second*5)
+			m.commandLine.AddToast("No model configured. Use :models to select a model", "error", time.Second*5)
 		}
 		m.sessionPromptHistory = append(m.sessionPromptHistory, promptHistoryEntry{
 			Prompt:          content,

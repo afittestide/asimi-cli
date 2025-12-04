@@ -287,7 +287,7 @@ func main() {
 		llm, err := getModelClient(config)
 		if err != nil {
 			fmt.Printf("Error creating LLM client: %v\n", err)
-			fmt.Printf("Please authenticate by running the program in interactive mode and use ':login'\n")
+			fmt.Printf("Please authenticate by running the program in interactive mode and ':models'\n")
 			os.Exit(1)
 		}
 		// Set up streaming for non-interactive mode

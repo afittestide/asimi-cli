@@ -281,17 +281,10 @@ const helpCommands = `# Commands
 Commands are executed from COMMAND-LINE mode. Press : in NORMAL mode to enter
 COMMAND-LINE mode, then type the command and press Enter.
 
-## Session Management
-
   :new              - Start a new conversation
   :resume           - Resume a previous session
   :quit             - Quit Asimi (also saves session)
   :update           - Check for and install updates
-
-## Configuration
-
-  :login            - Login with OAuth provider selection
-  :models           - Select AI model
 
 ## Information
 
@@ -307,11 +300,12 @@ COMMAND-LINE mode, then type the command and press Enter.
   :export [type]    - Export conversation to file and open in $EDITOR
                       Types: conversation (default), full
 
-## Project Initialization
+## Configuration
 
-  :init             - Initialize project with infrastructure files
+  :models           - Select AI model
+
+  :init [clean]     - Initialize project with infrastructure files
                       Creates: AGENTS.md, Justfile, .agents/Sandbox
-  :init force       - Force regenerate all infrastructure files
 
 ## Examples
 
@@ -644,7 +638,7 @@ Navigation:
 Models: claude-3-5-sonnet-latest, claude-3-opus-latest, etc.
 
 Authentication options:
-  1. OAuth (recommended): Use :login to authenticate
+  1. OAuth (recommended): Use :models to authenticate
   2. API Key via environment: ANTHROPIC_API_KEY=sk-ant-...
   3. API Key via keyring: Stored securely in OS keyring
 
@@ -733,7 +727,7 @@ For custom or self-hosted LLM endpoints:
   - Verify API key has access to the model
 
 ### Authentication errors
-  - Re-authenticate: :login
+  - Re-authenticate: :models
   - Check API key validity
   - Verify environment variables are set correctly
 
@@ -745,7 +739,7 @@ For custom or self-hosted LLM endpoints:
 ## Examples
 
   # Use Claude with OAuth
-  :login
+  :models
   # Select Anthropic, complete OAuth flow
   :models
   # Select claude-3-5-sonnet-latest
@@ -877,10 +871,7 @@ list_limit = 30
 
 ## Changing Configuration
 
-After editing configuration:
-  1. Restart Asimi for changes to take effect
-  2. Use :login to reconfigure provider
-  3. Use :models to change model
+After editing configuration restart Asimi for changes to take effect.
 `
 
 const helpQuickRef = `# Quick Reference
@@ -916,8 +907,7 @@ const helpQuickRef = `# Quick Reference
   :resume          - Resume session
   :quit            - Quit
   :update          - Check for updates
-  :login           - Login to provider
-  :models          - Select model
+  :models          - Login and select the model 
   :context         - Show context info
   :export          - Export conversation
   :init            - Initialize project

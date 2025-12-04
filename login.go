@@ -538,13 +538,6 @@ func refreshOAuthToken(config *Config) bool {
 	return false
 }
 
-// Login command handler
-func handleLoginCommand(model *TUIModel, args []string) tea.Cmd {
-	// Show provider selection modal
-	model.providerModal = NewProviderSelectionModal()
-	return nil
-}
-
 // performOAuthLogin performs OAuth login for non-Anthropic providers
 func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 	return func() tea.Msg {

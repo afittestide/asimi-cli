@@ -135,8 +135,6 @@ func fetchAllModels(config *Config) []Model {
 
 	// Check auth status for each provider
 	anthropicAuth := checkProviderAuth("anthropic")
-	openaiAuth := checkProviderAuth("openai")
-	googleAuth := checkProviderAuth("googleai")
 	ollamaAvailable := checkOllamaAvailable()
 
 	// Fetch Anthropic models
@@ -200,60 +198,63 @@ func fetchAllModels(config *Config) []Model {
 		})
 	}
 
-	// Fetch OpenAI models
-	if openaiAuth.HasAPIKey || openaiAuth.HasOAuth {
-		openaiModels, err := fetchOpenAIModels(config)
-		if err == nil && len(openaiModels) > 0 {
-			for _, m := range openaiModels {
-				status := "ready"
-				if currentProvider == "openai" && m.ID == currentModel {
-					status = "active"
+	if config.LLM.ExperimentalModels {
+		openaiAuth := checkProviderAuth("openai")
+		googleAuth := checkProviderAuth("googleai")
+		if openaiAuth.HasAPIKey || openaiAuth.HasOAuth {
+			openaiModels, err := fetchOpenAIModels(config)
+			if err == nil && len(openaiModels) > 0 {
+				for _, m := range openaiModels {
+					status := "ready"
+					if currentProvider == "openai" && m.ID == currentModel {
+						status = "active"
+					}
+					allModels = append(allModels, Model{
+						ID:          m.ID,
+						DisplayName: m.ID, // OpenAI API doesn't provide display names
+						Provider:    "openai",
+						Status:      status,
+					})
 				}
+			} else if err != nil {
+				slog.Warn("failed to fetch OpenAI models", "error", err)
 				allModels = append(allModels, Model{
-					ID:          m.ID,
-					DisplayName: m.ID, // OpenAI API doesn't provide display names
 					Provider:    "openai",
-					Status:      status,
+					Status:      "error",
+					Description: err.Error(),
 				})
 			}
-		} else if err != nil {
-			slog.Warn("failed to fetch OpenAI models", "error", err)
-			allModels = append(allModels, Model{
-				Provider:    "openai",
-				Status:      "error",
-				Description: err.Error(),
-			})
 		}
-	}
 
-	// Fetch Google AI models
-	if googleAuth.HasAPIKey || googleAuth.HasOAuth {
-		googleModels, err := fetchGoogleModels(config)
-		if err == nil && len(googleModels) > 0 {
-			for _, m := range googleModels {
-				status := "ready"
-				if currentProvider == "googleai" && m.Name == currentModel {
-					status = "active"
+		// Fetch Google AI models
+		if googleAuth.HasAPIKey || googleAuth.HasOAuth {
+			googleModels, err := fetchGoogleModels(config)
+			if err == nil && len(googleModels) > 0 {
+				for _, m := range googleModels {
+					status := "ready"
+					if currentProvider == "googleai" && m.Name == currentModel {
+						status = "active"
+					}
+					displayName := m.DisplayName
+					if displayName == "" {
+						displayName = m.Name
+					}
+					allModels = append(allModels, Model{
+						ID:          m.Name,
+						DisplayName: displayName,
+						Provider:    "googleai",
+						Description: m.Description,
+						Status:      status,
+					})
 				}
-				displayName := m.DisplayName
-				if displayName == "" {
-					displayName = m.Name
-				}
+			} else if err != nil {
+				slog.Warn("failed to fetch Google AI models", "error", err)
 				allModels = append(allModels, Model{
-					ID:          m.Name,
-					DisplayName: displayName,
 					Provider:    "googleai",
-					Description: m.Description,
-					Status:      status,
+					Status:      "error",
+					Description: err.Error(),
 				})
 			}
-		} else if err != nil {
-			slog.Warn("failed to fetch Google AI models", "error", err)
-			allModels = append(allModels, Model{
-				Provider:    "googleai",
-				Status:      "error",
-				Description: err.Error(),
-			})
 		}
 	}
 

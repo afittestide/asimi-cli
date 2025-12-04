@@ -67,7 +67,6 @@ func NewCommandRegistry() CommandRegistry {
 	registry.RegisterCommand("help", "Show help (usage: :help [topic])", handleHelpCommand)
 	registry.RegisterCommand("new", "Start a new session", handleNewSessionCommand)
 	registry.RegisterCommand("quit", "Quit the application", handleQuitCommand)
-	registry.RegisterCommand("login", "Login with OAuth provider selection", handleLoginCommand)
 	registry.RegisterCommand("models", "Select AI model", handleModelsCommand)
 	registry.RegisterCommand("context", "Show context usage details", handleContextCommand)
 	registry.RegisterCommand("resume", "Resume a previous session", handleResumeCommand)
@@ -201,7 +200,7 @@ func handleQuitCommand(model *TUIModel, args []string) tea.Cmd {
 func handleContextCommand(model *TUIModel, args []string) tea.Cmd {
 	return func() tea.Msg {
 		if model.session == nil {
-			return showContextMsg{content: "No active session. Use :login to configure a provider and start chatting."}
+			return showContextMsg{content: "No active session. Use :models to configure a model and start chatting."}
 		}
 		info := model.session.GetContextInfo()
 		return showContextMsg{content: renderContextInfo(info)}
@@ -315,7 +314,7 @@ func handleExportCommand(model *TUIModel, args []string) tea.Cmd {
 func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 	if model.session == nil {
 		return func() tea.Msg {
-			return showContextMsg{content: "No model connection. Use :login to configure a provider and start chatting."}
+			return showContextMsg{content: "No model connection. Use :models to configure a model and start chatting."}
 		}
 	}
 

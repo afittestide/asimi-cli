@@ -133,8 +133,9 @@ func TestFetchAllModels_WithAPIKey(t *testing.T) {
 
 	config := &Config{
 		LLM: LLMConfig{
-			Provider: "openai",
-			Model:    "gpt-4o",
+			Provider:           "openai",
+			Model:              "gpt-4o",
+			ExperimentalModels: true,
 		},
 	}
 
