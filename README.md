@@ -6,38 +6,25 @@
 
 Asimi is a opinionated, safe & fast coding agent for the terminal
 
+![Asimi Demo](demo.gif)
+
 ## Principals
 
-- The user comes first, before the 🦙
-- Mimcking over innovation
-- visual model and the `ex` editor are a 
-- User's host is scared and the 🦙 access should be as limited as possible
-- 
-- and need a sandbox for the agent's shell. that brings AI-powered coding assistance directly to your terminal. Built with modern Go libraries and a focus on developer experience, Asimi helps you write better code faster.
+- Before the 🦙 comes the dev
+- Mimicking is better than innovation
+- ex/vi/vim/neovim are based on the best TUI ever made
+- User's host is scared and 🦙 access should be as restricted
+- TOML is the format for conf files
 
 ## ✨ Features
 
   📦 **Integrated Podman Sandboxes** - Agent's shell run in its own container
 - 🎨 **vi mimicry** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
-- 🤖 **Multiple AI Providers** - Support for Ollama and Claude foe now. More are comming [TODO: Add a link to issues with a label of "new providers"]
+- 🤖 **Multiple AI Providers** - Support for Ollama, Claude Pro/Max and OpenAI API v1 compatible services.
 -  **Less Clutter** - Asimi's special files are under `.agents` directory and TOML is used for .conf
 - 🔧 **Fast Shell** - Asimi's shell runs in a container and is >100 times faster than the others
 - 📊 Context Awareness** - Smart token counting and context visualization
 - 🎯 Session Management** - Save and resume your coding sessions
-
-## 🗺️ Roadmap
-
-Asimi is just starting out. It's been used to develop itself since version 0.1.0, well over a month now and it rarely breaks 🪬🪬🪬
-
-| Feature | Description |
-|---------|-------------|
-| [#56 - MCP Support](https://github.com/afittestide/asimi-cli/issues/56) | Model Context Protocol integration |
-| [#24 - Sub-agents & Roles](https://github.com/afittestide/asimi-cli/issues/24) | Task delegation with orchestrator role |
-| [#8 - Git Integration](https://github.com/afittestide/asimi-cli/issues/8) | `:branch` command and tighter git workflows |
-| [#68 - Shell Firewall](https://github.com/afittestide/asimi-cli/issues/68) | Required approval to run commands on host |
-| A few directories | While flat is better than nested, there comes a time for dirs|
-> 💡 Have a feature request? [Open an issue](https://github.com/afittestide/asimi-cli/issues/new)!
-
 
 ## 🚀 Quick Start
 
@@ -86,18 +73,36 @@ After To start Asimi in interactive mode type `asimi`.
 
 ## ⌨️ vi FTW
 
+Asimi mimics the vi/vim/neovim interface and extends the traditional modes:
 
-Asimi mimics the vi/vim/neovim interface:
+### Traditional Modes
 
-### Modes
-
-- **Insert Mode** Type normally
-- **Normal Mode** Navigation and editing only
+- **Insert Mode** For typing your prompts
+- **Normal Mode** Navigation and editing the prompt
 - **Command Mode** Entering agents commands
    - `:help` - Show help 
    - `:context` - View token usage and context
    - `:new` - Start a new conversation
    - `:resume` - resume an old session
+
+### New Modes
+
+- **Scroll Mode** Use CTRL-B to enter the mode and scroll with your keys
+- **Select Mode** For choosing a session to resume, a model to contect to, etc.
+
+## 🗺️ Roadmap
+
+Asimi is just starting out. It's been used to develop itself since version 0.1.0, well over a month now and it rarely breaks 🪬🪬🪬
+
+| Feature | Description |
+|---------|-------------|
+| [#56 - MCP Support](https://github.com/afittestide/asimi-cli/issues/56) | Model Context Protocol integration |
+| [#24 - Sub-agents & Roles](https://github.com/afittestide/asimi-cli/issues/24) | Task delegation with orchestrator role |
+| [#8 - Git Integration](https://github.com/afittestide/asimi-cli/issues/8) | `:branch` command and tighter git workflows |
+| [#68 - Shell Firewall](https://github.com/afittestide/asimi-cli/issues/68) | Required approval to run commands on host |
+| A few directories | While flat is better than nested, there comes a time for dirs|
+> 💡 Have a feature request? [Open an issue](https://github.com/afittestide/asimi-cli/issues/new)!
+
 
 ### Quick Reference
 
