@@ -205,13 +205,13 @@ func (t ReadFileTool) Format(input, result string, err error) string {
 	// Second line: result summary
 	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("%s Error: %v", treeFinalPrefix, err)
+		secondLine = fmt.Sprintf("%sError: %v", treeFinalPrefix, err)
 	} else {
 		lines := strings.Count(result, "\n") + 1
 		if result == "" {
 			lines = 0
 		}
-		secondLine = fmt.Sprintf("%s Read %d lines", treeFinalPrefix, lines)
+		secondLine = fmt.Sprintf("%sRead %d lines", treeFinalPrefix, lines)
 	}
 
 	return firstLine + "\n" + secondLine + "\n"
@@ -299,9 +299,9 @@ func (t WriteFileTool) Format(input, result string, err error) string {
 	// Second line: result summary
 	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("%s Error: %v", treeFinalPrefix, err)
+		secondLine = fmt.Sprintf("%sError: %v", treeFinalPrefix, err)
 	} else {
-		secondLine = fmt.Sprintf("%s File written successfully", treeFinalPrefix)
+		secondLine = fmt.Sprintf("%sFile written successfully", treeFinalPrefix)
 	}
 
 	return firstLine + "\n" + secondLine + "\n"
@@ -375,13 +375,13 @@ func (t ListDirectoryTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = params.Path
 	} else {
-		paramStr = "(.)"
+		paramStr = "."
 	}
 
 	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("List Files%s", paramStr)
+	firstLine := fmt.Sprintf("List Files %s", paramStr)
 
 	// Second line: result summary
 	secondLine := treeFinalPrefix
@@ -485,11 +485,11 @@ func (t ReplaceTextTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = fmt.Sprintf(" %s", params.Path)
 	}
 
 	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("Replace Text%s", paramStr)
+	firstLine := fmt.Sprintf("Replace Text %s", paramStr)
 
 	// Second line: result summary
 	secondLine := treeFinalPrefix

@@ -383,14 +383,14 @@ func handleInitCommand(model *TUIModel, args []string) tea.Cmd {
 		missingFiles := checkMissingInfraFiles(agentsFile)
 
 		if len(missingFiles) == 0 && !clearMode {
-			return showContextMsg{content: strings.Join([]string{systemPrefix + "All infrastructure files already exist:",
-				fmt.Sprintf("✓ %s", agentsFile),
-				"✓ Justfile",
-				"✓ .agents/sandbox/Dockerfile",
-				"✓ .agents/sandbox/bashrc",
-				"✓ .agents/asimi.conf",
-				"",
-				"Use `:init clear` to remove and regenerate them."}, "\n")}
+			return showContextMsg{content: strings.Join([]string{treeMidPrefix + "All Asimi's files already exist:",
+				fmt.Sprintf(treeMidPrefix+"✓ %s", agentsFile),
+				treeMidPrefix + "✓ Justfile",
+				treeMidPrefix + "✓ .agents/sandbox/Dockerfile",
+				treeMidPrefix + "✓ .agents/sandbox/bashrc",
+				treeMidPrefix + "✓ .agents/asimi.conf",
+				treeMidPrefix,
+				treeFinalPrefix + "Use `:init clear` to remove and regenerate them."}, "\n")}
 		}
 
 		// Show missing files message (if not in clear mode)
@@ -491,7 +491,7 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 		report := func(message string) {
 			results = append(results, message)
 			if program != nil {
-				program.Send(showContextMsg{content: treeMidPrefix + " " + message})
+				program.Send(showContextMsg{content: treeMidPrefix + message})
 			}
 		}
 
@@ -588,9 +588,12 @@ func verifyInitWithRetry(model *TUIModel, containerRunner shellRunner, retryCoun
 		}
 
 		if program != nil {
-			program.Send(showContextMsg{content: `✅ All verification tests passed!
-📝 Infrastructure files have been staged with git add
-Please review your recipes using ':!just' or start fresh with ':new'`})
+			m := []string{
+				treeMidPrefix + checkPrefix + "Verified!",
+				treeMidPrefix + strings.Join(filesToStage, ", ") + " staged",
+				treeFinalPrefix + "Start fresh with `:new` and review project's recipes with `:!just -l`"}
+
+			program.Send(showContextMsg{content: strings.Join(m, "\n")})
 		}
 		return nil
 	}
@@ -602,13 +605,13 @@ func checkFileExists(filename, successMsg string, report func(string)) bool {
 		report(fmt.Sprintf("❌ %s was not created", filename))
 		return false
 	}
-	report("✅ " + successMsg)
+	report(checkPrefix + " " + successMsg)
 	return true
 }
 
 // runBuildSandbox runs the build-sandbox command on the host
 func runBuildSandbox(ctx context.Context, report func(string), results *[]string) bool {
-	report("Running `just build-sandbox`")
+	report("$ just build-sandbox # on host")
 	result, err := hostRun(ctx, RunInShellInput{
 		Command:     "just build-sandbox",
 		Description: "Building infrastructure files",
@@ -622,7 +625,7 @@ func runBuildSandbox(ctx context.Context, report func(string), results *[]string
 		return false
 	}
 
-	report("✅ just build-sandbox completed successfully")
+	report(checkPrefix + " just build-sandbox completed successfully")
 	return true
 }
 
@@ -648,13 +651,13 @@ func runSmokeTest(ctx context.Context, containerRunner shellRunner, report func(
 		return false
 	}
 
-	report("✅ Sandbox smoke test passed")
+	report(checkPrefix + " Sandbox smoke test passed")
 	return true
 }
 
 // runHostTests runs the test suite on the host
 func runHostTests(ctx context.Context, report func(string), results *[]string) bool {
-	report("Running `just test` on host")
+	report("$ just test # on host")
 	result, err := hostRun(ctx, RunInShellInput{
 		Command:     "just test",
 		Description: "Running tests on host",
@@ -668,13 +671,13 @@ func runHostTests(ctx context.Context, report func(string), results *[]string) b
 		return false
 	}
 
-	report("✅ just test on host passed")
+	report(checkPrefix + " just test on host passed")
 	return true
 }
 
 // runContainerTests runs the test suite in the container
 func runContainerTests(ctx context.Context, containerRunner shellRunner, report func(string), results *[]string) bool {
-	report("Running `just test` in container")
+	report("$ just test # in container")
 	result, err := containerRunner.Run(ctx, RunInShellInput{
 		Command:     "just test",
 		Description: "Running tests in container",
@@ -688,7 +691,7 @@ func runContainerTests(ctx context.Context, containerRunner shellRunner, report 
 		return false
 	}
 
-	report("✅ just test in container passed")
+	report(checkPrefix + " just test in container passed")
 	return true
 }
 
@@ -700,12 +703,12 @@ func handleVerificationFailure(model *TUIModel, containerRunner shellRunner, ret
 	if retryCount >= maxRetries {
 		slog.Debug("Max retries exceeded, giving up", "retryCount", retryCount, "maxRetries", maxRetries)
 		var failureMsg strings.Builder
-		failureMsg.WriteString(fmt.Sprintf("\n❌ Initialization failed after %d attempts.\n", maxRetries+1))
-		failureMsg.WriteString("The following issues could not be resolved:\n")
+		failureMsg.WriteString(fmt.Sprintf("\n%s❌ Initialization failed after %d attempts.\n", systemPrefix, maxRetries+1))
+		failureMsg.WriteString(treeMidPrefix + "The following issues could not be resolved:\n")
 		for _, result := range results {
-			failureMsg.WriteString(result + "\n")
+			failureMsg.WriteString(treeMidPrefix + result + "\n")
 		}
-		failureMsg.WriteString("\nPlease review the errors and try running ':init' again, or manually fix the issues.")
+		failureMsg.WriteString(treeFinalPrefix + "For help check out the humans in Asimi's github discussions")
 		return showContextMsg{content: failureMsg.String()}
 	}
 
@@ -778,7 +781,7 @@ func handleCompactCommand(model *TUIModel, args []string) tea.Cmd {
 
 		// Show compacting message
 		if program != nil {
-			program.Send(showContextMsg{content: "Compacting conversation history...\nThis may take a moment as we summarize the conversation."})
+			program.Send(showContextMsg{content: systemPrefix + "Compacting conversation history...\n" + treeFinalPrefix + "This may take a moment as we summarize the conversation."})
 		}
 
 		// Send the compact request
@@ -831,7 +834,7 @@ func handleUpdateConfirm(model *TUIModel) tea.Cmd {
 	return func() tea.Msg {
 		// Show updating message
 		if program != nil {
-			program.Send(showContextMsg{content: treeMidPrefix + " Downloading and installing update...\n" + treeMidPrefix + " This may take a moment."})
+			program.Send(showContextMsg{content: systemPrefix + "Downloading and installing update...\n" + treeFinalPrefix + "This may take a moment."})
 		}
 
 		// Perform update

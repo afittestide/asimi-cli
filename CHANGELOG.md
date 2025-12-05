@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Closing instructions of :init
+- Unified tool output
+- Init verfication output format and strings
+
 ## [0.2.0] - 2025-12-04
 
 ### Added

@@ -1535,7 +1535,7 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, handleUpdateConfirm(&m)
 		}
 		// User declined
-		m.content.Chat.AddMessage(fmt.Sprintf("%sUpdate cancelled.\n%s Please run :update again when ready", systemPrefix, treeFinalPrefix))
+		m.content.Chat.AddMessage(fmt.Sprintf("%sUpdate cancelled.\n%sPlease run :update again when ready", systemPrefix, treeFinalPrefix))
 		return m, nil
 
 	case hostCommandApprovalMsg:
@@ -1545,11 +1545,11 @@ func (m TUIModel) handleCustomMessages(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case updateCompleteMsg:
 		if msg.err != nil {
-			m.content.Chat.AddMessage(fmt.Sprintf("%s❌ Update failed: %v\n%s Try updating manually with: %s", systemPrefix, msg.err, treeFinalPrefix, GetUpdateCommand()))
+			m.content.Chat.AddMessage(fmt.Sprintf("%s❌ Update failed: %v\n%sTry updating manually with: %s", systemPrefix, msg.err, treeFinalPrefix, GetUpdateCommand()))
 			return m, nil
 		}
 
-		m.content.Chat.AddMessage(fmt.Sprintf("%s✓ Update successful!\n%s Please restart asimi to use the new version.", systemPrefix, treeFinalPrefix))
+		m.content.Chat.AddMessage(fmt.Sprintf("%s✓ Update successful!\n%sPlease restart asimi to use the new version.", systemPrefix, treeFinalPrefix))
 		return m, nil
 
 	case waitingTickMsg:

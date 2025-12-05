@@ -48,8 +48,8 @@ const (
 	failureToken          = "[[FAILURE]]"
 	systemPrefix          = "🛠️  "
 	checkPrefix           = "✓"
-	treeFinalPrefix       = " ╰"
-	treeMidPrefix         = " │"
+	treeFinalPrefix       = " ╰ "
+	treeMidPrefix         = " │ "
 	shellUserPrefix       = "You:$"
 )
 

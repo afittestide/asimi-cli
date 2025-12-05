@@ -238,7 +238,7 @@ func TestHandleInitCommand(t *testing.T) {
 		// Check that the message is a showContextMsg
 		contextMsg, ok := msg.(showContextMsg)
 		require.True(t, ok, "Expected showContextMsg")
-		require.Contains(t, contextMsg.content, "All infrastructure files already exist")
+		require.Contains(t, contextMsg.content, "files already exist")
 
 		// Clean up for the next test
 		for _, file := range files {
@@ -344,13 +344,13 @@ func TestRunInitGuardrails(t *testing.T) {
 		switch m := msg.(type) {
 		case startConversationMsg:
 			// Just commands failed, which is expected in test environment
-			require.Contains(t, m.prompt, "✅ AGENTS.md created")
-			require.Contains(t, m.prompt, "✅ Justfile created")
+			require.Contains(t, m.prompt, "AGENTS.md created")
+			require.Contains(t, m.prompt, "Justfile created")
 			require.True(t, m.RunOnHost, "Expected RunOnHost to be true")
 		case showContextMsg:
 			// All passed (unlikely in test environment)
-			require.Contains(t, m.content, "✅ AGENTS.md created")
-			require.Contains(t, m.content, "✅ Justfile created")
+			require.Contains(t, m.content, "AGENTS.md created")
+			require.Contains(t, m.content, "Justfile created")
 		default:
 			t.Fatalf("Expected startConversationMsg or showContextMsg, got: %T", msg)
 		}
