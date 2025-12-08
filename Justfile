@@ -144,4 +144,4 @@ measure:
     @echo ""
     @echo "Sending performance test prompt to asimi..."
     @echo ""
-    go run . -p 'Performance test: Execute exactly 12 run_in_shell commands in a SINGLE function_calls block (all at once, not sequentially): 1. First command: date +%s%N, 2-11. Ten commands: : (colon command, does nothing), 12. Last command: date +%s%N. After receiving all results, calculate the elapsed time by subtracting the first timestamp from the last.'
+    go run . -p 'Performance test: measure the run_in_shell tool overhead by executiing exactly 12 run_in_shell commands in a SINGLE function_calls block (all at once, not sequentially): 1. First command: date +%s%N, 2-11. Ten commands: : (colon command, does nothing), 12. Last command: date +%s%N. After receiving both the timestamps, calculates the per call overhead'

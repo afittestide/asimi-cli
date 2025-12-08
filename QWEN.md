@@ -68,3 +68,4 @@ Once a change is finished and ALL tests pass update the CHANGELOG.md
 
 - Logs: ./asimi.log
 - Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`
+- long term Asimi memory is stored in sqlite with the schema at `storage/schema.go`

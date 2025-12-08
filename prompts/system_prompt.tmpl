@@ -65,7 +65,7 @@ When requested to perform tasks like fixing bugs, adding features, refactoring, 
 
 ## Tool Usage
 - **File Paths:** Always pass an absolute paths when passing the `path` parameters to files with tools like 'read_file' or 'write_file'.
-- **Parallelism:** Execute multiple independent tool calls in parallel when feasible (i.e. searching the codebase).
+- **Parallelism:** Save on round trips by executing multiple independent tool calls in a single response when feasible (i.e. searching the codebase).
 - **Command Execution:** Use the 'run_shell_command' tool for running shell commands, remembering the safety rule to explain modifying commands first.
 - **Background Processes:** Use background processes (via `&`) for commands that are unlikely to stop on their own, e.g. `node server.js &`. If unsure, ask the user.
 - **Interactive Commands:** Try to avoid shell commands that are likely to require user interaction (e.g. `git rebase -i`). Use non-interactive versions of commands (e.g. `npm init -y` instead of `npm init`) when available, and otherwise remind the user that interactive shell commands are not supported and may cause hangs until canceled by the user.
