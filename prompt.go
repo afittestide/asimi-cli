@@ -15,13 +15,14 @@ const (
 	ViModeInsert      = "insert"
 	ViModeNormal      = "normal"
 	ViModeVisual      = "visual"
+	ViModeScroll      = "scroll"
 	ViModeCommandLine = "command"
 	ViModeLearning    = "learning"
 )
 
 // Placeholder text constants
 const (
-	PlaceholderDefault = "Type your message here. Enter to send, ESC to exit insert mode"
+	PlaceholderDefault = "Type your message here. Enter to send, ESC to change mode"
 )
 
 // PromptComponent represents the user input text area
@@ -33,10 +34,15 @@ type PromptComponent struct {
 	MaxHeight      int // Maximum height (50% of screen height)
 	ScreenHeight   int // Total screen height
 	Style          lipgloss.Style
-	ViCurrentMode  string // Current vi mode: insert, normal, visual, or command
+	ViCurrentMode  string // Current vi mode: insert, normal, or command
 	viPendingOp    string // Track pending operation (e.g., "d" or "c")
 	viNormalKeyMap textarea.KeyMap
 	viInsertKeyMap textarea.KeyMap
+}
+
+// SubmitPromptMsg is a message sent when the user submits a prompt
+type SubmitPromptMsg struct {
+	Prompt string
 }
 
 // NewPromptComponent creates a new prompt component
@@ -44,6 +50,11 @@ func NewPromptComponent(width, height int) PromptComponent {
 	ta := textarea.New()
 	ta.Placeholder = PlaceholderDefault
 	ta.ShowLineNumbers = false
+
+	// Remove background color from textarea styles
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+
 	ta.Focus()
 
 	// Set the dimensions
@@ -102,6 +113,11 @@ func NewPromptComponent(width, height int) PromptComponent {
 		TransposeCharacterBackward: key.NewBinding(key.WithKeys("ctrl+t")),
 	}
 
+	// Ensure globalTheme is initialized (for tests)
+	if globalTheme == nil {
+		globalTheme = NewTheme()
+	}
+
 	prompt := PromptComponent{
 		TextArea:       ta,
 		Height:         height,
@@ -112,8 +128,7 @@ func NewPromptComponent(width, height int) PromptComponent {
 		viInsertKeyMap: viInsertKeyMap,
 		Style: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			//TODO: get the color from the theme
-			BorderForeground(lipgloss.Color("#F952F9")). // Terminal7 prompt border
+			BorderForeground(globalTheme.PromptOnBorder). // Use theme's on border for insert mode
 			Width(width).
 			Height(height),
 	}
@@ -201,15 +216,6 @@ func (p *PromptComponent) EnterViNormalMode() {
 	p.updateViModeStyle()
 }
 
-// EnterViVisualMode switches to vi visual mode (for text selection)
-func (p *PromptComponent) EnterViVisualMode() {
-	p.ViCurrentMode = ViModeVisual
-	p.viPendingOp = ""
-	p.TextArea.KeyMap = p.viNormalKeyMap // Visual mode uses similar navigation
-	p.TextArea.Placeholder = "Visual mode - select text"
-	p.updateViModeStyle()
-}
-
 // EnterViInsertMode switches to vi insert mode
 func (p *PromptComponent) EnterViInsertMode() {
 	p.ViCurrentMode = ViModeInsert
@@ -225,18 +231,13 @@ func (p *PromptComponent) EnterViCommandLineMode() {
 	p.viPendingOp = ""
 	// Use insert keymap for command-line editing
 	p.TextArea.KeyMap = p.viInsertKeyMap
-	p.TextArea.Placeholder = "Enter command..."
+	p.TextArea.Placeholder = "Enter command below..."
 	p.updateViModeStyle()
 }
 
 // IsViNormalMode returns true if in vi normal mode
 func (p PromptComponent) IsViNormalMode() bool {
 	return p.ViCurrentMode == ViModeNormal
-}
-
-// IsViVisualMode returns true if in vi visual mode
-func (p PromptComponent) IsViVisualMode() bool {
-	return p.ViCurrentMode == ViModeVisual
 }
 
 // IsViInsertMode returns true if in vi insert mode
@@ -255,7 +256,7 @@ func (p *PromptComponent) EnterViLearningMode() {
 	p.viPendingOp = ""
 	// Use insert keymap for learning mode editing
 	p.TextArea.KeyMap = p.viInsertKeyMap
-	p.TextArea.Placeholder = "Enter learning note (will be appended to AGENTS.md)..."
+	p.TextArea.Placeholder = "Enter learning note (will be appended to project's memory file)"
 	p.updateViModeStyle()
 }
 
@@ -264,29 +265,37 @@ func (p PromptComponent) IsViLearningMode() bool {
 	return p.ViCurrentMode == ViModeLearning
 }
 
+// EnterViScrollMode switches to vi scroll mode (for scrolling chat history)
+func (p *PromptComponent) EnterViScrollMode() {
+	p.ViCurrentMode = ViModeScroll
+	p.viPendingOp = ""
+	// Use normal keymap for scroll mode (no text editing)
+	p.TextArea.KeyMap = p.viNormalKeyMap
+	p.TextArea.Placeholder = "j/k to scroll | Ctrl+d/u for half-page | i/Esc to exit"
+	p.updateViModeStyle()
+}
+
+// IsViScrollMode returns true if in vi scroll mode
+func (p PromptComponent) IsViScrollMode() bool {
+	return p.ViCurrentMode == ViModeScroll
+}
+
 // ViModeStatus returns current vi mode status for display components
 func (p PromptComponent) ViModeStatus() (enabled bool, mode string, pending string) {
 	return true, p.ViCurrentMode, p.viPendingOp
 }
 
 // updateViModeStyle updates the border color based on vi mode state
+// Uses globalTheme.promptOnBorder when focused on prompt (INSERT/COMMAND/LEARNING)
+// Uses globalTheme.promptOffBorder when focused away from prompt (NORMAL/VISUAL/SCROLL)
 func (p *PromptComponent) updateViModeStyle() {
 	switch p.ViCurrentMode {
-	case ViModeInsert:
-		// Insert mode: green border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#00FF00")) // Green
-	case ViModeNormal:
-		// Normal mode: yellow border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F4DB53")) // Terminal7 warning/chat border (yellow)
-	case ViModeVisual:
-		// Visual mode: blue border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#01FAFA")) // Terminal7 text color (cyan)
-	case ViModeCommandLine:
-		// Command-line mode: magenta border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#F952F9")) // Terminal7 prompt border (magenta)
-	case ViModeLearning:
-		// Learning mode: orange border
-		p.Style = p.Style.BorderForeground(lipgloss.Color("#FFA500")) // Orange
+	case ViModeInsert, ViModeNormal, ViModeLearning:
+		// Focus on prompt input - use "on" border
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOnBorder)
+	default:
+		// Focus away from prompt (NORMAL/VISUAL/SCROLL/etc) - use "off" border
+		p.Style = p.Style.BorderForeground(globalTheme.PromptOffBorder)
 	}
 }
 
@@ -506,9 +515,20 @@ func (p *PromptComponent) deleteWordForward() (bool, tea.Cmd) {
 func (p PromptComponent) Update(msg interface{}) (PromptComponent, tea.Cmd) {
 	var cmd tea.Cmd
 
-	// In vi normal or visual mode, handle special vi commands
-	if p.IsViNormalMode() || p.IsViVisualMode() {
-		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		if p.IsViInsertMode() || p.IsViNormalMode() {
+			if keyMsg.Type == tea.KeyEnter && !keyMsg.Alt {
+				promptContent := strings.TrimSpace(p.TextArea.Value())
+				if promptContent != "" {
+					p.TextArea.SetValue("")
+					p.TextArea.SetCursor(0)
+					return p, func() tea.Msg { return SubmitPromptMsg{Prompt: promptContent} }
+				}
+				// If prompt is empty, consume the Enter key
+				return p, nil
+			}
+		}
+		if p.IsViNormalMode() {
 			keyStr := keyMsg.String()
 
 			// Always allow arrow keys and navigation keys, regardless of mode
@@ -530,7 +550,7 @@ func (p PromptComponent) Update(msg interface{}) (PromptComponent, tea.Cmd) {
 				return p, viCmd
 			}
 
-			// Allow only specific navigation and command keys in normal/visual mode
+			// Allow only specific navigation and command keys in normal mode
 			allowedKeys := map[string]bool{
 				// Navigation (vi keys)
 				"h": true, "j": true, "k": true, "l": true,
@@ -545,13 +565,12 @@ func (p PromptComponent) Update(msg interface{}) (PromptComponent, tea.Cmd) {
 				"p": true,                                                        // paste
 				":": true,                                                        // command mode (handled in tui.go)
 				"i": true, "I": true, "a": true, "A": true, "o": true, "O": true, // insert mode triggers
-				"v": true, "V": true, // visual mode triggers
 			}
 
 			// If it's not an allowed key and it's a single character (potential text input),
-			// ignore it to prevent text insertion in normal/visual mode
+			// ignore it to prevent text insertion in normal mode
 			if !allowedKeys[keyStr] && len(keyStr) == 1 && p.viPendingOp == "" {
-				// Ignore this key in normal/visual mode
+				// Ignore this key in normal mode
 				return p, nil
 			}
 		}

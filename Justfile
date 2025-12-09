@@ -1,134 +1,124 @@
-# listing all the recipes
-list-recipes:
+PROJECT_NAME := "afittestide-asimi-cli"
+
+# List all available recipes
+default:
     @just --list
 
 # Install dependencies
-install: modules
-    go install .
-
-# Vendor dependencies
-modules:
+install:
+    go mod download
     go mod vendor
 
-# Run the application
+# Build the binary
+build:
+    go build -o asimi .
+
+# Run with debug logging
 run:
     go run . --debug
 
-# Build the binary
-build: modules
-    go build .
-
 # Run all tests
-test: modules
-	go test -v ./...
+test:
+    go test -v ./...
 
 # Run tests with coverage
-test-coverage: modules
-	go test -v -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
+test-coverage:
+    go test -v -coverprofile=coverage.out ./...
+    go tool cover -html=coverage.out -o coverage.html
 
-# Run linters
+# Run linting
 lint:
-    golangci-lint run ./...
+    golangci-lint run
 
 # Format code
 fmt:
     go fmt ./...
+    goimports -w .
 
 # Clean build artifacts
 clean:
     rm -f asimi
     rm -f coverage.out coverage.html
-    rm -rf profiles/
+    rm -f asimi.log
+    rm -rf test_tmp
+    rm -rf profiles
 
 # Install development tools
 bootstrap:
-    @echo "Installing golangci-lint..."
-    @curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
-    @echo "golangci-lint installed successfully"
-    @if [ "$(uname)" = "Darwin" ]; then \
-        echo ""; \
-        echo "Setting up podman on macOS..."; \
-        if ! command -v podman >/dev/null 2>&1; then \
-            echo "Podman not found. Please install it with: brew install podman"; \
-            exit 1; \
-        fi; \
-        echo "Podman found: $(podman --version)"; \
-        if ! podman machine list | grep -q "Currently running"; then \
-            echo "Starting podman machine..."; \
-            if ! podman machine list | grep -q "podman-machine-default"; then \
-                echo "Initializing podman machine..."; \
-                podman machine init --disk-size 30; \
-            fi; \
-            podman machine start; \
-            echo "Podman machine started successfully"; \
-        else \
-            echo "Podman machine is already running"; \
-        fi; \
-    fi
-
-# Build the development container
-infrabuild:
-    @mkdir -p infra
-    @podman machine init --disk-size 30 2>/dev/null || true
-    @podman machine start 2>/dev/null || true
-    @echo "Stopping and removing containers using asimi-dev image..."
-    @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman stop 2>/dev/null || true
-    @podman ps -a --filter ancestor=asimi-dev:latest --format "{{{{.ID}}}}" | xargs -r podman rm 2>/dev/null || true
-    @echo "Building new asimi-dev image..."
-    podman build -t asimi-shell:latest -f .asimi/Dockerfile .
-
-# Build production container
-build-container:
-    @mkdir -p infra
-    podman build -t asimi:latest -f .asimi/Dockerfile .
-
-# Clean up container resources
-infraclean:
-    # podman machine stop
-    # podman machine rm
-    podman system prune --all --volumes --force 
-
-# Install delve debugger
-dlv:
-    go install github.com/go-delve/delve/cmd/dlv@latest
-
-# Debug the application
-debug: dlv
-    dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec ./asimi -- --config config/default.toml
+    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    go install golang.org/x/tools/cmd/goimports@latest
 
 # Profile startup performance
-profile: build
-    @echo "=== Profiling Asimi Startup ==="
-    @echo ""
-    @mkdir -p profiles
-    @rm -f profiles/*
-    @echo "Running with profiling (auto-exits after 7 seconds)..."
-    @echo ""
-    ./asimi --debug --cpu-profile=profiles/cpu.prof --mem-profile=profiles/mem.prof --trace=profiles/trace.out --profile-exit-ms=7000 2>&1 | tee profiles/timing.log || true
-    @echo ""
-    @echo "=== Timing Analysis ==="
-    @echo ""
-    @grep "\[TIMING\]" profiles/timing.log 2>/dev/null || echo "No timing data found"
-    @echo ""
-    @echo "=== CPU Profile - Top 20 Functions ==="
-    @echo ""
-    @go tool pprof -top -cum profiles/cpu.prof 2>/dev/null | head -25 || echo "No CPU profile data"
-    @echo ""
-    @echo "=== Memory Profile - Top 15 Allocations ==="
-    @echo ""
-    @go tool pprof -top -alloc_space profiles/mem.prof 2>/dev/null | head -20 || echo "No memory profile data"
-    @echo ""
-    @echo "=== Profile files saved in profiles/ ==="
-    @echo ""
-    @echo "For interactive analysis:"
-    @echo "  go tool pprof -http=:8080 profiles/cpu.prof"
-    @echo "  go tool pprof -http=:8080 profiles/mem.prof"
-    @echo "  go tool trace profiles/trace.out"
+measure: build
+    #!/bin/bash
+    # Profile startup performance of asimi
+    set -e
+    PROFILE_DIR="./profiles"
+    mkdir -p "$PROFILE_DIR"
+    echo "=== Profiling Asimi Startup ==="
+    echo ""
+    # Clean up old profiles
+    rm -f "$PROFILE_DIR"/*
+    echo "1. Running with CPU profiling and execution trace..."
+    echo "   (Press Ctrl+C after the UI appears to stop profiling)"
+    echo ""
+    # Run with profiling - use timeout to auto-quit after 3 seconds
+    timeout 3s ./asimi --debug --cpu-profile="$PROFILE_DIR/cpu.prof" --trace="$PROFILE_DIR/trace.out" --mem-profile="$PROFILE_DIR/mem.prof" 2>&1 | tee "$PROFILE_DIR/timing.log" || true
+    echo ""
+    echo "=== Profile Analysis ==="
+    echo ""
+    if [ -f "$PROFILE_DIR/cpu.prof" ]; then
+        echo "2. CPU Profile Top Functions:"
+        echo "   (Functions taking the most CPU time)"
+        echo ""
+        go tool pprof -top -cum "$PROFILE_DIR/cpu.prof" | head -20
+        echo ""
+        echo "3. CPU Profile - Startup Critical Path:"
+        echo "   (Looking at main and initialization functions)"
+        echo ""
+        go tool pprof -list="main\.(main|Run|getLLMClient|NewTUIModel)" "$PROFILE_DIR/cpu.prof" 2>/dev/null || echo "   No detailed listing available"
+        echo ""
+    fi
+    if [ -f "$PROFILE_DIR/mem.prof" ]; then
+        echo "4. Memory Profile Top Allocations:"
+        echo ""
+        go tool pprof -top -alloc_space "$PROFILE_DIR/mem.prof" | head -20
+        echo ""
+    fi
+    if [ -f "$PROFILE_DIR/trace.out" ]; then
+        echo "5. Execution Trace:"
+        echo "   Opening trace viewer in browser..."
+        echo "   Look for goroutine blocking and scheduler delays"
+        echo ""
+        go tool trace "$PROFILE_DIR/trace.out" &
+        TRACE_PID=$!
+        echo "   Trace viewer started (PID: $TRACE_PID)"
+        echo "   Press Enter to continue and close trace viewer..."
+        read
+        kill $TRACE_PID 2>/dev/null || true
+    fi
+    echo ""
+    echo "=== Timing Summary from Debug Output ==="
+    if [ -f "$PROFILE_DIR/timing.log" ]; then
+        grep "\[TIMING\]" "$PROFILE_DIR/timing.log" || echo "No timing data found"
+    fi
+    echo ""
+    echo "=== Profile files saved in $PROFILE_DIR ==="
+    echo "To analyze interactively:"
+    echo "  go tool pprof -http=:8080 $PROFILE_DIR/cpu.prof"
+    echo "  go tool pprof -http=:8080 $PROFILE_DIR/mem.prof"
+    echo "  go tool trace $PROFILE_DIR/trace.out"
+    ./profile_startup.sh
 
-# Open CPU profile in web browser
-profile-cpu: profile
-    go tool pprof -http=:8080 profiles/cpu.prof
+# Build the sandbox container
+build-sandbox:
+    @podman machine init --disk-size 30 >/dev/null 2>&1 || true
+    @podman machine start >/dev/null 2>&1 || true
+    podman build -t localhost/asimi-sandbox-{{PROJECT_NAME}}:latest -f .agents/sandbox/Dockerfile .
+
+# Clean up the sandbox container
+clean-sandbox:
+    podman rmi localhost/asimi-sandbox-{{PROJECT_NAME}}:latest
 
 # Open memory profile in web browser
 profile-mem: profile

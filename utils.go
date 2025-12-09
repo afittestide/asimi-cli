@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +24,37 @@ type RepoInfo struct {
 	Branch       string
 	IsWorktree   bool
 	IsMain       bool
+	Slug         string // Project slug (e.g., "owner/repo")
 	status       string // Cached git status
+	LinesAdded   int    // Lines added in working directory
+	LinesDeleted int    // Lines deleted in working directory
+	repo         *gogit.Repository
+}
+
+// isMainBranch checks if the given branch name is considered a main branch.
+// Currently checks for "main" and "master".
+func isMainBranch(branch string) bool {
+	return branch == "main" || branch == "master"
+}
+
+// projectSlug returns the project slug (e.g., "owner/repo") from the git remote origin URL.
+// Returns an empty string if the project root is not a git repository or has no remote.
+func projectSlug(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+
+	remoteURL, err := gitRemoteOriginURL(projectRoot)
+	if err != nil || remoteURL == "" {
+		return ""
+	}
+
+	owner, repo := parseGitRemote(remoteURL)
+	if owner == "" || repo == "" {
+		return ""
+	}
+
+	return owner + "-" + repo
 }
 
 // GetStatus returns a short git status string (e.g., "[!+]")
@@ -28,8 +63,153 @@ func (r *RepoInfo) GetStatus() string {
 	return r.status
 }
 
+// RefreshDiff recalculates diff statistics using gogit
+func (r *RepoInfo) RefreshDiff() {
+	if r.repo == nil {
+		return
+	}
+
+	// TODO: add support for non-worktree branches
+	worktree, err := r.repo.Worktree()
+	if err != nil {
+		return
+	}
+
+	repoPath := worktree.Filesystem.Root()
+	if repoPath == "" {
+		repoPath = r.ProjectRoot
+	}
+	if repoPath == "" {
+		return
+	}
+
+	headExists := true
+	if _, err := r.repo.Head(); err != nil {
+		headExists = false
+	}
+
+	added := 0
+	deleted := 0
+
+	if headExists {
+		added, deleted = collectDiffFromGit(repoPath, []string{"--numstat", "HEAD"})
+	} else {
+		slog.Debug("Getting diff for initial commit")
+		a, d := collectDiffFromGit(repoPath, []string{"--numstat", "--cached"})
+		added += a
+		deleted += d
+
+		a, d = collectDiffFromGit(repoPath, []string{"--numstat"})
+		added += a
+		deleted += d
+	}
+
+	r.LinesAdded = added
+	r.LinesDeleted = deleted
+	slog.Debug("Refreshed git diff", "+", added, "-", deleted)
+}
+
+func collectDiffFromGit(repoPath string, opts []string) (int, int) {
+
+	args := []string{"diff"}
+	args = append(args, opts...)
+	output, err := runGitCommand(repoPath, args...)
+	if err != nil {
+		slog.Debug("git diff failed", "args", strings.Join(args, " "), "err", err, "output", strings.TrimSpace(string(output)))
+		return 0, 0
+	}
+
+	return parseGitNumstat(output)
+}
+
+func runGitCommand(dir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return out, fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+	}
+	return out, nil
+}
+
+func parseGitNumstat(data []byte) (int, int) {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	buf := make([]byte, 1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	added := 0
+	deleted := 0
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+
+		added += parseNumStatValue(parts[0])
+		deleted += parseNumStatValue(parts[1])
+	}
+
+	if err := scanner.Err(); err != nil {
+		slog.Debug("failed to parse git numstat output", "err", err)
+	}
+
+	return added, deleted
+}
+
+func parseNumStatValue(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "-" {
+		return 0
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
+// diffLines performs a simple line-based diff
+func diffLines(original, current []string) (added int, deleted int) {
+	// Create maps for quick lookup
+	origMap := make(map[string]int)
+	currMap := make(map[string]int)
+
+	for _, line := range original {
+		origMap[line]++
+	}
+
+	for _, line := range current {
+		currMap[line]++
+	}
+
+	// Count added lines (in current but not in original)
+	for line, count := range currMap {
+		origCount := origMap[line]
+		if count > origCount {
+			added += count - origCount
+		}
+	}
+
+	// Count deleted lines (in original but not in current)
+	for line, count := range origMap {
+		currCount := currMap[line]
+		if count > currCount {
+			deleted += count - currCount
+		}
+	}
+
+	return added, deleted
+}
+
 // GetRepoInfo returns information about the current git repository and worktree
 func GetRepoInfo() RepoInfo {
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return RepoInfo{}
@@ -91,27 +271,37 @@ func GetRepoInfo() RepoInfo {
 		branch = readBranchFromWorktree()
 	}
 
-	// Detect if branch is main/master
-	isMain := branch == "main" || branch == "master"
+	// Detect if branch is a main branch
+	isMain := isMainBranch(branch)
 
-	return RepoInfo{
+	repoInfo := RepoInfo{
 		ProjectRoot:  projectRoot,
 		WorktreePath: worktreePath,
 		Branch:       branch,
 		IsWorktree:   isWorktree,
 		IsMain:       isMain,
+		Slug:         projectSlug(projectRoot),
 		status:       status,
+		repo:         repo,
 	}
+
+	// Calculate diff stats if we have a repo and not skipping git status
+	if repo != nil && os.Getenv("ASIMI_SKIP_GIT_STATUS") == "" {
+		// TODO: this should run in the background and update the status when done
+		repoInfo.RefreshDiff()
+	}
+
+	return repoInfo
 }
 
 func getFileTree(root string) ([]string, error) {
 	var files []string
 	// Directories to ignore at any level
 	ignoreDirs := map[string]bool{
-		".git":    true,
-		"vendor":  true,
-		".asimi":  true,
-		"archive": true,
+		".git":      true,
+		"vendor":    true,
+		"worktrees": true,
+		"archive":   true,
 	}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -146,20 +336,6 @@ func getFileTree(root string) ([]string, error) {
 
 // findProjectRoot returns the nearest ancestor directory (including start)
 // that contains a project marker like .git or go.mod. Falls back to start.
-func findProjectRoot(start string) string {
-	dir := start
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == "/" {
-			return start
-		}
-		dir = parent
-	}
-}
-
 // findMainRepoRoot finds the main repository root when in a worktree
 // by reading the .git file and extracting the main repo path from the gitdir
 func findMainRepoRoot(worktreeDir string) (string, error) {
@@ -498,89 +674,4 @@ func summarizeStatus(status gogit.Status) string {
 		return ""
 	}
 	return result
-}
-
-// shortenProviderModel shortens provider and model names for display
-func shortenProviderModel(provider, model string) string {
-	// Shorten common provider names
-	switch strings.ToLower(provider) {
-	case "anthropic":
-		provider = "Claude"
-	case "openai":
-		provider = "GPT"
-	case "google", "googleai":
-		provider = "Gemini"
-	case "ollama":
-		provider = "Ollama"
-	}
-
-	// Shorten common model names
-	modelShort := model
-	lowerModel := strings.ToLower(model)
-	if strings.Contains(lowerModel, "claude") {
-		// Handle models like "Claude-Haiku-4.5", "Claude 3.5 Sonnet", etc.
-		// Extract the meaningful part after "claude"
-		parts := strings.FieldsFunc(lowerModel, func(r rune) bool {
-			return r == '-' || r == ' ' || r == '_'
-		})
-
-		// Skip "claude" prefix and build the short name
-		if len(parts) > 1 {
-			// For "claude-3-5-haiku-20240307" -> "3.5-Haiku"
-			// For "claude-haiku-4.5" -> "Haiku-4.5"
-			var shortParts []string
-			for i := 1; i < len(parts); i++ {
-				part := parts[i]
-				// Skip date suffixes like "20240307"
-				if len(part) == 8 && strings.ContainsAny(part, "0123456789") {
-					continue
-				}
-				// Skip "latest" suffix
-				if part == "latest" {
-					continue
-				}
-				shortParts = append(shortParts, part)
-			}
-
-			if len(shortParts) > 0 {
-				// Join parts and capitalize first letter of each word
-				result := strings.Join(shortParts, "-")
-				// Capitalize: "3-5-haiku" -> "3.5-Haiku"
-				result = strings.ReplaceAll(result, "-5-", ".5-")
-				// Capitalize model names
-				result = strings.ReplaceAll(result, "haiku", "Haiku")
-				result = strings.ReplaceAll(result, "sonnet", "Sonnet")
-				result = strings.ReplaceAll(result, "opus", "Opus")
-				modelShort = result
-			}
-		} else if strings.Contains(lowerModel, "instant") {
-			modelShort = "Instant"
-		}
-	} else if strings.Contains(lowerModel, "gpt") {
-		if strings.Contains(model, "4") {
-			if strings.Contains(model, "turbo") {
-				modelShort = "4T"
-			} else {
-				modelShort = "4"
-			}
-		} else if strings.Contains(model, "3.5") {
-			modelShort = "3.5"
-		}
-	} else if strings.Contains(lowerModel, "gemini") {
-		if strings.Contains(model, "pro") {
-			modelShort = "Pro"
-		} else if strings.Contains(model, "flash") {
-			modelShort = "Flash"
-		}
-	}
-
-	return fmt.Sprintf("%s-%s", provider, modelShort)
-}
-
-// getProviderStatusIcon returns an icon for the provider status
-func getProviderStatusIcon(connected bool) string {
-	if connected {
-		return "✅"
-	}
-	return "🔌"
 }

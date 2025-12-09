@@ -97,77 +97,6 @@ func currentBranchName(t *testing.T, repo *gogit.Repository) string {
 	return head.Name().Short()
 }
 
-func TestShortenProviderModel(t *testing.T) {
-	tests := []struct {
-		name     string
-		provider string
-		model    string
-		expected string
-	}{
-		{
-			name:     "Claude Haiku 4.5",
-			provider: "anthropic",
-			model:    "Claude-Haiku-4.5",
-			expected: "Claude-Haiku-4.5",
-		},
-		{
-			name:     "Claude 3.5 Sonnet",
-			provider: "anthropic",
-			model:    "Claude 3.5 Sonnet",
-			expected: "Claude-3.5-Sonnet",
-		},
-		{
-			name:     "claude-3-5-sonnet-20241022",
-			provider: "anthropic",
-			model:    "claude-3-5-sonnet-20241022",
-			expected: "Claude-3.5-Sonnet",
-		},
-		{
-			name:     "claude-3-haiku-20240307",
-			provider: "anthropic",
-			model:    "claude-3-haiku-20240307",
-			expected: "Claude-3-Haiku",
-		},
-		{
-			name:     "claude-3-5-haiku-latest",
-			provider: "anthropic",
-			model:    "claude-3-5-haiku-latest",
-			expected: "Claude-3.5-Haiku",
-		},
-		{
-			name:     "GPT-4 Turbo",
-			provider: "openai",
-			model:    "gpt-4-turbo",
-			expected: "GPT-4T",
-		},
-		{
-			name:     "GPT-3.5",
-			provider: "openai",
-			model:    "gpt-3.5-turbo",
-			expected: "GPT-3.5",
-		},
-		{
-			name:     "Gemini Pro",
-			provider: "google",
-			model:    "gemini-pro",
-			expected: "Gemini-Pro",
-		},
-		{
-			name:     "Gemini Flash",
-			provider: "googleai",
-			model:    "gemini-1.5-flash",
-			expected: "Gemini-Flash",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := shortenProviderModel(tt.provider, tt.model)
-			require.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestEnsureOllamaConfiguredMissingBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("ollama is not expected on Windows hosts")
@@ -227,4 +156,107 @@ func prepareFakeOllama(t *testing.T) string {
 	binaryPath := filepath.Join(dir, "ollama")
 	require.NoError(t, os.WriteFile(binaryPath, []byte("#!/bin/sh\nexit 0\n"), 0o755))
 	return dir
+}
+
+func TestDiffLines(t *testing.T) {
+	tests := []struct {
+		name            string
+		original        []string
+		current         []string
+		expectedAdded   int
+		expectedDeleted int
+	}{
+		{
+			name:            "no changes",
+			original:        []string{"line1", "line2", "line3"},
+			current:         []string{"line1", "line2", "line3"},
+			expectedAdded:   0,
+			expectedDeleted: 0,
+		},
+		{
+			name:            "only additions",
+			original:        []string{"line1", "line2"},
+			current:         []string{"line1", "line2", "line3", "line4"},
+			expectedAdded:   2,
+			expectedDeleted: 0,
+		},
+		{
+			name:            "only deletions",
+			original:        []string{"line1", "line2", "line3", "line4"},
+			current:         []string{"line1", "line2"},
+			expectedAdded:   0,
+			expectedDeleted: 2,
+		},
+		{
+			name:            "balanced changes (should be modifications)",
+			original:        []string{"line1", "line2", "line3"},
+			current:         []string{"line1", "newline2", "newline3"},
+			expectedAdded:   2,
+			expectedDeleted: 2,
+		},
+		{
+			name:            "more additions than deletions",
+			original:        []string{"line1", "line2"},
+			current:         []string{"line1", "newline2", "line3", "line4"},
+			expectedAdded:   3,
+			expectedDeleted: 1,
+		},
+		{
+			name:            "more deletions than additions",
+			original:        []string{"line1", "line2", "line3", "line4"},
+			current:         []string{"line1", "newline2"},
+			expectedAdded:   1,
+			expectedDeleted: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			added, deleted := diffLines(tt.original, tt.current)
+			require.Equal(t, tt.expectedAdded, added, "added lines mismatch")
+			require.Equal(t, tt.expectedDeleted, deleted, "deleted lines mismatch")
+		})
+	}
+}
+
+func TestParseGitNumstat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		input         string
+		expectedAdded int
+		expectedDel   int
+	}{
+		{
+			name: "mixed changes",
+			input: "1\t1\tmain.go\n" +
+				"34\t0\ttui.go\n",
+			expectedAdded: 35,
+			expectedDel:   1,
+		},
+		{
+			name:          "binary files ignored",
+			input:         "-\t-\timage.png\n",
+			expectedAdded: 0,
+			expectedDel:   0,
+		},
+		{
+			name:          "unbalanced changes stay separate",
+			input:         "5\t2\treport.md\n",
+			expectedAdded: 5,
+			expectedDel:   2,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			added, deleted := parseGitNumstat([]byte(tt.input))
+			require.Equal(t, tt.expectedAdded, added)
+			require.Equal(t, tt.expectedDel, deleted)
+		})
+	}
 }

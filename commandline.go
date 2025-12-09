@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -24,11 +25,12 @@ type (
 	navigateCompletionMsg struct{ direction int } // -1 for up, +1 for down
 	acceptCompletionMsg   struct{}                // Tab pressed
 	navigateHistoryMsg    struct{ direction int } // For completion or history
+	yesNoResponseMsg      struct{ answer bool }   // true for yes, false for no
 )
 
 // Mode management - single unified message for all mode changes
 type ChangeModeMsg struct {
-	NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume"
+	NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume", "scroll"
 }
 
 // CommandLineMode represents the state of the command line
@@ -38,27 +40,28 @@ const (
 	CommandLineIdle CommandLineMode = iota
 	CommandLineCommand
 	CommandLineToast
+	CommandLineYesNo
 )
 
 // CommandLineComponent manages the bottom command line
 // Handles both : commands and toast notifications
 type CommandLineComponent struct {
-	mode        CommandLineMode
-	toasts      []Toast
-	command     string
-	cursorPos   int // Cursor position in command string
-	width       int
-	style       lipgloss.Style
-	showCursor  bool
-	cursorBlink bool
-	lastBlink   time.Time
-	blinkRate   time.Duration
+	mode       CommandLineMode
+	toasts     []Toast
+	command    string
+	cursorPos  int // Cursor position in command string
+	width      int
+	style      lipgloss.Style
+	showCursor bool
 
 	// History support
 	history        []string // Command history
 	historyCursor  int      // Current position in history
 	historySaved   bool     // Whether we've saved the current command
 	historyPending string   // The command being typed before navigating history
+
+	// Yes/No prompt support
+	yesNoQuestion string // The question being asked
 }
 
 // NewCommandLineComponent creates a new command line component
@@ -68,9 +71,6 @@ func NewCommandLineComponent() *CommandLineComponent {
 		toasts:         make([]Toast, 0),
 		cursorPos:      0,
 		showCursor:     true,
-		cursorBlink:    true,
-		blinkRate:      500 * time.Millisecond,
-		lastBlink:      time.Now(),
 		history:        make([]string, 0),
 		historyCursor:  0,
 		historySaved:   false,
@@ -116,7 +116,6 @@ func (cl *CommandLineComponent) EnterCommandMode(initialText string) tea.Cmd {
 	cl.command = initialText
 	cl.cursorPos = len(initialText)
 	cl.showCursor = true
-	cl.cursorBlink = true
 	return func() tea.Msg {
 		return ChangeModeMsg{NewMode: "command"}
 	}
@@ -137,6 +136,30 @@ func (cl *CommandLineComponent) ExitCommandMode() tea.Cmd {
 // IsInCommandMode returns true if in command mode
 func (cl *CommandLineComponent) IsInCommandMode() bool {
 	return cl.mode == CommandLineCommand
+}
+
+// EnterYesNoMode enters yes/no prompt mode with a question
+func (cl *CommandLineComponent) EnterYesNoMode(question string) tea.Cmd {
+	cl.mode = CommandLineYesNo
+	cl.yesNoQuestion = question
+	cl.showCursor = true
+	return func() tea.Msg {
+		return ChangeModeMsg{NewMode: "yesno"}
+	}
+}
+
+// ExitYesNoMode exits yes/no mode and returns to idle
+func (cl *CommandLineComponent) ExitYesNoMode() tea.Cmd {
+	cl.mode = CommandLineIdle
+	cl.yesNoQuestion = ""
+	return func() tea.Msg {
+		return ChangeModeMsg{NewMode: "insert"}
+	}
+}
+
+// IsInYesNoMode returns true if in yes/no mode
+func (cl *CommandLineComponent) IsInYesNoMode() bool {
+	return cl.mode == CommandLineYesNo
 }
 
 // SetCommand sets the current command being entered
@@ -222,15 +245,9 @@ func (cl *CommandLineComponent) SetWidth(width int) {
 	cl.width = width
 }
 
-// Update handles updating the command line (e.g., removing expired toasts, cursor blink)
+// Update handles updating the command line (e.g., removing expired toasts)
 func (cl *CommandLineComponent) Update() {
 	now := time.Now()
-
-	// Update cursor blink
-	if cl.mode == CommandLineCommand && now.Sub(cl.lastBlink) >= cl.blinkRate {
-		cl.cursorBlink = !cl.cursorBlink
-		cl.lastBlink = now
-	}
 
 	// Remove expired toasts
 	activeToasts := make([]Toast, 0)
@@ -244,7 +261,23 @@ func (cl *CommandLineComponent) Update() {
 
 // View renders the command line
 func (cl *CommandLineComponent) View() string {
-	// Priority 1: Show command if in command mode
+	// Priority 1: Show yes/no prompt if in yes/no mode
+	if cl.mode == CommandLineYesNo {
+		promptText := cl.yesNoQuestion + " (y/n) "
+		var displayText string
+		if cl.showCursor {
+			cursorStyle := lipgloss.NewStyle().Reverse(true)
+			displayText = promptText + cursorStyle.Render(" ")
+		} else {
+			displayText = promptText
+		}
+		promptStyle := lipgloss.NewStyle().
+			Foreground(globalTheme.Warning).
+			Width(cl.width)
+		return promptStyle.Render(displayText)
+	}
+
+	// Priority 2: Show command if in command mode
 	if cl.mode == CommandLineCommand {
 		// Build command text with cursor
 		cmdText := ":" + cl.command
@@ -252,7 +285,7 @@ func (cl *CommandLineComponent) View() string {
 		// Insert cursor at position (account for leading ":")
 		displayPos := cl.cursorPos + 1
 		var displayText string
-		if cl.showCursor && cl.cursorBlink {
+		if cl.showCursor {
 			if displayPos < len(cmdText) {
 				// Cursor in middle of text
 				before := cmdText[:displayPos]
@@ -275,7 +308,7 @@ func (cl *CommandLineComponent) View() string {
 		return cmdStyle.Render(displayText)
 	}
 
-	// Priority 2: Show toast if active
+	// Priority 3: Show toast if active
 	if len(cl.toasts) > 0 {
 		toast := cl.toasts[len(cl.toasts)-1]
 		style := cl.style
@@ -289,13 +322,13 @@ func (cl *CommandLineComponent) View() string {
 
 		switch toast.Type {
 		case "info":
-			style = style.Background(lipgloss.NoColor{})
+			style = style.Background(lipgloss.NoColor{}).Foreground(globalTheme.TextColor)
 		case "success":
-			style = style.Background(lipgloss.Color("76")) // Green
+			style = style.Background(lipgloss.NoColor{}).Foreground(globalTheme.TextColor)
 		case "warning":
-			style = style.Background(lipgloss.Color("11")) // Yellow
+			style = style.Background(lipgloss.NoColor{}).Foreground(globalTheme.Warning)
 		case "error":
-			style = style.Background(lipgloss.Color("124")) // Red
+			style = style.Background(globalTheme.Error)
 		}
 
 		return style.Render(toast.Message)
@@ -306,10 +339,10 @@ func (cl *CommandLineComponent) View() string {
 }
 
 // LoadHistory loads command history from a history store
-func (cl *CommandLineComponent) LoadHistory(entries []HistoryEntry) {
+func (cl *CommandLineComponent) LoadHistory(entries []storage.HistoryEntry) {
 	cl.history = make([]string, 0, len(entries))
 	for _, entry := range entries {
-		cl.history = append(cl.history, entry.Prompt)
+		cl.history = append(cl.history, entry.Content)
 	}
 	cl.historyCursor = len(cl.history)
 }
@@ -376,6 +409,27 @@ func (cl *CommandLineComponent) NavigateHistory(direction int) bool {
 
 // HandleKey handles keyboard input for the command line component
 func (cl *CommandLineComponent) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	// Handle yes/no mode
+	if cl.IsInYesNoMode() {
+		keyStr := msg.String()
+		switch keyStr {
+		case "y", "Y":
+			exitCmd := cl.ExitYesNoMode()
+			return tea.Batch(
+				exitCmd,
+				func() tea.Msg { return yesNoResponseMsg{answer: true} },
+			), true
+		case "n", "N", "esc":
+			exitCmd := cl.ExitYesNoMode()
+			return tea.Batch(
+				exitCmd,
+				func() tea.Msg { return yesNoResponseMsg{answer: false} },
+			), true
+		}
+		// Ignore other keys in yes/no mode
+		return nil, true
+	}
+
 	if !cl.IsInCommandMode() {
 		return nil, false
 	}

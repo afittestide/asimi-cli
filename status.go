@@ -13,6 +13,7 @@ type StatusComponent struct {
 	Provider    string
 	Model       string
 	Connected   bool
+	HasError    bool // Track if there's a model error
 	Width       int
 	Style       lipgloss.Style
 	Session     *Session  // Reference to session for token/time tracking
@@ -30,8 +31,7 @@ func NewStatusComponent(width int) StatusComponent {
 	return StatusComponent{
 		Width: width,
 		Style: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#01FAFA")). // Terminal7 text color
-			Padding(0),
+			Foreground(globalTheme.TextColor),
 		mode: "INSERT", // start in insert mode
 	}
 }
@@ -62,6 +62,104 @@ func (s *StatusComponent) StartWaiting() {
 // StopWaiting clears the waiting indicator
 func (s *StatusComponent) StopWaiting() {
 	s.waitingForResponse = false
+}
+
+// SetError marks the status component as having an error
+func (s *StatusComponent) SetError() {
+	s.HasError = true
+}
+
+// ClearError clears the error state
+func (s *StatusComponent) ClearError() {
+	s.HasError = false
+}
+
+// getStatusIcon returns the appropriate status icon based on connection and error state
+func (s StatusComponent) getStatusIcon() string {
+	if s.HasError {
+		return "❌"
+	}
+	if s.Connected {
+		return "✅"
+	}
+	return "🔌"
+}
+
+// shortenProviderModel shortens provider and model names for display
+func shortenProviderModel(provider, model string) string {
+	// Shorten common provider names
+	switch strings.ToLower(provider) {
+	case "anthropic":
+		provider = "Claude"
+	case "openai":
+		provider = "GPT"
+	case "google", "googleai":
+		provider = "Gemini"
+	case "ollama":
+		provider = "Ollama"
+	}
+
+	// Shorten common model names
+	modelShort := model
+	lowerModel := strings.ToLower(model)
+	if strings.Contains(lowerModel, "claude") {
+		// Handle models like "Claude-Haiku-4.5", "Claude 3.5 Sonnet", etc.
+		// Extract the meaningful part after "claude"
+		parts := strings.FieldsFunc(lowerModel, func(r rune) bool {
+			return r == '-' || r == ' ' || r == '_'
+		})
+
+		// Skip "claude" prefix and build the short name
+		if len(parts) > 1 {
+			// For "claude-3-5-haiku-20240307" -> "3.5-Haiku"
+			// For "claude-haiku-4.5" -> "Haiku-4.5"
+			var shortParts []string
+			for i := 1; i < len(parts); i++ {
+				part := parts[i]
+				// Skip date suffixes like "20240307"
+				if len(part) == 8 && strings.ContainsAny(part, "0123456789") {
+					continue
+				}
+				// Skip "latest" suffix
+				if part == "latest" {
+					continue
+				}
+				shortParts = append(shortParts, part)
+			}
+
+			if len(shortParts) > 0 {
+				// Join parts and capitalize first letter of each word
+				result := strings.Join(shortParts, "-")
+				// Capitalize: "3-5-haiku" -> "3.5-Haiku"
+				result = strings.ReplaceAll(result, "-5-", ".5-")
+				// Capitalize model names
+				result = strings.ReplaceAll(result, "haiku", "Haiku")
+				result = strings.ReplaceAll(result, "sonnet", "Sonnet")
+				result = strings.ReplaceAll(result, "opus", "Opus")
+				modelShort = result
+			}
+		} else if strings.Contains(lowerModel, "instant") {
+			modelShort = "Instant"
+		}
+	} else if strings.Contains(lowerModel, "gpt") {
+		if strings.Contains(model, "4") {
+			if strings.Contains(model, "turbo") {
+				modelShort = "4T"
+			} else {
+				modelShort = "4"
+			}
+		} else if strings.Contains(model, "3.5") {
+			modelShort = "3.5"
+		}
+	} else if strings.Contains(lowerModel, "gemini") {
+		if strings.Contains(model, "pro") {
+			modelShort = "Pro"
+		} else if strings.Contains(model, "flash") {
+			modelShort = "Flash"
+		}
+	}
+
+	return fmt.Sprintf("%s-%s", provider, modelShort)
 }
 
 // SetAgent sets the current agent (legacy method for compatibility)
@@ -116,7 +214,7 @@ func (s StatusComponent) View() string {
 	// The style has Width() set, so lipgloss will handle padding internally
 	// We need to account for the horizontal padding (1 left + 1 right = 2 chars)
 	totalContentWidth := leftWidth + middleWidth + rightWidth
-	availableSpace := s.Width - 2 // Account for horizontal padding
+	availableSpace := s.Width
 
 	if totalContentWidth > availableSpace {
 		// Truncate if content is too long
@@ -158,7 +256,9 @@ func (s StatusComponent) View() string {
 		statusLine = leftSection + strings.Repeat(" ", spacing) + rightSection
 	}
 
-	return s.Style.Render(statusLine)
+	return s.Style.
+		Width(s.Width).
+		Render(statusLine)
 }
 
 func (s *StatusComponent) SetMode(mode string) {
@@ -170,15 +270,14 @@ func (s StatusComponent) renderLeftSection() string {
 	var parts []string
 
 	// Add vi mode indicator first
-	parts = append(parts, fmt.Sprintf(" %s>", s.mode))
+	parts = append(parts, fmt.Sprintf(" %s", s.mode))
 
-	// Get branch from RepoInfo if available, otherwise fall back to git info manager
+	// Get branch from RepoInfo - it always has a value (empty string if no git)
 	var branch string
-	// TODO: why test? Even when no git, RepoInfo should have defaults to use
 	if s.repoInfo != nil {
 		branch = s.repoInfo.Branch
 	}
-	// TODO: ditto
+
 	if branch == "" {
 		parts = append(parts, "🪾no-git")
 		return strings.Join(parts, " ")
@@ -186,16 +285,32 @@ func (s StatusComponent) renderLeftSection() string {
 
 	// Color branch name: yellow for main, green for others
 	var bs lipgloss.Style
-	if branch == "main" || branch == "master" {
-		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#F4DB53")) // Terminal7 warning/yellow
+	if s.repoInfo != nil && s.repoInfo.IsMain {
+		bs = lipgloss.NewStyle().Foreground(globalTheme.Warning)
 	} else {
-		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")) // Green
+		// Use a green color for non-main branches
+		// TODO use globalTheme for the color
+		bs = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
 	}
 
 	parts = append(parts, "🌴 "+bs.Render(branch))
+
+	// Add diff stats if available
 	if s.repoInfo != nil {
-		if gitStatus := s.repoInfo.GetStatus(); gitStatus != "" {
-			parts = append(parts, gitStatus)
+		added := s.repoInfo.LinesAdded
+		deleted := s.repoInfo.LinesDeleted
+		if added > 0 || deleted > 0 {
+			addedStyle := lipgloss.NewStyle().Foreground(globalTheme.Error)
+			deletedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+
+			var diffParts []string
+			if added > 0 {
+				diffParts = append(diffParts, addedStyle.Render(fmt.Sprintf("+%d", added)))
+			}
+			if deleted > 0 {
+				diffParts = append(diffParts, deletedStyle.Render(fmt.Sprintf("-%d", deleted)))
+			}
+			parts = append(parts, "← "+strings.Join(diffParts, " "))
 		}
 	}
 	return strings.Join(parts, " ")
@@ -203,31 +318,17 @@ func (s StatusComponent) renderLeftSection() string {
 
 // renderMiddleSection renders the middle section with token usage andsession age
 func (s StatusComponent) renderMiddleSection() string {
+	statusStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 	// Return token usage and session age e.g, `🪣 63%   1h23:45 ⏱`
 	if s.Session == nil {
-		return ""
+		return statusStyle.Render("🪣 0%")
 	}
 
 	// Get context usage percentage
 	usagePercent := s.Session.GetContextUsagePercent()
 
-	// Get session duration
-	duration := s.Session.GetSessionDuration()
-
-	// Format duration as h:mm:ss or mm:ss
-	hours := int(duration.Hours())
-	minutes := int(duration.Minutes()) % 60
-	seconds := int(duration.Seconds()) % 60
-
-	var durationStr string
-	if hours > 0 {
-		durationStr = fmt.Sprintf("%dh%02d:%02d", hours, minutes, seconds)
-	} else {
-		durationStr = fmt.Sprintf("%02d:%02d", minutes, seconds)
-	}
-
 	// Format the output with icons
-	statusStr := fmt.Sprintf("🪣 %.0f%%   %s ⏱", usagePercent, durationStr)
+	statusStr := fmt.Sprintf("🪣 %.0f%%", usagePercent)
 	if s.waitingForResponse && !s.waitingSince.IsZero() {
 		waitSeconds := int(time.Since(s.waitingSince).Seconds())
 		if waitSeconds >= 3 {
@@ -235,20 +336,18 @@ func (s StatusComponent) renderMiddleSection() string {
 		}
 	}
 
-	// Style with Terminal7 text color
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA"))
+	// Style with theme text color
 	return statusStyle.Render(statusStr)
 }
 
 // renderRightSection renders the right section with provider info
 func (s StatusComponent) renderRightSection() string {
-	icon := getProviderStatusIcon(s.Connected)
+
 	providerModel := shortenProviderModel(s.Provider, s.Model)
 
-	// Style provider info
-	providerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAFA")) // Terminal7 text color
+	providerStyle := lipgloss.NewStyle().Foreground(globalTheme.TextColor)
 
-	return providerStyle.Render(providerModel) + " " + icon
+	return fmt.Sprintf("%s %s ", providerStyle.Render(providerModel), s.getStatusIcon())
 }
 
 // truncateString truncates a string to fit within maxWidth, adding "..." if needed

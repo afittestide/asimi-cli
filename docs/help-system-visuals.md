@@ -180,7 +180,7 @@
 │  Project Initialization                                                  │
 │                                                                          │
 │    :init             - Initialize project with infrastructure files      │
-│                        Creates: AGENTS.md, Justfile, .asimi/Dockerfile  │
+│                        Creates: AGENTS.md, Justfile, .agents/Sandbox  │
 │    :init force       - Force regenerate all infrastructure files         │
 │                                                                          │
 ├─────────────────────────────────────────────────────────────────────────┤

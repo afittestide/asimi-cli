@@ -1,20 +1,78 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// TestShellRunner runs commands directly on the host machine.
+// It's used for testing and for --run-on-host mode.
+type TestShellRunner struct{}
+
+// NewTestShellRunner creates a new test shell runner
+func NewTestShellRunner() *TestShellRunner {
+	return &TestShellRunner{}
+}
+
+// Run executes a command directly on the host machine
+func (h *TestShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
+	var output RunInShellOutput
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, "cmd.exe", "/c", params.Command)
+	} else {
+		cmd = exec.CommandContext(ctx, "bash", "-c", params.Command)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	runErr := cmd.Run()
+	output.Output = stdout.String() + stderr.String()
+
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			output.ExitCode = fmt.Sprintf("%d", exitErr.ExitCode())
+		} else {
+			output.ExitCode = "-1"
+		}
+	} else {
+		output.ExitCode = "0"
+	}
+
+	return output, nil
+}
+
+// Restart is a no-op for test shell runner since it doesn't maintain state
+func (h *TestShellRunner) Restart(ctx context.Context) error {
+	return nil
+}
+
+// Close is a no-op for test shell runner
+func (h *TestShellRunner) Close(ctx context.Context) error {
+	return nil
+}
+
+// Another no-op
+// TODO: store this and use to verify
+func (h *TestShellRunner) AllowFallback(allow bool) {
+	return
+}
+
 func TestRunInShell(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -27,12 +85,12 @@ func TestRunInShell(t *testing.T) {
 	err = json.Unmarshal([]byte(result), &output)
 	assert.NoError(t, err)
 
-	assert.Contains(t, output.Stdout, "hello world")
+	assert.Contains(t, output.Output, "hello world")
 	assert.Equal(t, "0", output.ExitCode)
 }
 
 func TestRunInShellError(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -62,17 +120,17 @@ func TestRunInShellFailsWhenPodmanUnavailable(t *testing.T) {
 
 // TestRunInShellLargeOutput tests that large outputs (>4096 bytes) are fully captured
 // This test demonstrates the issue with the podman runner's fixed 4096-byte buffer
-// The hostShellRunner passes this test, but podman runner would truncate output
-// See: https://github.com/tuzig/asimi-cli/issues/20
+// The HostShellRunner passes this test, but podman runner would truncate output
+// See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellLargeOutput(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
 
 	// Generate output larger than 4096 bytes
 	// The actual test would need to be run with podman runner to see the truncation issue
-	// With hostShellRunner this passes, but with podman runner (4096 byte buffer)
+	// With HostShellRunner this passes, but with podman runner (4096 byte buffer)
 	// large outputs would be truncated. This is the issue described in #20
 	input := `{"command": "printf 'test output'"}`
 
@@ -89,9 +147,9 @@ func TestRunInShellLargeOutput(t *testing.T) {
 // TestRunInShellExitCodeWithMarkerInOutput tests that exit code parsing works correctly
 // when the output contains the exit code marker string
 // This test demonstrates the fragile exit code parsing in podman runner
-// See: https://github.com/tuzig/asimi-cli/issues/20
+// See: https://github.com/afittestide/asimi-cli/issues/20
 func TestRunInShellExitCodeWithMarkerInOutput(t *testing.T) {
-	restore := setShellRunnerForTesting(hostShellRunner{})
+	restore := setShellRunnerForTesting(NewTestShellRunner())
 	defer restore()
 
 	tool := RunInShell{}
@@ -111,7 +169,7 @@ func TestRunInShellExitCodeWithMarkerInOutput(t *testing.T) {
 	// But with podman runner's fragile marker parsing (lines 274-289 in podman_runner.go),
 	// it might incorrectly parse 42 as the exit code from the output string
 	assert.Equal(t, "0", output.ExitCode, "Exit code should be 0, not parsed from output")
-	assert.Contains(t, output.Stdout, "**Exit Code**: 42")
+	assert.Contains(t, output.Output, "**Exit Code**: 42")
 }
 
 // TestComposeShellCommand removed - composeShellCommand is deprecated
@@ -175,109 +233,16 @@ func TestReadFileToolWithOffsetAndLimit(t *testing.T) {
 	}
 }
 
-func TestMergeToolAutoApprove(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is required for this test")
-	}
-
-	repoDir := t.TempDir()
-
-	runGit(t, repoDir, "init", "-b", "main")
-	runGit(t, repoDir, "config", "user.name", "Asimi Tester")
-	runGit(t, repoDir, "config", "user.email", "tester@example.com")
-
-	repoReadme := filepath.Join(repoDir, "README.md")
-	require.NoError(t, os.WriteFile(repoReadme, []byte("hello\n"), 0o644))
-	runGit(t, repoDir, "add", "README.md")
-	runGit(t, repoDir, "commit", "-m", "initial commit")
-
-	worktreeDir := filepath.Join(repoDir, "worktrees", "feature")
-	runGit(t, repoDir, "worktree", "add", worktreeDir, "-b", "feature")
-
-	worktreeReadme := filepath.Join(worktreeDir, "README.md")
-	require.NoError(t, os.WriteFile(worktreeReadme, []byte("hello\nfeature-1\n"), 0o644))
-	runGit(t, worktreeDir, "add", "README.md")
-	runGit(t, worktreeDir, "commit", "-m", "add feature 1")
-
-	require.NoError(t, os.WriteFile(worktreeReadme, []byte("hello\nfeature-1\nfeature-2\n"), 0o644))
-	runGit(t, worktreeDir, "add", "README.md")
-	runGit(t, worktreeDir, "commit", "-m", "add feature 2")
-
-	payload, err := json.Marshal(MergeToolInput{
-		WorktreePath:  worktreeDir,
-		Branch:        "feature",
-		MainBranch:    "main",
-		CommitMessage: "feature squash",
-		AutoApprove:   true,
-		SkipReview:    true,
-	})
-	require.NoError(t, err)
-
-	tool := MergeTool{}
-	result, err := tool.Call(context.Background(), string(payload))
-	require.NoError(t, err)
-	require.Contains(t, result, "Merge completed successfully")
-
-	branchList := strings.TrimSpace(runGitOutput(t, repoDir, "branch", "--list", "feature"))
-	require.Equal(t, "", branchList)
-
-	_, statErr := os.Stat(worktreeDir)
-	require.True(t, os.IsNotExist(statErr))
-
-	topCommit := strings.TrimSpace(runGitOutput(t, repoDir, "log", "-1", "--pretty=%s"))
-	require.Equal(t, "feature squash", topCommit)
-
-	content, err := os.ReadFile(repoReadme)
-	require.NoError(t, err)
-	require.Contains(t, string(content), "feature-2")
-}
-
-func runGit(t *testing.T, dir string, args ...string) {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = cleanGitEnv()
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
-	}
-}
-
-func runGitOutput(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	cmd.Env = cleanGitEnv()
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
-	}
-	return string(output)
-}
-
-func cleanGitEnv() []string {
-	env := os.Environ()
-	filtered := make([]string, 0, len(env))
-	for _, value := range env {
-		if strings.HasPrefix(value, "GIT_") {
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	return filtered
-}
-
 func TestPodmanShellRunner(t *testing.T) {
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
+	assert.NotNil(t, runner)
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo hello",
 	})
-
 	require.NoError(t, err)
-	assert.Contains(t, output.Stdout, "hello")
-	assert.Empty(t, output.Stderr)
+	assert.Contains(t, output.Output, "hello")
 	assert.Equal(t, "0", output.ExitCode)
 }
 
@@ -292,16 +257,16 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 		t.Skip("Skipping Podman test. Set ASIMI_TEST_PODMAN=1 to run this test (requires podman and asimi-shell image)")
 	}
 
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(false, nil, repoInfo)
+	assert.NotNil(t, runner)
 
 	// First command
 	output1, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo first",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output1.Stdout, "first")
-	assert.Empty(t, output1.Stderr)
+	assert.Contains(t, output1.Output, "first")
 	assert.Equal(t, "0", output1.ExitCode)
 
 	// Second command in the same session
@@ -309,22 +274,22 @@ func TestPodmanShellRunnerMultipleCommands(t *testing.T) {
 		Command: "echo second",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, output2.Stdout, "second")
-	assert.Empty(t, output2.Stderr)
+	assert.Contains(t, output2.Output, "second")
 	assert.Equal(t, "0", output2.ExitCode)
 }
 
 func TestPodmanShellRunnerWithStderr(t *testing.T) {
-	repoInfo := GetRepoInfo()
+	repoInfo := repoInfoWithProjectRoot(t)
 	runner := newPodmanShellRunner(true, nil, repoInfo) // allowFallback=true so test works without podman
+	assert.NotNil(t, runner)
 
 	output, err := runner.Run(context.Background(), RunInShellInput{
 		Command: "echo 'stdout msg' && echo 'stderr msg' >&2",
 	})
 
 	require.NoError(t, err)
-	assert.Contains(t, output.Stdout, "stdout msg")
-	assert.Contains(t, output.Stderr, "stderr msg")
+	assert.Contains(t, output.Output, "stdout msg")
+	assert.Contains(t, output.Output, "stderr msg")
 	assert.Equal(t, "0", output.ExitCode)
 }
 
@@ -334,6 +299,17 @@ func (failingPodmanRunner) Run(ctx context.Context, params RunInShellInput) (Run
 	return RunInShellOutput{}, PodmanUnavailableError{reason: "podman unavailable"}
 }
 
+func (failingPodmanRunner) Restart(ctx context.Context) error {
+	return nil
+}
+
+func (failingPodmanRunner) Close(ctx context.Context) error {
+	return nil
+}
+
+func (failingPodmanRunner) AllowFallback(allow bool) {
+	return
+}
 func TestValidatePathWithinProject(t *testing.T) {
 	// Create a temporary directory to act as project root
 	tempDir := t.TempDir()
@@ -576,5 +552,436 @@ func TestPathValidationWithSymlinks(t *testing.T) {
 			_, statErr := os.Stat(filepath.Join(outsideDir, "malicious.txt"))
 			assert.Error(t, statErr, "File should not be created outside project")
 		}
+	})
+}
+
+func TestReadFileWithStringNumbers(t *testing.T) {
+	// Create a test file
+	testContent := "line1\nline2\nline3\nline4\nline5\n"
+	testFile := "test_read_file_temp.txt"
+	err := os.WriteFile(testFile, []byte(testContent), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	defer os.Remove(testFile)
+
+	tool := ReadFileTool{}
+	ctx := context.Background()
+
+	// Test with string values for offset and limit (Claude Code CLI bug workaround)
+	input := `{"path":"test_read_file_temp.txt","offset":"2","limit":"2"}`
+	result, err := tool.Call(ctx, input)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+
+	expected := "line2\nline3"
+	if result != expected {
+		t.Errorf("Expected %q, got %q", expected, result)
+	}
+
+	// Test with numeric values (normal case)
+	input2 := `{"path":"test_read_file_temp.txt","offset":2,"limit":2}`
+	result2, err := tool.Call(ctx, input2)
+	if err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+
+	if result2 != expected {
+		t.Errorf("Expected %q, got %q", expected, result2)
+	}
+}
+
+// Tests from test_shell_runner_test.go
+
+func TestTestShellRunner_Run(t *testing.T) {
+	runner := NewTestShellRunner()
+
+	params := RunInShellInput{
+		Command:     "echo hello",
+		Description: "Test echo",
+	}
+
+	output, err := runner.Run(context.Background(), params)
+	require.NoError(t, err, "unexpected error")
+
+	assert.Equal(t, "0", output.ExitCode, "exit code mismatch")
+	assert.NotEmpty(t, output.Output, "expected non-empty output")
+}
+
+func TestTestShellRunner_RunError(t *testing.T) {
+	runner := NewTestShellRunner()
+
+	params := RunInShellInput{
+		Command:     "exit 42",
+		Description: "Test exit code",
+	}
+
+	output, err := runner.Run(context.Background(), params)
+	require.NoError(t, err, "unexpected error")
+
+	assert.Equal(t, "42", output.ExitCode, "exit code mismatch")
+}
+
+func TestShouldRunOnHost(t *testing.T) {
+	tests := []struct {
+		name              string
+		config            *Config
+		command           string
+		wantRunOnHost     bool
+		wantNeedsApproval bool
+	}{
+		{
+			name:              "nil config",
+			config:            nil,
+			command:           "gh issue view 1",
+			wantRunOnHost:     false,
+			wantNeedsApproval: false,
+		},
+		{
+			name: "command matches run_on_host and safe_run_on_host",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^gh\s.*`},
+					SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)\s.*`},
+				},
+			},
+			command:           "gh issue view 68",
+			wantRunOnHost:     true,
+			wantNeedsApproval: false,
+		},
+		{
+			name: "command matches run_on_host but not safe_run_on_host",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^gh\s.*`},
+					SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)\s.*`},
+				},
+			},
+			command:           "gh issue create --title test",
+			wantRunOnHost:     true,
+			wantNeedsApproval: true,
+		},
+		{
+			name: "command does not match run_on_host",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^gh\s.*`},
+					SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)\s.*`},
+				},
+			},
+			command:           "ls -la",
+			wantRunOnHost:     false,
+			wantNeedsApproval: false,
+		},
+		{
+			name: "podman command requires approval",
+			config: &Config{
+				RunInShell: RunInShellConfig{
+					RunOnHost:     []string{`^podman\s.*`},
+					SafeRunOnHost: []string{},
+				},
+			},
+			command:           "podman run alpine echo hello",
+			wantRunOnHost:     true,
+			wantNeedsApproval: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tool := RunInShell{config: tt.config}
+			runOnHost, requiresApproval := tool.shouldRunOnHost(tt.command)
+
+			assert.Equal(t, tt.wantRunOnHost, runOnHost, "runOnHost mismatch")
+			assert.Equal(t, tt.wantNeedsApproval, requiresApproval, "requiresApproval mismatch")
+		})
+	}
+}
+
+func TestHostCommandApprovalChannel(t *testing.T) {
+	// Test that the approval channel mechanism works
+	approvalChan := make(chan HostCommandApprovalRequest, 1)
+	SetHostCommandApprovalChannel(approvalChan)
+
+	// Simulate a request in a goroutine
+	go func() {
+		request := <-approvalChan
+		assert.Equal(t, "test command", request.Command, "unexpected command")
+		request.ResponseChan <- true
+	}()
+
+	// Request approval
+	approved, err := requestHostCommandApproval(context.Background(), "test command")
+	require.NoError(t, err, "unexpected error")
+	assert.True(t, approved, "expected approval to be true")
+
+	// Clean up
+	SetHostCommandApprovalChannel(nil)
+}
+
+// Tests from tools_security_test.go
+
+// TestReadFileToolPathValidation tests that read_file validates paths are within project
+func TestReadFileToolPathValidation(t *testing.T) {
+	tool := ReadFileTool{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		path        string
+		shouldError bool
+	}{
+		{
+			name:        "read file in current directory",
+			path:        "go.mod",
+			shouldError: false,
+		},
+		{
+			name:        "read file in subdirectory",
+			path:        "testdata/test.txt",
+			shouldError: false,
+		},
+		{
+			name:        "read file outside project with absolute path",
+			path:        "/etc/passwd",
+			shouldError: true,
+		},
+		{
+			name:        "read file outside project with relative path",
+			path:        "../../../etc/passwd",
+			shouldError: true,
+		},
+		{
+			name:        "read file outside project with parent directory",
+			path:        "..",
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := `{"path":"` + tt.path + `"}`
+			_, err := tool.Call(ctx, input)
+
+			if tt.shouldError {
+				require.Error(t, err, "Expected error for path %s", tt.path)
+				assert.Contains(t, err.Error(), "access denied", "Expected 'access denied' error, got: %v", err)
+			} else {
+				// For valid paths, we might get file not found, but not access denied
+				if err != nil {
+					assert.NotContains(t, err.Error(), "access denied", "Unexpected access denied error for valid path %s: %v", tt.path, err)
+				}
+			}
+		})
+	}
+}
+
+// TestListDirectoryToolPathValidation tests that list_files validates paths are within project
+func TestListDirectoryToolPathValidation(t *testing.T) {
+	tool := ListDirectoryTool{}
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		path        string
+		shouldError bool
+	}{
+		{
+			name:        "list current directory",
+			path:        ".",
+			shouldError: false,
+		},
+		{
+			name:        "list subdirectory",
+			path:        "testdata",
+			shouldError: false,
+		},
+		{
+			name:        "list root directory",
+			path:        "/",
+			shouldError: true,
+		},
+		{
+			name:        "list parent directory",
+			path:        "..",
+			shouldError: true,
+		},
+		{
+			name:        "list /etc",
+			path:        "/etc",
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := `{"path":"` + tt.path + `"}`
+			_, err := tool.Call(ctx, input)
+
+			if tt.shouldError {
+				require.Error(t, err, "Expected error for path %s", tt.path)
+				assert.Contains(t, err.Error(), "access denied", "Expected 'access denied' error, got: %v", err)
+			} else {
+				// For valid paths, we might get file not found, but not access denied
+				if err != nil {
+					assert.NotContains(t, err.Error(), "access denied", "Unexpected access denied error for valid path %s: %v", tt.path, err)
+				}
+			}
+		})
+	}
+}
+
+// TestReadManyFilesToolPathValidation tests that read_many_files validates paths are within project
+func TestReadManyFilesToolPathValidation(t *testing.T) {
+	tool := ReadManyFilesTool{}
+	ctx := context.Background()
+
+	// Create a temporary test file in the project
+	tmpFile := filepath.Join("testdata", "temp_test.txt")
+	err := os.MkdirAll("testdata", 0755)
+	require.NoError(t, err)
+	err = os.WriteFile(tmpFile, []byte("test content"), 0644)
+	require.NoError(t, err)
+	defer os.Remove(tmpFile)
+
+	tests := []struct {
+		name          string
+		paths         []string
+		shouldContain string
+		shouldNotFind bool
+	}{
+		{
+			name:          "read files in project",
+			paths:         []string{"testdata/*.txt"},
+			shouldContain: "test content",
+			shouldNotFind: false,
+		},
+		{
+			name:          "read files outside project should be filtered",
+			paths:         []string{"/etc/passwd", "/etc/hosts"},
+			shouldContain: "",
+			shouldNotFind: true,
+		},
+		{
+			name:          "mixed paths - only project files should be read",
+			paths:         []string{"testdata/*.txt", "/etc/passwd"},
+			shouldContain: "test content",
+			shouldNotFind: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := `{"paths":[`
+			for i, p := range tt.paths {
+				if i > 0 {
+					input += ","
+				}
+				input += `"` + p + `"`
+			}
+			input += `]}`
+
+			result, err := tool.Call(ctx, input)
+			assert.NoError(t, err, "Unexpected error")
+
+			if tt.shouldNotFind {
+				assert.Empty(t, result, "Expected no results for paths outside project")
+			} else if tt.shouldContain != "" {
+				assert.Contains(t, result, tt.shouldContain, "Expected result to contain '%s'", tt.shouldContain)
+			}
+
+			// Verify that /etc/passwd content is never included
+			assert.NotContains(t, result, "root:", "Result should not contain /etc/passwd content")
+			assert.NotContains(t, result, "/etc/passwd", "Result should not contain /etc/passwd content")
+		})
+	}
+}
+
+// Tests from tools_security_demo_test.go
+
+// TestSecurityDemonstration shows the security improvement
+func TestSecurityDemonstration(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ReadFile security", func(t *testing.T) {
+		tool := ReadFileTool{}
+
+		// Test 1: Project file should work
+		t.Run("project file allowed", func(t *testing.T) {
+			input := `{"path":"go.mod"}`
+			_, err := tool.Call(ctx, input)
+			if err != nil {
+				assert.NotContains(t, err.Error(), "access denied", "Project files should be accessible")
+			}
+		})
+
+		// Test 2: System file should be blocked
+		t.Run("system file blocked", func(t *testing.T) {
+			input := `{"path":"/etc/passwd"}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "System files should be blocked")
+			if err != nil {
+				fmt.Printf("✓ /etc/passwd blocked: %v\n", err)
+			}
+		})
+
+		// Test 3: Path traversal should be blocked
+		t.Run("path traversal blocked", func(t *testing.T) {
+			input := `{"path":"../../../etc/passwd"}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "Path traversal should be blocked")
+			if err != nil {
+				fmt.Printf("✓ Path traversal blocked: %v\n", err)
+			}
+		})
+	})
+
+	t.Run("ListFiles security", func(t *testing.T) {
+		tool := ListDirectoryTool{}
+
+		// Test 1: Project directory should work
+		t.Run("project directory allowed", func(t *testing.T) {
+			input := `{"path":"."}`
+			_, err := tool.Call(ctx, input)
+			if err != nil {
+				assert.NotContains(t, err.Error(), "access denied", "Project directory should be accessible")
+			}
+		})
+
+		// Test 2: System directory should be blocked
+		t.Run("system directory blocked", func(t *testing.T) {
+			input := `{"path":"/etc"}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "System directories should be blocked")
+			if err != nil {
+				fmt.Printf("✓ /etc blocked: %v\n", err)
+			}
+		})
+
+		// Test 3: Parent directory should be blocked
+		t.Run("parent directory blocked", func(t *testing.T) {
+			input := `{"path":".."}`
+			_, err := tool.Call(ctx, input)
+			assert.Error(t, err, "Parent directory should be blocked")
+			if err != nil {
+				fmt.Printf("✓ Parent directory blocked: %v\n", err)
+			}
+		})
+	})
+
+	t.Run("ReadManyFiles security", func(t *testing.T) {
+		tool := ReadManyFilesTool{}
+
+		// Test: System files should be filtered out
+		t.Run("system files filtered", func(t *testing.T) {
+			input := `{"paths":["/etc/passwd","/etc/hosts"]}`
+			result, err := tool.Call(ctx, input)
+			assert.NoError(t, err, "Unexpected error")
+			assert.Empty(t, result, "System files should be filtered out, result should be empty")
+			if result == "" {
+				fmt.Printf("✓ System files filtered out (empty result)\n")
+			}
+		})
 	})
 }

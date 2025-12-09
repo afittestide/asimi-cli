@@ -123,6 +123,7 @@ func (h *HelpWindow) getHelpTopic(topic string) string {
 		"sessions":   helpSessions,
 		"context":    helpContext,
 		"config":     helpConfig,
+		"models":     helpModels,
 		"quickref":   helpQuickRef,
 	}
 
@@ -140,7 +141,7 @@ The help topic '%s' was not found.
 Type :help followed by one of these topics:
 
   :help index       - Main help index
-  :help modes       - Vi modes (INSERT, NORMAL, VISUAL)
+  :help modes       - Vi modes (INSERT, NORMAL, COMMAND)
   :help commands    - Available commands
   :help navigation  - Navigation keys
   :help editing     - Editing commands
@@ -148,6 +149,7 @@ Type :help followed by one of these topics:
   :help sessions    - Session management
   :help context     - Context and token usage
   :help config      - Configuration options
+  :help models      - Model selection and LLM configuration
   :help quickref    - Quick reference guide
 
 Press 'q' or ESC to close this help window.
@@ -158,30 +160,31 @@ Press 'q' or ESC to close this help window.
 
 const helpIndex = `# Asimi Help Index
 
-Welcome to Asimi - A safe, opinionated coding agent with vim-like interface.
+Welcome to Asimi - A safe, opinionated coding agent with vi-like interface.
 
 ## Getting Started
 
-Asimi uses vi-style editing by default. You start in INSERT mode where you can
-type normally. Press ESC to enter NORMAL mode for navigation and commands.
+Asimi mimics vi so if you're got any experience vi/vim/neovim you should feel at home.
+Asimi uses ':' for sending commmands and starts in INSERT mode. 
 
 ## Quick Start
 
   1. Type your question or request in INSERT mode
   2. Press Enter to send
   3. Use @ to reference files (e.g., @main.go)
-  4. Press : in NORMAL mode to enter commands
-  5. Press ? in NORMAL mode for quick help
+  4. Press : in NORMAL mode to enter COMMAND
+  4. Press ! in COMMAND mode to run a shell command in the sandbox
 
 ## Help Topics
 
-  :help modes       - Vi modes (INSERT, NORMAL, VISUAL, COMMAND-LINE)
+  :help modes       - Vi modes (INSERT, NORMAL, COMMAND-LINE)
   :help commands    - Available commands (:help, :new, :quit, etc.)
   :help navigation  - Navigation keys (h, j, k, l, w, b, etc.)
   :help editing     - Editing commands (i, a, o, d, y, p, etc.)
   :help files       - File operations and @ references
   :help sessions    - Session management and resume
   :help context     - Context and token usage
+  :help models      - Model selection and LLM configuration
   :help config      - Configuration options
   :help quickref    - Quick reference guide
 
@@ -235,31 +238,13 @@ Navigation and command mode. Use this to move around and execute commands.
   Border: Yellow (#F4DB53)
 
   Enter NORMAL mode:
-    ESC  - From INSERT, VISUAL, or COMMAND-LINE mode
+    ESC  - From INSERT or COMMAND-LINE mode
 
   From NORMAL mode you can:
     - Navigate with h, j, k, l
     - Enter commands with :
     - Enter INSERT mode with i, a, o, etc.
-    - Enter VISUAL mode with v
     - Show quick help with ?
-
-## VISUAL Mode
-
-Select text for copying or manipulation.
-
-  Status: -- VISUAL --
-  Border: Cyan (#01FAFA)
-
-  Enter VISUAL mode:
-    v    - Character-wise visual mode
-    V    - Line-wise visual mode
-
-  In VISUAL mode:
-    h/j/k/l  - Extend selection
-    y        - Yank (copy) selection
-    d        - Delete selection
-    ESC      - Return to NORMAL mode
 
 ## COMMAND-LINE Mode
 
@@ -296,16 +281,10 @@ const helpCommands = `# Commands
 Commands are executed from COMMAND-LINE mode. Press : in NORMAL mode to enter
 COMMAND-LINE mode, then type the command and press Enter.
 
-## Session Management
-
   :new              - Start a new conversation
   :resume           - Resume a previous session
   :quit             - Quit Asimi (also saves session)
-
-## Configuration
-
-  :login            - Login with OAuth provider selection
-  :models           - Select AI model
+  :update           - Check for and install updates
 
 ## Information
 
@@ -321,11 +300,12 @@ COMMAND-LINE mode, then type the command and press Enter.
   :export [type]    - Export conversation to file and open in $EDITOR
                       Types: conversation (default), full
 
-## Project Initialization
+## Configuration
 
-  :init             - Initialize project with infrastructure files
-                      Creates: AGENTS.md, Justfile, .asimi/Dockerfile
-  :init force       - Force regenerate all infrastructure files
+  :models           - Select AI model
+
+  :init [clean]     - Initialize project with infrastructure files
+                      Creates: AGENTS.md, Justfile, .agents/Sandbox
 
 ## Examples
 
@@ -337,7 +317,7 @@ COMMAND-LINE mode, then type the command and press Enter.
 
 const helpNavigation = `# Navigation
 
-Navigation commands work in NORMAL and VISUAL modes.
+Navigation commands work in NORMAL mode.
 
 ## Basic Movement
 
@@ -411,8 +391,6 @@ Editing commands work in NORMAL mode.
 
 ## Copying and Pasting
 
-  y        - Yank (copy) in VISUAL mode
-  yy       - Yank current line
   p        - Paste after cursor
   P        - Paste before cursor
 
@@ -537,7 +515,7 @@ Sessions are automatically saved when:
 
 ## Session Configuration
 
-Configure session behavior in ~/.config/asimi/conf.toml:
+Configure session behavior in ~/.config/asimi/asimi.conf:
 
   [session]
   enabled = true           # Enable session persistence
@@ -633,6 +611,151 @@ Asimi counts tokens for:
 5. Use :clear-history to reset prompt history (doesn't affect context)
 `
 
+const helpModels = `# Model Selection and LLM Configuration
+
+Asimi supports multiple AI providers and models. You can switch between them
+using the :models command or configure them via environment variables.
+
+## Selecting a Model
+
+  :models          - Open interactive model selector
+                     Shows all available models from configured providers
+
+The model selector displays:
+  - Available models from all providers
+  - Current active model (marked with ✓)
+  - Models requiring authentication (marked with 🔒)
+  - Provider icons (🅰️  Anthropic, 🤖 OpenAI, 🔷 Google, 🦙 Ollama)
+
+Navigation:
+  ↓/↑              - Navigate through models
+  Enter            - Select model
+  ESC              - Cancel
+
+## Supported Providers
+
+### Anthropic (Claude)
+Models: claude-3-5-sonnet-latest, claude-3-opus-latest, etc.
+
+Authentication options:
+  1. OAuth (recommended): Use :models to authenticate
+  2. API Key via environment: ANTHROPIC_API_KEY=sk-ant-...
+  3. API Key via keyring: Stored securely in OS keyring
+
+Custom endpoint:
+  ANTHROPIC_BASE_URL=https://custom-endpoint.com
+
+### Ollama (Local Models)
+Models: Any model you've pulled locally (llama2, codellama, etc.)
+
+Setup:
+  1. Install Ollama: https://ollama.ai
+  2. Pull a model: ollama pull llama2
+  3. Asimi will auto-detect running Ollama instance
+
+Custom host:
+  OLLAMA_HOST=http://localhost:11434
+
+## Environment Variables
+
+### API Keys
+  ANTHROPIC_API_KEY     - Anthropic API key
+
+### Base URLs (for custom endpoints)
+  ANTHROPIC_BASE_URL    - Custom Anthropic endpoint
+  OLLAMA_HOST           - Ollama server URL
+
+### OAuth Tokens (Advanced)
+  ANTHROPIC_OAUTH_TOKEN - Override stored OAuth token
+  ANTHROPIC_CLIENT_ID   - Custom OAuth client ID
+  ANTHROPIC_CLIENT_SECRET - Custom OAuth client secret
+
+## Configuration File
+
+You can also configure models in ~/.config/asimi/asimi.conf:
+
+  [llm]
+  provider = "anthropic"
+  model = "claude-3-5-sonnet-latest"
+  api_key = "sk-ant-..."
+  base_url = "https://api.anthropic.com"
+
+## Authentication Methods
+
+### 1. API Keys via Environment
+  export ANTHROPIC_API_KEY=sk-ant-...
+  asimi
+
+### 2. API Keys via Keyring
+Asimi automatically stores API keys in your OS keyring when you login
+or when configured in the config file.
+
+## Switching Providers
+
+To switch between providers:
+  1. Use :models to see all available models
+  2. Select a model from a different provider
+  3. Asimi will automatically switch providers
+
+Or configure directly:
+  ASIMI_LLM_PROVIDER=openai asimi
+
+## Custom Endpoints
+
+For custom or self-hosted LLM endpoints:
+
+  # OpenAI-compatible endpoint
+  OPENAI_BASE_URL=https://my-llm.company.com
+  OPENAI_API_KEY=my-key
+  asimi
+
+  # Anthropic-compatible endpoint
+  ANTHROPIC_BASE_URL=https://my-claude.company.com
+  ANTHROPIC_API_KEY=my-key
+  asimi
+
+## Troubleshooting
+
+### No models available
+  - Check authentication: :models or set API keys
+  - Verify network connectivity
+  - Check provider status pages
+
+### Model not found
+  - Use :models to see available models
+  - Check provider documentation for model names
+  - Verify API key has access to the model
+
+### Authentication errors
+  - Re-authenticate: :models
+  - Check API key validity
+  - Verify environment variables are set correctly
+
+### Ollama not detected
+  - Ensure Ollama is running: ollama serve
+  - Check OLLAMA_HOST is correct
+  - Verify you've pulled at least one model
+
+## Examples
+
+  # Use Claude with OAuth
+  :models
+  # Select Anthropic, complete OAuth flow
+  :models
+  # Select claude-3-5-sonnet-latest
+
+  # Use local Ollama
+  ollama pull llama2
+  asimi
+  :models
+  # Select llama2
+
+  # Use custom endpoint
+  export OPENAI_BASE_URL=https://my-llm.company.com
+  export OPENAI_API_KEY=my-key
+  asimi
+`
+
 const helpConfig = `# Configuration
 
 Asimi can be configured through configuration files and environment variables.
@@ -640,8 +763,8 @@ Asimi can be configured through configuration files and environment variables.
 ## Configuration Files
 
 Asimi looks for configuration in this order:
-  1. .asimi/conf.toml      (project-level)
-  2. ~/.config/asimi/conf.toml (user-level)
+  1. .agents/asimi.conf        (project-level)
+  2. ~/.config/asimi/asimi.conf (user-level)
 
 ## Basic Configuration
 
@@ -670,12 +793,47 @@ Supported providers:
 
 ## Environment Variables
 
-EDITOR                    - Text editor for :export
-ASIMI_LAZYGIT_CMD        - Custom lazygit path
-ANTHROPIC_OAUTH_TOKEN    - Anthropic OAuth token
-ANTHROPIC_API_KEY        - Anthropic API key
-ANTHROPIC_BASE_URL       - Custom Anthropic endpoint
-ASIMI_LLM_VI_MODE        - Enable/disable vi mode
+### General Configuration
+All config options can be set via ASIMI_* environment variables.
+Examples:
+  ASIMI_LLM_PROVIDER=anthropic
+  ASIMI_LLM_MODEL=claude-sonnet-4-20250514
+  ASIMI_UI_MARKDOWN_ENABLED=true
+
+### System
+  EDITOR                    - Text editor for :export
+  SHELL                     - Shell for container sessions
+
+### API Keys & Authentication
+  ANTHROPIC_API_KEY         - Anthropic API key
+  ANTHROPIC_OAUTH_TOKEN     - Anthropic OAuth token (priority over keyring)
+  ANTHROPIC_BASE_URL        - Custom Anthropic endpoint
+  OPENAI_API_KEY            - OpenAI API key
+  GEMINI_API_KEY            - Google Gemini API key
+
+### OAuth Configuration (Advanced)
+  GOOGLE_CLIENT_ID          - Google OAuth client ID
+  GOOGLE_CLIENT_SECRET      - Google OAuth client secret
+  GOOGLE_AUTH_URL           - Google OAuth authorization URL (optional)
+  GOOGLE_TOKEN_URL          - Google OAuth token URL (optional)
+  GOOGLE_OAUTH_SCOPES       - Google OAuth scopes (optional)
+  
+  OPENAI_CLIENT_ID          - OpenAI OAuth client ID
+  OPENAI_CLIENT_SECRET      - OpenAI OAuth client secret
+  OPENAI_AUTH_URL           - OpenAI OAuth authorization URL
+  OPENAI_TOKEN_URL          - OpenAI OAuth token URL
+  OPENAI_OAUTH_SCOPES       - OpenAI OAuth scopes (optional)
+  
+  ANTHROPIC_CLIENT_ID       - Anthropic OAuth client ID
+  ANTHROPIC_CLIENT_SECRET   - Anthropic OAuth client secret
+  ANTHROPIC_AUTH_URL        - Anthropic OAuth authorization URL
+  ANTHROPIC_TOKEN_URL       - Anthropic OAuth token URL
+  ANTHROPIC_OAUTH_SCOPES    - Anthropic OAuth scopes (optional)
+
+### Development
+  ASIMI_KEYRING_SERVICE     - Override keyring service name
+  ASIMI_SKIP_GIT_STATUS     - Skip git status checks
+  ASIMI_VERSION             - Override version string
 
 ## Vi Mode
 
@@ -713,21 +871,17 @@ list_limit = 30
 
 ## Changing Configuration
 
-After editing configuration:
-  1. Restart Asimi for changes to take effect
-  2. Use :login to reconfigure provider
-  3. Use :models to change model
+After editing configuration restart Asimi for changes to take effect.
 `
 
 const helpQuickRef = `# Quick Reference
 
 ## Modes
 
-  ESC      - NORMAL mode (from INSERT/VISUAL/COMMAND-LINE)
+  ESC      - NORMAL mode (from INSERT/COMMAND-LINE)
   i        - INSERT mode at cursor
   a        - INSERT mode after cursor
   o        - INSERT mode on new line below
-  v        - VISUAL mode
   :        - COMMAND-LINE mode
   #        - LEARNING mode
 
@@ -743,7 +897,7 @@ const helpQuickRef = `# Quick Reference
 
   x        - Delete character
   dw dd D  - Delete word/line/to-end
-  y p      - Yank (copy) and paste
+  p        - Paste
   u Ctrl+r - Undo/redo
 
 ## Commands (type : then command)
@@ -752,8 +906,8 @@ const helpQuickRef = `# Quick Reference
   :new             - New session
   :resume          - Resume session
   :quit            - Quit
-  :login           - Login to provider
-  :models          - Select model
+  :update          - Check for updates
+  :models          - Login and select the model 
   :context         - Show context info
   :export          - Export conversation
   :init            - Initialize project

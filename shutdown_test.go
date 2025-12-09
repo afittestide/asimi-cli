@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/afittestide/asimi/storage"
 	"github.com/tmc/langchaingo/llms"
 )
 
@@ -17,8 +18,16 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", originalHome)
 
-	repoInfo := GetRepoInfo()
-	store, err := NewSessionStore(repoInfo, 10, 30)
+	// Initialize storage
+	dbPath := filepath.Join(tmpHome, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
+	}
+	defer db.Close()
+
+	repoInfo := RepoInfo{ProjectRoot: tmpHome}
+	store, err := NewSessionStore(db, repoInfo, 10, 30)
 	if err != nil {
 		t.Fatalf("Failed to create session store: %v", err)
 	}
@@ -31,7 +40,7 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 		FirstPrompt:  "Test prompt",
 		Provider:     "test",
 		Model:        "test-model",
-		WorkingDir:   GetRepoInfo().ProjectRoot,
+		WorkingDir:   repoInfo.ProjectRoot,
 		ContextFiles: make(map[string]string),
 	}
 
@@ -54,22 +63,13 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 		t.Errorf("Close() took too long: %v", duration)
 	}
 
-	// Verify the session was saved
-	expectedSlug := projectSlug(repoInfo.ProjectRoot)
-	if expectedSlug == "" {
-		expectedSlug = defaultProjectSlug
+	// Verify the session was saved to the database
+	loadedSession, err := store.LoadSession(session.ID)
+	if err != nil {
+		t.Errorf("Session was not saved to database: %v", err)
 	}
-	branchSlug := sanitizeSegment(repoInfo.Branch)
-	if branchSlug == "" {
-		branchSlug = "main"
-	}
-	sessionFile := filepath.Join(tmpHome, ".local", "share", "asimi", "repo", filepath.FromSlash(expectedSlug), branchSlug, "sessions", "session-"+session.ID, "session.json")
-
-	// Give it a moment for the file system to sync
-	time.Sleep(50 * time.Millisecond)
-
-	if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
-		t.Errorf("Session file was not created: %s", sessionFile)
+	if loadedSession.ID != session.ID {
+		t.Errorf("Expected session ID %s, got %s", session.ID, loadedSession.ID)
 	}
 }
 
@@ -77,6 +77,9 @@ func TestSessionStoreCloseWithTimeout(t *testing.T) {
 func TestTUIModelShutdown(t *testing.T) {
 	// Create a temporary directory for the test
 	tmpDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", originalHome)
 
 	// Create a minimal config
 	config := &Config{
@@ -92,17 +95,20 @@ func TestTUIModelShutdown(t *testing.T) {
 		},
 	}
 
-	// Create a session store
-	store := &SessionStore{
-		storageDir:  tmpDir,
-		maxSessions: 10,
-		maxAgeDays:  30,
-		saveChan:    make(chan *Session, 100),
-		stopChan:    make(chan struct{}),
+	// Initialize storage
+	dbPath := filepath.Join(tmpDir, ".local", "share", "asimi", "asimi.sqlite")
+	db, err := storage.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize storage: %v", err)
 	}
+	defer db.Close()
 
-	// Start the save worker
-	go store.saveWorker()
+	// Create a session store using NewSessionStore
+	repoInfo := RepoInfo{ProjectRoot: tmpDir}
+	store, err := NewSessionStore(db, repoInfo, 10, 30)
+	if err != nil {
+		t.Fatalf("Failed to create session store: %v", err)
+	}
 
 	// Create a TUI model
 	model := &TUIModel{

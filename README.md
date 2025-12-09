@@ -1,129 +1,164 @@
-# 🪾 Asimi CLI
+# Asimi CLI
+
+[![Tests](https://img.shields.io/github/actions/workflow/status/afittestide/asimi-cli/ci.yml?branch=dev&label=tests)](https://github.com/afittestide/asimi-cli/actions/workflows/ci.yml?query=branch%3Adev)
 
 > A safe, opinionated coding agent
 
-Asimi is an opinionated command-line interface that brings AI-powered coding assistance directly to your terminal. Built with modern Go libraries and a focus on developer experience, Asimi helps you write better code faster.
+Asimi is an opinionated, safe & fast coding agent for the terminal
 
-> TLDR; `just run`, `:login`, `:init`
+![Asimi Demo](demo.gif)
 
 ## ✨ Features
 
-  **📦 **Integrated Podman Sandboxes** - Agent's shell run in its own container
-- **🎨 vi mimicry ** - Asimi is based on the fittest dev tool and its reincarnations vim an neovim
-- **🤖 Multiple AI Providers** - Support for ollama, Claude, Gemini and soon, more
-- **🔧 Fast Shell** - Asimi's persistent, containerized shell is running more than 100 times faster 
-- **📊 Context Awareness** - Smart token counting and context visualization
-- **🎯 Session Management** - Save and resume your coding sessions
-
-We're still missing MCP support. If it's critical for you, please consider helping out #
-
+- 📦 **Integrated Podman Sandboxes** - Agent's shell runs in its own container
+- 🎨 **vi mimicry** - Asimi is based on the fittest dev tool and its reincarnations vim and neovim
+- 🤖 **Multiple AI Providers** - Support for Ollama, Claude Pro/Max and OpenAI API v1 compatible services
+- 🧹 **Less Clutter** - Asimi's special files are under `.agents` directory and TOML is used for .conf
+- 🔧 **Fast Shell** - Asimi's shell runs in a container and is >100 times faster than the others
+- 📊 **Context Awareness** - Smart token counting and context visualization
+- 🎯 **Session Management** - Save and resume your coding sessions
 
 ## 🚀 Quick Start
 
-Please choose your installer flavor:
+First, there are two great tools required on your system:
 
-### Brew
+- [Podman](https://podman.io/docs/installation) for the sandbox: like `docker` but safer
+- [Just](https://github.com/casey/just) to collect all the scripts in a Justfile
 
-```
+
+Then, choose your installer flavor:
+
+### brew
+
+```bash
+brew tap afittestide/tap
 brew install asimi
 ```
 
-### Download Binaries
-
-TODO: add link to latest release page
-
-### One line installer
-
-TODO: add a one line installer . The script will be part installed at https://asimi.dev/installer
-
 ### Go
 
-
 ```bash
-go install github.com/asimi/asimi-cli
-./asimi
+go install github.com/afittestide/asimi@latest
 ```
 
+### Binaries
+
+Download the binary from your platform from [latest releases](https://github.com/afittestide/asimi-cli/releases/latest) and copy to your favorite bin directory e.g, `/usr/local/bin`.
 
 ### First Steps
 
-1. **Add the infrastructure to your project**
-   `:init` To add:
+To start Asimi in interactive mode, type `asimi`.
 
-   
-2. **Login to your AI provider:**
-   `:login`
+1. **Initialize your repo:**
+    `:init` - Creates `AGENTS.md` and `Justfile` if missing, and prepares the sandbox image
+
+2. **Check your container:**
+    `:!uname -a` - Runs shell commands in a persistent, containerized bash
+    `:!pwd` - Should be the same path as on your host
+
+## 🏝️ The Sandbox
+
+Asimi uses podman to run the agent's shell in its own container.
+podman is compatible with docker so there's no need to learn new commands.
+Asimi uses it instead of docker because it's more secure - on linux it doesn't require a daemon.
+
+The sandbox is based on `.agents/sandbox/Dockerfile` which is created by the `init` command. 
+To build the image run `just build-sandbox` for an image named as in:
+`asimi-sandbox-afittestide-asimi-cli`. 
+Asimi will launch a container based on this image the first time the model calls the shell tool.
+The container will stay up as long as the program is running. 
+Once the program exits, the container is shutdown and removed.
+
+Some commands, like gh, can't run in the sandbox.
+For these commands you can add a special exception in the config file.
+
+To run commands in the container use `:!<shell command>`.
+
+### Configuration Options
+
+The sandbox can be configured in `.agents/asimi.conf` (project-level) or `~/.config/asimi/asimi.conf` (user-level).
 
 
-2. **Initialize your repo:**
-    `:init` - Creates a AGENTS.md and Justfile if missing and `.agents/Sandbox` for the container 
+```toml
+[run_in_shell]
+# Regex patterns for commands to run on the host (requires user approval)
+run_on_host = ['^gh\s', '^podman\s']
+# Regex patterns for commands to run on the host WITHOUT approval (safe, read-only)
+safe_run_on_host = ['^gh\s+(issue|pr)\s+(view|list)', '^git\s+status']
+
+[container]
+# Custom container image name (default: asimi-sandbox-<project-name>:latest)
+image_name = "localhost/my-custom-sandbox:latest"
+
+# Additional mount points for the container
+# Useful for mounting secrets, caches, or other project directories
+[[container.additional_mounts]]
+source = "/path/to/host/dir"
+destination = "/path/in/container"
+
+[[container.additional_mounts]]
+source = "/another/host/path"
+destination = "/another/container/path"
+```
+
+**Environment Variables:**
+
+You can also configure the sandbox using environment variables:
+
+- `ASIMI_CONTAINER_IMAGE_NAME` - Override the container image name
+- `ASIMI_CONTAINER_ADDITIONAL_MOUNTS` - JSON string of additional mounts (e.g., `[{"source":"/host","destination":"/container"}]`)
 
 
 ## ⌨️ vi FTW
 
-Asimi comes with proper vi editing.
+Asimi mimics the vi/vim/neovim interface and extends the traditional modes:
 
-### Modes
+### Traditional Modes
 
-- **Insert Mode** Type normally
-- **Normal Mode** Navigation and editing only
+- **Insert Mode** For typing your prompts
+- **Normal Mode** Navigation and editing the prompt
 - **Command Mode** Entering agents commands
-2. **Get help:**
-   `:help` - Comprehensive help system with vim-like navigation
-   `:help quickref` - Quick reference guide
-   `?` (in NORMAL mode) - Quick help overlay
-
-3. **Try some commands:**
-   - `:help` - Show help system
+   - `:help` - Show help 
    - `:context` - View token usage and context
    - `:new` - Start a new conversation
    - `:resume` - resume an old session
 
-### Quick Reference
+### New Modes
 
-**Entering Insert Mode:**
-- `i` - Insert at cursor
-- `I` - Insert at line start
-- `a` - Append after cursor
-- `A` - Append at line end
-- `o` - Open line below
-- `O` - Open line above
+- **Scroll Mode** Use CTRL-B to enter the mode and scroll with your keys
+- **Select Mode** For choosing a session to resume, a model to connect to, etc.
 
-**Entering Command Mode:**
-- ':' - In normal mode or as first character is Visual
+## 🗺️ Roadmap
 
-**Navigation (Normal Mode):**
-- `h/j/k/l` - Left/Down/Up/Right
-- `w/b` - Word forward/backward
-- `0/$` - Line start/end
-- `gg/G` - Input start/end
+Asimi is just starting out. It's been used to develop itself since version 0.1.0, well over a month now and it rarely breaks 🪬🪬🪬
 
-**Editing (Normal Mode):**
-- `x` - Delete character
-- `dw` - Delete word
-- `D` - Delete to line end
-- `p` - Paste
+| Feature | Description |
+|---------|-------------|
+| [#56 - MCP Support](https://github.com/afittestide/asimi-cli/issues/56) | Model Context Protocol integration |
+| [#24 - Sub-agents & Roles](https://github.com/afittestide/asimi-cli/issues/24) | Task delegation with orchestrator role |
+| [#8 - Git Integration](https://github.com/afittestide/asimi-cli/issues/8) | `:branch` command and tighter git workflows |
+| [#68 - Shell Firewall](https://github.com/afittestide/asimi-cli/issues/68) | Required approval to run commands on host |
+| A few directories | While flat is better than nested, there comes a time for dirs|
+> 💡 Have a feature request? [Open an issue](https://github.com/afittestide/asimi-cli/issues/new)!
 
-<<<<<<< HEAD
-=======
-**Commands:**
-Use `:` instead of `/` in vi mode (e.g., `:help`, `:new`, `:quit`)
-
-**Exit Vi Mode:**
-Press `Esc` to go from insert to normal mode. Run `/vi` or `:vi` to disable vi mode entirely.
-
-
->>>>>>> dev
 ## 🛠️ Development
+
+## Principles
+
+- Before the 🦙 comes the dev
+- Mimicking is better than innovation
+- ex/vi/vim/neovim are the best TUI ever made
+- User's host is sacred and 🦙 access should be as restricted
+- Integrations are great, let's have more of these
 
 ### Prerequisites
 
 - Go 1.25 or higher
-- [Just](https://github.com/casey/just) command runner
+- `just bootstrap`
 
 ### Common Tasks
 
-We're using a `Justfile` to collect all our script.
+We're using a `Justfile` to collect all our scripts.
 If you need a new script please add a recipe in the Justfile.
 
 ```bash
@@ -140,16 +175,13 @@ just test
 just measure
 ```
 
-<<<<<<< HEAD
 ### Project Structure
 
 Flat. Please refrain from adding directories and files.
 
-=======
->>>>>>> dev
 ## 📦 Libraries
 
-- **[LangChainGo](https://github.com/tmc/langchaingo)** - LLM communications and tools
+- **[LangChainGo](https://github.com/afittestide/langchaingo)** - Using our own fork for model communications
 - **[Bubble Tea](https://github.com/charmbracelet/bubbletea)** - Terminal UI framework
 - **[Koanf](https://github.com/knadh/koanf)** - Configuration management
 - **[Kong](https://github.com/alecthomas/kong)** - CLI argument parser
@@ -187,41 +219,65 @@ git commit -m "fixed context overflow bug"
 
 ## 📝 Configuration
 
-Asimi stores its configuration in `~/.config/asimi/conf.toml` (user-level) or `.asimi/conf.toml` (project-level):
+Asimi stores its configuration in `~/.config/asimi/asimi.conf` (user-level) or `.agents/asimi.conf` (project-level).
+After first run the user's file is loaded with all the defaults.
 
-```toml
-[llm]
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-vi_mode = true  # Enable vi-style keybindings (default: true)
-max_output_tokens = 4096
-[run_in_shell]
-# Commands regex to run on the host instead of the container
-run_on_host = ['^gh ']
-```
-
-### Configuration Options
-
-- **`vi_mode`** - Enable/disable vi-style keybindings (default: `true`)
-  - Set to `false` to use standard editing mode
-  - Can also be set via environment variable: `ASIMI_LLM_VI_MODE=false`
-- **`provider`** - AI provider (anthropic, openai, googleai, qwen)
-- **`model`** - Model name (provider-specific)
-- **`max_output_tokens`** - Maximum tokens in AI responses
-- **`max_turns`** - Maximum conversation turns before stopping
-
-See `conf.toml.example` for a complete list of configuration options.
 
 ### Environment Variables
 
-- **`EDITOR`** - Preferred text editor for export commands
-- **`ASIMI_LAZYGIT_CMD`** - Custom lazygit command path
+#### General Configuration
+
+All configuration options can be set via environment variables using the `ASIMI_` prefix. The variable name should match the config path with underscores instead of dots. For example:
+- `ASIMI_LLM_PROVIDER=anthropic` sets `llm.provider`
+- `ASIMI_LLM_MODEL=claude-sonnet-4-20250514` sets `llm.model`
+- `ASIMI_UI_MARKDOWN_ENABLED=true` sets `ui.markdown_enabled`
+
+#### System Variables
+
+- **`EDITOR`** - Preferred text editor for `:export` commands (default: system default)
+- **`SHELL`** - Shell to use in container sessions (default: `/bin/bash`)
+
+#### API Keys & Authentication
+
+- **`ANTHROPIC_API_KEY`** - API key for Anthropic Claude models (alternative to OAuth)
 - **`ANTHROPIC_OAUTH_TOKEN`** - OAuth token for Anthropic API (takes priority over keyring). Supports three formats:
   - Raw access token: `sk-ant-...`
   - JSON format: `{"access_token":"...", "refresh_token":"...", "expiry":"...", "provider":"anthropic"}`
   - Base64-encoded JSON (useful if copying from keychain)
-- **`ANTHROPIC_API_KEY`** - API key for Anthropic (alternative to OAuth)
 - **`ANTHROPIC_BASE_URL`** - Custom base URL for Anthropic API (e.g., for proxy or custom endpoint)
+- **`OPENAI_API_KEY`** - API key for OpenAI GPT models
+- **`GEMINI_API_KEY`** - API key for Google Gemini models
+
+#### OAuth Configuration (Advanced)
+
+For custom OAuth setups, you can override the default OAuth endpoints:
+
+**Google/Gemini:**
+- `GOOGLE_CLIENT_ID` - OAuth client ID
+- `GOOGLE_CLIENT_SECRET` - OAuth client secret
+- `GOOGLE_AUTH_URL` - Authorization URL (optional, default: `https://accounts.google.com/o/oauth2/v2/auth`)
+- `GOOGLE_TOKEN_URL` - Token URL (optional, default: `https://oauth2.googleapis.com/token`)
+- `GOOGLE_OAUTH_SCOPES` - Comma-separated list of scopes (optional, default: generative-language scope)
+
+**OpenAI:**
+- `OPENAI_CLIENT_ID` - OAuth client ID
+- `OPENAI_CLIENT_SECRET` - OAuth client secret
+- `OPENAI_AUTH_URL` - Authorization URL
+- `OPENAI_TOKEN_URL` - Token URL
+- `OPENAI_OAUTH_SCOPES` - Comma-separated list of scopes (optional)
+
+**Anthropic:**
+- `ANTHROPIC_CLIENT_ID` - OAuth client ID
+- `ANTHROPIC_CLIENT_SECRET` - OAuth client secret
+- `ANTHROPIC_AUTH_URL` - Authorization URL
+- `ANTHROPIC_TOKEN_URL` - Token URL
+- `ANTHROPIC_OAUTH_SCOPES` - Comma-separated list of scopes (optional)
+
+#### Development & Testing
+
+- **`ASIMI_KEYRING_SERVICE`** - Override keyring service name (default: `asimi-cli`)
+- **`ASIMI_SKIP_GIT_STATUS`** - Skip git status checks (set to any value to enable)
+- **`ASIMI_VERSION`** - Override version string for testing
 
 
 Logs are rotated and stored in `~/.local/share/asimi/`. When running with `--debug`, logs are instead written to `asimi.log` in the project root for quick inspection.
@@ -239,33 +295,38 @@ chmod +x asimi
 ./asimi --debug
 ```
 
-**Q: API key not working**
-# Re-login to refresh credentials
-
-use `:login`
-
 **Q: Context overflow errors**
 ```bash
 # Check your context usage
 :context
 
 # Start a new conversation
-/new
+:new
 ```
-
-## 📊 Roadmap
-
-See issues for planned issues
-
-### Upcoming Features
-
-- [ ] MCP Support
-- [ ] Task delegation with sub-agents
-- [ ] 
 
 ## 📄 License
 
-[Add your license here]
+MIT License
+
+Copyright (c) 2025 opencode
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## 🙏 Acknowledgments
 

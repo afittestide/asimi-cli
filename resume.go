@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/afittestide/asimi/storage"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/tmc/langchaingo/llms"
@@ -24,77 +26,42 @@ type sessionResumeErrorMsg struct {
 // ResumeWindow is a simplified component for displaying session selection
 // Navigation is handled by ContentComponent
 type ResumeWindow struct {
-	width          int
-	height         int
-	sessions       []Session
-	loading        bool
+	SelectWindow[Session]
 	loadingSession bool
-	errorMsg       error
-	maxVisible     int
 }
 
 func NewResumeWindow() ResumeWindow {
+	sw := NewSelectWindow[Session]()
+	sw.Height = 15 // Default height
+	sw.SetSize(70, 15)
+
 	return ResumeWindow{
-		width:          70,
-		height:         15,
-		sessions:       []Session{},
-		loading:        false,
+		SelectWindow:   sw,
 		loadingSession: false,
-		errorMsg:       nil,
-		maxVisible:     8,
 	}
-}
-
-func (r *ResumeWindow) SetSize(width, height int) {
-	r.width = width
-	r.height = height
-	// Adjust maxVisible based on height
-	r.maxVisible = height - 4 // Account for title, footer, instructions
-	if r.maxVisible < 1 {
-		r.maxVisible = 1
-	}
-}
-
-func (r *ResumeWindow) GetVisibleSlots() int {
-	return r.maxVisible
 }
 
 func (r *ResumeWindow) SetSessions(sessions []Session) {
-	r.sessions = sessions
-	r.loading = false
+	r.SetItems(sessions)
 	r.loadingSession = false
-	r.errorMsg = nil
-}
-
-func (r *ResumeWindow) SetLoading(loading bool) {
-	r.loading = loading
-	if loading {
-		r.errorMsg = nil
-	}
 }
 
 func (r *ResumeWindow) SetError(err error) {
-	r.errorMsg = err
-	r.loading = false
+	r.SelectWindow.SetError(err)
 	r.loadingSession = false
 }
 
-func (r *ResumeWindow) GetItemCount() int {
-	return len(r.sessions)
-}
-
 func (r *ResumeWindow) GetSelectedSession(index int) *Session {
-	if index < 0 || index >= len(r.sessions) {
-		return nil
-	}
-	return &r.sessions[index]
+	return r.GetSelectedItem(index)
 }
 
 func sessionTitlePreview(session Session) string {
-	snippet := lastHumanMessage(session.Messages)
-	if snippet == "" {
-		snippet = session.FirstPrompt
+
+	snippet := session.FirstPrompt
+	if len(session.Messages) > 0 {
+		snippet = lastHumanMessage(session.Messages)
 	}
+
 	snippet = cleanSnippet(snippet)
 	if snippet == "" {
 		return "Recent activity"
@@ -160,93 +127,80 @@ func truncateSnippet(text string, limit int) string {
 	return string(runes[:limit-3]) + "..."
 }
 
-func formatMessageCount(messages []llms.MessageContent) string {
-	count := 0
-	for _, msg := range messages {
-		if msg.Role == llms.ChatMessageTypeHuman || msg.Role == llms.ChatMessageTypeAI {
-			count++
-		}
-	}
-
-	if count == 0 {
-		return ""
-	}
-	if count == 1 {
-		return "1 msg"
-	}
-	return fmt.Sprintf("%d msgs", count)
-}
-
 // RenderList renders the session list with the given selection
+// Always renders exactly visibleSlots lines to maintain consistent height
 func (r *ResumeWindow) RenderList(selectedIndex, scrollOffset, visibleSlots int) string {
-	var content strings.Builder
+	// Update maxVisible to match requested visibleSlots if needed,
+	// although SelectWindow usually manages this via SetSize.
+	// But RenderList takes visibleSlots arg which comes from the caller (who might have calculated it differently).
+	// The caller (ContentComponent) usually calls SetSize, then RenderList.
+	// But let's just use what SelectWindow has or respect the arg?
+	// In the original code: `lr := lineRenderer{targetLines: visibleSlots}`
+	// So we should pass visibleSlots to SetSize or trust it matches?
+	// Actually SelectWindow.Render uses s.MaxVisible.
+	// We should probably ensure s.MaxVisible is synced or just rely on s.MaxVisible.
 
-	if r.loading {
-		content.WriteString("Loading sessions...\n")
-		return content.String()
+	// Wait, RenderList signature in ResumeWindow takes `visibleSlots`.
+	// SelectWindow.Render uses s.MaxVisible.
+	// If we want to support dynamic visibleSlots per render, SelectWindow.Render should maybe take it?
+	// But `SetSize` updates `MaxVisible`.
+	// Let's assume `SetSize` was called correctly.
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#F952F9")).
+		Background(lipgloss.Color("#000000")).
+		Padding(0, 1)
+
+	config := RenderConfig[Session]{
+		ConstructTitle: func(selectedIndex, totalItems int) string {
+			return titleStyle.Render(fmt.Sprintf("Choose a session to resume [%3d/%3d]:", selectedIndex+1, totalItems))
+		},
+		OnLoading: func(sb *strings.Builder) {
+			sb.WriteString("Loading sessions...\n")
+			sb.WriteString("\n")
+			sb.WriteString("⏳ Fetching previous sessions...\n")
+		},
+		CustomState: func(sb *strings.Builder) bool {
+			if r.loadingSession {
+				sb.WriteString("Loading selected session...\n")
+				sb.WriteString("Please wait...\n")
+				return true
+			}
+			return false
+		},
+		OnError: func(sb *strings.Builder, err error) {
+			sb.WriteString(fmt.Sprintf("Error loading sessions: %v\n", err))
+			sb.WriteString("\n")
+		},
+		OnEmpty: func(sb *strings.Builder) {
+			sb.WriteString("No previous sessions found.\n")
+			sb.WriteString("Start chatting to create a new session!\n")
+			sb.WriteString("\n")
+		},
+		RenderItem: func(i int, session Session, isSelected bool, sb *strings.Builder) {
+			prefix := "  "
+			if isSelected {
+				prefix = "▶ "
+			}
+
+			timeStr := formatRelativeTime(session.LastUpdated)
+			sessionTitle := sessionTitlePreview(session)
+
+			var line strings.Builder
+			line.WriteString(prefix)
+			line.WriteString(fmt.Sprintf("[%s] %4d %s", timeStr, session.MessageCount, sessionTitle))
+
+			lineStyle := lipgloss.NewStyle()
+			if isSelected {
+				lineStyle = lineStyle.Foreground(lipgloss.Color("62")).Bold(true)
+			}
+
+			sb.WriteString(lineStyle.Render(line.String()) + "\n")
+		},
 	}
 
-	if r.loadingSession {
-		content.WriteString("Loading selected session...\n")
-		content.WriteString("Please wait...")
-		return content.String()
-	}
-
-	if r.errorMsg != nil {
-		content.WriteString(fmt.Sprintf("Error loading sessions: %v\n\n", r.errorMsg))
-		return content.String()
-	}
-
-	if len(r.sessions) == 0 {
-		content.WriteString("No previous sessions found.\n")
-		content.WriteString("Start chatting to create a new session!\n\n")
-		return content.String()
-	}
-
-	totalItems := len(r.sessions)
-	start := scrollOffset
-	end := scrollOffset + visibleSlots
-	if end > totalItems {
-		end = totalItems
-	}
-
-	for i := start; i < end; i++ {
-		isSelected := i == selectedIndex
-		session := r.sessions[i]
-
-		prefix := "  "
-		if isSelected {
-			prefix = "▶ "
-		}
-
-		timeStr := formatRelativeTime(session.LastUpdated)
-		title := sessionTitlePreview(session)
-		messageCount := formatMessageCount(session.Messages)
-
-		var line strings.Builder
-		line.WriteString(prefix)
-		line.WriteString(fmt.Sprintf("[%s] %s", timeStr, title))
-
-		if messageCount != "" {
-			line.WriteString(fmt.Sprintf(" (%s)", messageCount))
-		}
-
-		lineStyle := lipgloss.NewStyle()
-		if isSelected {
-			lineStyle = lineStyle.Foreground(lipgloss.Color("62")).Bold(true)
-		}
-
-		content.WriteString(lineStyle.Render(line.String()))
-		content.WriteString("\n")
-	}
-
-	if totalItems > visibleSlots {
-		scrollInfo := fmt.Sprintf("\n%d-%d of %d sessions", start+1, end, totalItems)
-		scrollStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Italic(true)
-		content.WriteString(scrollStyle.Render(scrollInfo))
-	}
-
-	return content.String()
+	return r.Render(selectedIndex, scrollOffset, config)
 }
 
 // LoadSession loads a session by ID
@@ -259,6 +213,13 @@ func (r *ResumeWindow) LoadSession(sessionID string) tea.Cmd {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load config: %w", err)}
 		}
 
+		// Initialize storage
+		db, err := storage.InitDB(config.Storage.DatabasePath)
+		if err != nil {
+			return sessionResumeErrorMsg{err: fmt.Errorf("failed to initialize storage: %w", err)}
+		}
+		defer db.Close()
+
 		maxSessions := 50
 		maxAgeDays := 30
 		if config.Session.MaxSessions > 0 {
@@ -269,22 +230,50 @@ func (r *ResumeWindow) LoadSession(sessionID string) tea.Cmd {
 		}
 
 		repoInfo := GetRepoInfo()
-		store, err := NewSessionStore(repoInfo, maxSessions, maxAgeDays)
+		store, err := NewSessionStore(db, repoInfo, maxSessions, maxAgeDays)
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to create session store: %w", err)}
 		}
-		defer store.Close()
+		// No defer store.Close() needed as main.SessionStore does not have it.
 
 		// Load the session
-		session, err := store.LoadSession(sessionID)
+		mainSession, err := store.LoadSession(sessionID) // Load main.Session directly
 		if err != nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("failed to load session: %w", err)}
 		}
 
-		if session == nil {
+		if mainSession == nil {
 			return sessionResumeErrorMsg{err: fmt.Errorf("session %s not found", sessionID)}
 		}
 
-		return sessionSelectedMsg{session: session}
+		return sessionSelectedMsg{session: mainSession}
 	}
+}
+
+func formatRelativeTime(t time.Time) string {
+	now := time.Now()
+
+	// Normalize to midnight for calendar day comparison
+	todayMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	tMidnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+
+	daysDiff := int(todayMidnight.Sub(tMidnight).Hours() / 24)
+
+	// Today
+	if daysDiff == 0 {
+		return fmt.Sprintf("Today %s", t.Format("15:04"))
+	}
+
+	// Yesterday
+	if daysDiff == 1 {
+		return fmt.Sprintf("Yesterday %s", t.Format("15:04"))
+	}
+
+	// This year - show month and day
+	if t.Year() == now.Year() {
+		return t.Format("Jan 2 15:04")
+	}
+
+	// Older - show full date
+	return t.Format("Jan 2, 2006")
 }

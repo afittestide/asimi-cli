@@ -6,23 +6,21 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	debug "runtime/debug"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/prompts"
 	lctools "github.com/tmc/langchaingo/tools"
 )
+
+const sandboxOS = "debian"
 
 // NotifyFunc is a function that handles notifications
 type NotifyFunc func(any)
@@ -42,6 +40,7 @@ type Session struct {
 
 	Messages     []llms.MessageContent `json:"messages"`
 	ContextFiles map[string]string     `json:"context_files"`
+	MessageCount int                   `json:"message_count,omitempty"` // For list views, avoids loading full messages
 
 	llm                     llms.Model              `json:"-"`
 	toolCatalog             map[string]lctools.Tool `json:"-"`
@@ -53,13 +52,18 @@ type Session struct {
 	accumulatedContent      strings.Builder         `json:"-"`
 	config                  *LLMConfig              `json:"-"`
 	startTime               time.Time               `json:"-"`
+
+	// Token counts - updated when messages/context changes
+	systemPromptTokens int `json:"-"`
+	systemToolsTokens  int `json:"-"`
+	memoryFilesTokens  int `json:"-"`
+	messagesTokens     int `json:"-"`
 }
 
 // formatMetadata returns the metadata header used by export helpers.
 func (s *Session) formatMetadata(exportType ExportType, exportedAt time.Time) string {
 	var b strings.Builder
 	exported := exportedAt.Format("2006-01-02 15:04:05")
-	version := asimiVersion()
 
 	b.WriteString(fmt.Sprintf("**Asimi Version:** %s \n", version))
 	b.WriteString(fmt.Sprintf("**Export Type:** %s\n", exportType))
@@ -94,12 +98,14 @@ func (s *Session) getStreamBuffer(reset bool) string {
 
 // notification messages
 type streamChunkMsg string
+type streamReasoningChunkMsg string
 type streamStartMsg struct{}
 type streamCompleteMsg struct{}
 type streamInterruptedMsg struct{ partialContent string }
 type streamErrorMsg struct{ err error }
 type streamMaxTurnsExceededMsg struct{ maxTurns int }
 type streamMaxTokensReachedMsg struct{ content string }
+type containerLaunchMsg struct{ message string }
 
 // Local copies of prompt partials and template used by the session, to decouple from agent.go.
 var sessPromptPartials = map[string]any{
@@ -124,7 +130,10 @@ var sessSystemPromptTemplate string
 // NewSession creates a new Session instance with a system prompt and tools.
 func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify NotifyFunc) (*Session, error) {
 	now := time.Now()
-	workingDir, _ := os.Getwd()
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
 
 	s := &Session{
 		ID:          generateSessionID(),
@@ -173,10 +182,14 @@ func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify Notif
 	}
 	parts = append(parts, llms.TextPart(sys))
 
-	// Add AGENTS.md to system message if it exists
-	projectContext := readProjectContext()
+	// Add agents file (AGENTS.md or CLAUDE.md) to system message if it exists
+	agentsFile := "AGENTS.md"
+	if cfg != nil && cfg.Session.AgentsFile != "" {
+		agentsFile = cfg.Session.AgentsFile
+	}
+	projectContext := readProjectContext(agentsFile)
 	if projectContext != "" {
-		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: AGENTS.md ---\n%s\n--- End of Directions from: AGENTS.md ---", projectContext)))
+		parts = append(parts, llms.TextPart(fmt.Sprintf("\n--- Project specific directions from: %s ---\n%s\n--- End of Directions from: %s ---", agentsFile, projectContext, agentsFile)))
 	}
 
 	if s.config != nil && s.config.Provider == "ollama" {
@@ -202,20 +215,26 @@ func NewSession(llm llms.Model, cfg *Config, repoInfo RepoInfo, toolNotify Notif
 	s.scheduler = NewCoreToolScheduler(s.notify)
 	s.ContextFiles = make(map[string]string)
 	s.startTime = time.Now()
+	s.updateTokenCounts()
 	return s, nil
 }
 
 // AddContextFile adds file content to the context for the next prompt
 func (s *Session) AddContextFile(path, content string) {
 	s.ContextFiles[path] = content
+	// Invalidate context cache since context files changed
+	s.updateTokenCounts()
 }
 
 // ClearContext removes all dynamically added file content from the context
 func (s *Session) ClearContext() {
 	s.ContextFiles = make(map[string]string)
+	// Invalidate context cache since context files changed
+	s.updateTokenCounts()
 }
 
 // ClearHistory clears the conversation history but keeps the system message
+// TODO: rename to ClearMessages
 func (s *Session) ClearHistory() {
 	// Keep only the system message (first message)
 	if len(s.Messages) > 0 && s.Messages[0].Role == llms.ChatMessageTypeSystem {
@@ -227,6 +246,9 @@ func (s *Session) ClearHistory() {
 	// Reset tool call tracking
 	s.lastToolCallKey = ""
 	s.toolCallRepetitionCount = 0
+
+	// Invalidate context cache since messages changed
+	s.updateTokenCounts()
 
 	// Reset session start time
 	s.startTime = time.Now()
@@ -289,10 +311,15 @@ func (s *Session) checkToolCallLoop(name, argsJSON string) bool {
 	return false
 }
 
-// removeUnmatchedToolCalls removes any trailing assistant messages with tool calls
+// sanitizeMessages removes any trailing assistant messages with tool calls
 // that don't have corresponding tool responses. This prevents errors when the agent
-// is interrupted mid-execution.
-func (s *Session) removeUnmatchedToolCalls() {
+// is interrupted mid-execution. Can be disabled via config.
+func (s *Session) sanitizeMessages() {
+	// Check if sanitization is disabled
+	if s.config != nil && s.config.DisableContextSanitization {
+		return
+	}
+
 	if len(s.Messages) == 0 {
 		return
 	}
@@ -374,13 +401,26 @@ func (s *Session) removeUnmatchedToolCalls() {
 // prepareUserMessage builds the prompt with context and adds it to the message history
 func (s *Session) prepareUserMessage(prompt string) {
 	// Before adding a new user message, check for and remove any unmatched tool calls
-	s.removeUnmatchedToolCalls()
+	s.sanitizeMessages()
 
 	fullPrompt := s.buildPromptWithContext(prompt)
 	s.Messages = append(s.Messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeHuman,
 		Parts: []llms.ContentPart{llms.TextPart(fullPrompt)},
 	})
+	// Invalidate context cache since messages changed
+	s.updateTokenCounts()
+}
+
+// isOAuthTokenExpiredError checks if an error is due to an expired OAuth token
+func isOAuthTokenExpiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	// Check for OAuth-related expiration errors
+	return (strings.Contains(errStr, "oauth") || strings.Contains(errStr, "401")) &&
+		strings.Contains(errStr, "expire")
 }
 
 func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ctx context.Context, chunk []byte) error) (*llms.ContentChoice, error) {
@@ -396,15 +436,48 @@ func (s *Session) generateLLMResponse(ctx context.Context, streamingFunc func(ct
 	// Add streaming option if requested
 	if streamingFunc != nil {
 		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingFunc(streamingFunc))
+
+		// Add reasoning callback for models that support it (#38)
+		reasoningFunc := func(ctx context.Context, reasoningChunk, chunk []byte) error {
+			// Check for cancellation
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			// Send reasoning chunk to UI
+			if len(reasoningChunk) > 0 && s.notify != nil {
+				s.notify(streamReasoningChunkMsg(string(reasoningChunk)))
+			}
+			return nil
+		}
+		callOptsWithChoice = append(callOptsWithChoice, llms.WithStreamingReasoningFunc(reasoningFunc))
 	}
 
 	// Remove any unmatched tool calls from context before sending to API
-	s.removeUnmatchedToolCalls()
+	s.sanitizeMessages()
 
-	// Attempt with explicit tool choice first.
+	// Attempt with explicit tool choice first
 	resp, err := s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
 	if err != nil {
-		return nil, err
+		// Check if this is an OAuth token expiration error
+		if isOAuthTokenExpiredError(err) {
+			slog.Info("OAuth token expired, attempting to refresh and retry", "error", err)
+			cfg := &Config{LLM: *s.config}
+			if !refreshOAuthToken(cfg) {
+				return nil, fmt.Errorf("OAuth token expired and refresh failed (original error: %v)", err)
+			}
+			// Retry the request with the new token
+			slog.Info("Retrying request with refreshed OAuth token")
+			resp, err = s.llm.GenerateContent(ctx, s.Messages, callOptsWithChoice...)
+			if err != nil {
+				return nil, fmt.Errorf("request failed after OAuth token refresh: %w", err)
+			}
+		} else {
+			// Not an OAuth error, return as-is
+			return nil, err
+		}
 	}
 
 	if len(resp.Choices) == 0 {
@@ -438,6 +511,8 @@ func (s *Session) appendMessages(content string, toolCalls []llms.ToolCall) {
 			Role:  llms.ChatMessageTypeAI,
 			Parts: parts,
 		})
+		// Invalidate context cache since messages changed
+		s.updateTokenCounts()
 	}
 }
 
@@ -484,6 +559,8 @@ func (s *Session) RollbackTo(snapshot int) {
 	}
 	if snapshot < len(s.Messages) {
 		s.Messages = s.Messages[:snapshot]
+		// Invalidate context cache since messages changed
+		s.updateTokenCounts()
 	}
 
 	// Reset tool loop detection state when rolling back
@@ -553,7 +630,7 @@ func (s *Session) processToolCalls(ctx context.Context, toolCalls []llms.ToolCal
 				Parts: []llms.ContentPart{llms.ToolCallResponse{
 					ToolCallID: tc.ID,
 					Name:       name,
-					Content:    fmt.Sprintf("error: tool call loop detected after %d attempts", s.toolCallRepetitionCount),
+					Content:    fmt.Sprintf("error: tool call loop detected after %d attempts, please try a different approach", s.toolCallRepetitionCount),
 				}},
 			})
 			return toolMessages, true // shouldReturn = true
@@ -575,7 +652,7 @@ func (s *Session) processToolCalls(ctx context.Context, toolCalls []llms.ToolCal
 
 		// Execute tool and add response
 		response := s.executeToolCall(ctx, tool, tc, argsJSON)
-		slog.Debug("Called a tool", "tool", name, "args", argsJSON, "response", response)
+		slog.Debug("Called a tool", "tool", name, "args", argsJSON)
 		toolMessages = append(toolMessages, llms.MessageContent{
 			Role:  llms.ChatMessageTypeTool,
 			Parts: []llms.ContentPart{response},
@@ -638,6 +715,8 @@ func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 		toolMessages, shouldReturn := s.processToolCalls(ctx, choice.ToolCalls)
 		if len(toolMessages) > 0 {
 			s.Messages = append(s.Messages, toolMessages...)
+			// Invalidate context cache since messages changed
+			s.updateTokenCounts()
 		}
 
 		if shouldReturn {
@@ -769,6 +848,8 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 			toolMessages, shouldReturn := s.processToolCalls(ctx, choice.ToolCalls)
 			if len(toolMessages) > 0 {
 				s.Messages = append(s.Messages, toolMessages...)
+				// Invalidate context cache since messages changed
+				s.updateTokenCounts()
 			}
 
 			if shouldReturn {
@@ -797,91 +878,30 @@ func (s *Session) AskStream(ctx context.Context, prompt string) {
 
 // sessBuildEnvBlock constructs a markdown summary of the OS, shell, and key paths.
 func sessBuildEnvBlock(repoInfo RepoInfo) string {
-	cwd, _ := os.Getwd()
-	if cwd == "" {
-		cwd = "(unknown)"
-	}
+	var env strings.Builder
 
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		home = "(unknown)"
-	}
-
-	root := repoInfo.ProjectRoot
-	if root == "" {
-		root = "(unknown)"
+	env.WriteString(fmt.Sprintf("- **OS:** %s\n", sandboxOS))
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+		env.WriteString(fmt.Sprintf("- **Working copy path** %s\n", cwd))
 	}
 
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "bash"
 	}
+	env.WriteString(fmt.Sprintf("- **Shell:** %s\n", shell))
 
-	var result strings.Builder
-	result.WriteString(fmt.Sprintf(`- **OS:** debian
-- **Shell:** %s
-- **Paths:**
-  - **cwd:** %s
-  - **project root:** %s
-  - **home:** %s`,
-		shell,
-		cwd,
-		root,
-		home))
-
-	// Add branch information if available
 	if repoInfo.Branch != "" {
-		result.WriteString(fmt.Sprintf("\n- **Branch:** %s", repoInfo.Branch))
+		env.WriteString(fmt.Sprintf("- **Branch:** %s\n", repoInfo.Branch))
 	}
 
-	// Add worktree information if we're in a worktree
-	if repoInfo.IsWorktree && repoInfo.Branch != "" {
-		result.WriteString(fmt.Sprintf("\n\n**IMPORTANT:** We're working on worktree '%s' at '%s'. Changes will be squashed before merging so commit frequently.",
-			repoInfo.Branch,
-			cwd))
+	if repoInfo.IsWorktree && repoInfo.Branch != "dev" {
+		env.WriteString(
+			`\n\n**IMPORTANT:** Working on worktree so commits will be quashed.
+Feel free to commit whenever you can summarize the changes in a meaningful commit message.`)
 	}
 
-	return result.String()
-}
-
-func asimiVersion() string {
-	if strings.TrimSpace(version) != "" {
-		return strings.TrimSpace(version)
-	}
-
-	if v := os.Getenv("ASIMI_VERSION"); v != "" {
-		return v
-	}
-
-	if info, ok := debug.ReadBuildInfo(); ok {
-		if normalized := normalizeBuildVersion(info.Main.Version); normalized != "" {
-			return normalized
-		}
-
-		var revision string
-		var modified bool
-		for _, setting := range info.Settings {
-			switch setting.Key {
-			case "vcs.revision":
-				revision = setting.Value
-			case "vcs.modified":
-				modified = setting.Value == "true"
-			}
-		}
-
-		if revision != "" {
-			shortRev := revision
-			if len(shortRev) > 7 {
-				shortRev = shortRev[:7]
-			}
-			if modified {
-				return fmt.Sprintf("dev-%s-dirty", shortRev)
-			}
-			return fmt.Sprintf("dev-%s", shortRev)
-		}
-	}
-
-	return "dev"
+	return env.String()
 }
 
 func normalizeBuildVersion(v string) string {
@@ -891,13 +911,13 @@ func normalizeBuildVersion(v string) string {
 	return strings.TrimPrefix(v, "v")
 }
 
-// readProjectContext reads the contents of AGENTS.md from the current working directory.
-func readProjectContext() string {
+// readProjectContext reads the contents of the agents file (AGENTS.md or CLAUDE.md) from the current working directory.
+func readProjectContext(agentsFile string) string {
 	wd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
-	path := filepath.Join(wd, "AGENTS.md")
+	path := filepath.Join(wd, agentsFile)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return ""
@@ -912,115 +932,22 @@ func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
 
 	// Map our concrete tools by name for execution.
 	execCatalog := map[string]lctools.Tool{}
+	defs := make([]llms.Tool, 0, len(tools))
+
 	for i := range tools {
 		tool := tools[i]
 		//nolint:typecheck // Tool interface is correctly defined in tools.go
 		execCatalog[tool.Name()] = tool
-	}
 
-	// Helper to produce a basic JSON schema for function parameters.
-	obj := func(props map[string]any, required []string) map[string]any {
-		m := map[string]any{
-			"type":       "object",
-			"properties": props,
-		}
-		if len(required) > 0 {
-			m["required"] = required
-		}
-		return m
-	}
-
-	str := func(desc string) map[string]any { return map[string]any{"type": "string", "description": desc} }
-	boolean := func(desc string) map[string]any { return map[string]any{"type": "boolean", "description": desc} }
-
-	defs := []llms.Tool{
-		{
+		// Automatically generate the LLM tool definition from the tool's metadata
+		defs = append(defs, llms.Tool{
 			Type: "function",
 			Function: &llms.FunctionDefinition{
-				Name:        "read_file",
-				Description: "Reads a file and returns its content.",
-				Parameters: obj(map[string]any{
-					"path": str("Absolute or relative path to the file"),
-				}, []string{"path"}),
+				Name:        tool.Name(),
+				Description: tool.Description(),
+				Parameters:  tool.ParameterSchema(),
 			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "write_file",
-				Description: "Writes content to a file, creating or overwriting it.",
-				Parameters: obj(map[string]any{
-					"path":    str("Target file path"),
-					"content": str("File contents to write"),
-				}, []string{"path", "content"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "list_files",
-				Description: "Lists the contents of a directory.",
-				Parameters: obj(map[string]any{
-					"path": str("Directory path (defaults to '.')"),
-				}, nil),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "replace_text",
-				Description: "Replaces all occurrences of a string in a file with another string.",
-				Parameters: obj(map[string]any{
-					"path":     str("File path"),
-					"old_text": str("Text to replace"),
-					"new_text": str("Replacement text"),
-				}, []string{"path", "old_text", "new_text"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "run_in_shell",
-				Description: "Executes a shell command in a persistent shell session.",
-				Parameters: obj(map[string]any{
-					"command":     str("Shell command to run"),
-					"description": str("Short description of the command"),
-				}, []string{"command"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "read_many_files",
-				Description: "Reads content from multiple files specified by wildcard paths.",
-				Parameters: obj(map[string]any{
-					"paths": map[string]any{
-						"type":        "array",
-						"description": "Array of file paths or glob patterns to read",
-						"items": map[string]any{
-							"type":        "string",
-							"description": "A file path or glob pattern",
-						},
-					},
-				}, []string{"paths"}),
-			},
-		},
-		{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
-				Name:        "merge",
-				Description: "Squashes a worktree-backed branch onto the main branch after user approval, then cleans up the worktree.",
-				Parameters: obj(map[string]any{
-					"worktree_path":  str("Absolute path to the worktree directory"),
-					"branch":         str("Name of the branch associated with the worktree"),
-					"main_branch":    str("Name of the trunk branch to merge into (defaults to main)"),
-					"commit_message": str("Optional squash commit message to use"),
-					"auto_approve":   boolean("Set to true to skip interactive approval (requires commit_message)"),
-					"skip_review":    boolean("Set to true to skip launching lazygit"),
-					"push":           boolean("Push the updated main branch to origin after merging"),
-				}, []string{"worktree_path", "branch"}),
-			},
-		},
+		})
 	}
 
 	return defs, execCatalog
@@ -1029,6 +956,14 @@ func buildLLMTools(cfg *Config) ([]llms.Tool, map[string]lctools.Tool) {
 // GetSessionDuration returns the duration since the session started
 func (s *Session) GetSessionDuration() time.Duration {
 	return time.Since(s.startTime)
+}
+
+// updateTokenCounts recalculates and stores token counts for all context components
+func (s *Session) updateTokenCounts() {
+	s.systemPromptTokens = s.CountSystemPromptTokens()
+	s.systemToolsTokens = s.CountSystemToolsTokens()
+	s.memoryFilesTokens = s.CountMemoryFilesTokens()
+	s.messagesTokens = s.CountMessagesTokens()
 }
 
 // GetContextUsagePercent returns the percentage of context used (0-100)
@@ -1040,20 +975,151 @@ func (s *Session) GetContextUsagePercent() float64 {
 	return (float64(info.UsedTokens) / float64(info.TotalTokens)) * 100
 }
 
-type SessionIndex struct {
-	Sessions []Session `json:"sessions"`
+// CompactHistory summarizes the conversation history to reduce context usage
+// It uses the high-end model to create a comprehensive summary that includes:
+// - All diffs/changes made to files
+// - Key decisions and outcomes
+// - Important technical details
+// The summary replaces the conversation history while preserving the system message
+func (s *Session) CompactHistory(ctx context.Context, compactPrompt string) (string, error) {
+	if len(s.Messages) <= 2 {
+		return "", fmt.Errorf("not enough conversation history to compact")
+	}
+
+	// Build the content to summarize
+	var contentBuilder strings.Builder
+
+	// Collect all diffs and file changes
+	contentBuilder.WriteString("## File Changes and Diffs\n\n")
+	fileChanges := s.extractFileChanges()
+	if len(fileChanges) > 0 {
+		for path, changes := range fileChanges {
+			contentBuilder.WriteString(fmt.Sprintf("### %s\n\n", path))
+			for _, change := range changes {
+				contentBuilder.WriteString(change)
+				contentBuilder.WriteString("\n\n")
+			}
+		}
+	} else {
+		contentBuilder.WriteString("No file changes recorded.\n\n")
+	}
+
+	// Collect conversation messages (excluding tool calls)
+	contentBuilder.WriteString("## Conversation History\n\n")
+	for i := 1; i < len(s.Messages); i++ {
+		msg := s.Messages[i]
+
+		switch msg.Role {
+		case llms.ChatMessageTypeHuman:
+			contentBuilder.WriteString("**User:**\n")
+			for _, part := range msg.Parts {
+				if textPart, ok := part.(llms.TextContent); ok {
+					contentBuilder.WriteString(textPart.Text)
+					contentBuilder.WriteString("\n\n")
+				}
+			}
+
+		case llms.ChatMessageTypeAI:
+			contentBuilder.WriteString("**Assistant:**\n")
+			// Only include text content, skip tool calls
+			for _, part := range msg.Parts {
+				if textPart, ok := part.(llms.TextContent); ok {
+					contentBuilder.WriteString(textPart.Text)
+					contentBuilder.WriteString("\n\n")
+				}
+			}
+		}
+	}
+
+	// Build the compaction request
+	fullPrompt := fmt.Sprintf("%s\n\n---\n\n%s", compactPrompt, contentBuilder.String())
+
+	// Save the current messages
+	originalMessages := s.Messages
+	systemMessage := s.Messages[0]
+
+	// Create a temporary message history with just the system message and compaction request
+	s.Messages = []llms.MessageContent{
+		systemMessage,
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart(fullPrompt)},
+		},
+	}
+
+	// Generate the summary using the LLM
+	choice, err := s.generateLLMResponse(ctx, nil)
+	if err != nil {
+		// Restore original messages on error
+		s.Messages = originalMessages
+		s.updateTokenCounts()
+		return "", fmt.Errorf("failed to generate summary: %w", err)
+	}
+
+	summary := choice.Content
+	if choice.ReasoningContent != "" {
+		summary = choice.ReasoningContent + "\n\n" + choice.Content
+	}
+
+	// Replace the conversation history with the summary
+	s.Messages = []llms.MessageContent{
+		systemMessage,
+		{
+			Role:  llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{llms.TextPart("Previous conversation summary:\n\n" + summary)},
+		},
+		{
+			Role:  llms.ChatMessageTypeAI,
+			Parts: []llms.ContentPart{llms.TextPart("I understand. I have the context from the previous conversation and am ready to continue.")},
+		},
+	}
+
+	// Reset tool call tracking
+	s.lastToolCallKey = ""
+	s.toolCallRepetitionCount = 0
+
+	// Invalidate context cache since messages changed
+	s.updateTokenCounts()
+
+	return summary, nil
 }
 
-type SessionStore struct {
-	storageDir  string
-	projectSlug string
-	projectRoot string
-	branchSlug  string
-	maxSessions int
-	maxAgeDays  int
-	saveChan    chan *Session
-	stopChan    chan struct{}
-	closeOnce   sync.Once
+// extractFileChanges extracts all file changes from tool call responses
+func (s *Session) extractFileChanges() map[string][]string {
+	changes := make(map[string][]string)
+
+	for _, msg := range s.Messages {
+		if msg.Role != llms.ChatMessageTypeTool {
+			continue
+		}
+
+		for _, part := range msg.Parts {
+			if toolResp, ok := part.(llms.ToolCallResponse); ok {
+				// Track write_file and replace_text operations
+				if toolResp.Name == "write_file" || toolResp.Name == "replace_text" {
+					// Try to extract the file path from the response
+					// The response format varies, but we can try to parse it
+					content := toolResp.Content
+					if strings.Contains(content, "Successfully") || strings.Contains(content, "wrote") {
+						// Extract file path - this is a simple heuristic
+						lines := strings.Split(content, "\n")
+						for _, line := range lines {
+							if strings.Contains(line, "Successfully") || strings.Contains(line, "wrote") {
+								changes["file-changes"] = append(changes["file-changes"], content)
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return changes
+}
+
+type SessionIndex struct {
+	Sessions []Session `json:"sessions"`
 }
 
 func generateSessionID() string {
@@ -1067,11 +1133,9 @@ func generateSessionID() string {
 }
 
 func branchSlugOrDefault(branch string) string {
-	if branch == "" {
-		branch = "main"
-	}
-
 	slug := sanitizeSegment(branch)
+	// TODO: pick a better default branch for cases when working outside repo,
+	//       to avoid a collision make it illegal in git.
 	if slug == "" {
 		return "main"
 	}
@@ -1079,219 +1143,36 @@ func branchSlugOrDefault(branch string) string {
 	return slug
 }
 
-func NewSessionStore(repoInfo RepoInfo, maxSessions, maxAgeDays int) (*SessionStore, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	projectRoot := repoInfo.ProjectRoot
-	slug := projectSlug(projectRoot)
-	if slug == "" {
-		slug = defaultProjectSlug
-	}
-
-	// Get current branch name, sanitize it for use in path
-	branch := repoInfo.Branch
-	branchSlug := branchSlugOrDefault(branch)
-
-	repoBase := filepath.Join(homeDir, ".local", "share", "asimi", "repo")
-	projectDir := filepath.Join(repoBase, filepath.FromSlash(slug))
-	branchDir := filepath.Join(projectDir, branchSlug)
-	storageDir := filepath.Join(branchDir, "sessions")
-	if err := os.MkdirAll(storageDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create session storage directory: %w", err)
-	}
-
-	store := &SessionStore{
-		storageDir:  storageDir,
-		projectSlug: slug,
-		projectRoot: projectRoot,
-		branchSlug:  branchSlug,
-		maxSessions: maxSessions,
-		maxAgeDays:  maxAgeDays,
-		saveChan:    make(chan *Session, 100),
-		stopChan:    make(chan struct{}),
-	}
-
-	if err := store.CleanupOldSessions(); err != nil {
-		slog.Warn("failed to cleanup old sessions", "error", err)
-	}
-
-	go store.saveWorker()
-
-	return store, nil
-}
-
-func (store *SessionStore) saveWorker() {
+func findProjectRoot(start string) string {
+	dir := start
 	for {
-		select {
-		case session := <-store.saveChan:
-			if err := store.saveSessionSync(session); err != nil {
-				slog.Warn(" failed to save session", "error", err)
-			}
-		case <-store.stopChan:
-			for len(store.saveChan) > 0 {
-				session := <-store.saveChan
-				if err := store.saveSessionSync(session); err != nil {
-					slog.Warn("failed to save session", "error", err)
-				}
-			}
-			return
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
 		}
+		parent := filepath.Dir(dir)
+		if parent == "/" || parent == dir {
+			return start
+		}
+		dir = parent
 	}
 }
 
-func (store *SessionStore) SaveSession(session *Session) {
-	if session != nil {
-		select {
-		case store.saveChan <- session:
-		default:
-			slog.Warn("save channel full, skipping save")
+func sanitizeSegment(value string) string {
+	value = strings.ToLower(value)
+	var b strings.Builder
+	prevHyphen := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			prevHyphen = false
+			continue
+		}
+		if !prevHyphen {
+			b.WriteRune('-')
+			prevHyphen = true
 		}
 	}
-}
-
-// SaveSessionSync saves a session synchronously and returns any error
-func (store *SessionStore) SaveSessionSync(session *Session) error {
-	return store.saveSessionSync(session)
-}
-
-func (store *SessionStore) Close() {
-	// Use sync.Once to ensure we only close the channel once
-	store.closeOnce.Do(func() {
-		close(store.stopChan)
-
-		// Wait for worker to finish with timeout
-		// The worker will drain the queue when it receives the stop signal
-		done := make(chan struct{})
-		go func() {
-			// Give the worker time to process remaining items
-			time.Sleep(100 * time.Millisecond)
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			slog.Debug("session store closed gracefully")
-		case <-time.After(2 * time.Second):
-			slog.Warn("session store close timed out, some saves may be lost")
-		}
-	})
-}
-
-func (store *SessionStore) saveSessionSync(session *Session) error {
-	if session == nil {
-		return fmt.Errorf("cannot save nil session")
-	}
-
-	session.removeUnmatchedToolCalls()
-
-	hasUserMessage := false
-	for _, msg := range session.Messages {
-		if msg.Role == llms.ChatMessageTypeHuman {
-			hasUserMessage = true
-			break
-		}
-	}
-	if !hasUserMessage {
-		return nil
-	}
-
-	if session.ID == "" {
-		session.ID = generateSessionID()
-		session.CreatedAt = time.Now()
-		workingDir, _ := os.Getwd()
-		session.WorkingDir = workingDir
-	}
-
-	if session.WorkingDir == "" {
-		session.WorkingDir = store.projectRoot
-	}
-	if session.ProjectSlug == "" {
-		session.ProjectSlug = projectSlug(session.WorkingDir)
-	}
-	if session.ProjectSlug == "" {
-		session.ProjectSlug = defaultProjectSlug
-	}
-	if store.projectSlug != "" {
-		session.ProjectSlug = store.projectSlug
-	}
-
-	if session.FirstPrompt == "" {
-		for _, msg := range session.Messages {
-			if msg.Role == llms.ChatMessageTypeHuman {
-				for _, part := range msg.Parts {
-					if textPart, ok := part.(llms.TextContent); ok {
-						session.FirstPrompt = textPart.Text
-						if len(session.FirstPrompt) > 60 {
-							session.FirstPrompt = session.FirstPrompt[:57] + "..."
-						}
-						break
-					}
-				}
-				if session.FirstPrompt != "" {
-					break
-				}
-			}
-		}
-	}
-
-	session.LastUpdated = time.Now()
-
-	sessionDir := filepath.Join(store.storageDir, "session-"+session.ID)
-	if err := os.MkdirAll(sessionDir, 0755); err != nil {
-		return fmt.Errorf("failed to create session directory: %w", err)
-	}
-
-	sessionFile := filepath.Join(sessionDir, "session.json")
-	sessionJSON, err := json.MarshalIndent(session, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal session data: %w", err)
-	}
-	if err := os.WriteFile(sessionFile, sessionJSON, 0644); err != nil {
-		return fmt.Errorf("failed to write session file: %w", err)
-	}
-
-	if err := store.updateIndex(session); err != nil {
-		return fmt.Errorf("failed to update index: %w", err)
-	}
-
-	return nil
-}
-
-const defaultProjectSlug = "project-unknown"
-
-func projectSlug(workingDir string) string {
-	if workingDir == "" {
-		cwd, err := os.Getwd()
-		if err == nil {
-			workingDir = cwd
-		}
-	}
-
-	root := findProjectRoot(workingDir)
-	if slug := remoteRepoSlug(root); slug != "" {
-		return slug
-	}
-
-	return fallbackProjectSlug(root)
-}
-
-func remoteRepoSlug(workingDir string) string {
-	remote, err := gitRemoteOriginURL(workingDir)
-	if err != nil || remote == "" {
-		return ""
-	}
-
-	owner, repo := parseGitRemote(remote)
-	owner = sanitizeSegment(owner)
-	repo = sanitizeSegment(repo)
-	if owner == "" || repo == "" {
-		return ""
-	}
-
-	return owner + "/" + repo
+	return strings.Trim(b.String(), "-")
 }
 
 func gitRemoteOriginURL(workingDir string) (string, error) {
@@ -1334,368 +1215,4 @@ func parseGitRemote(remote string) (owner, repo string) {
 	}
 
 	return owner, repo
-}
-
-func fallbackProjectSlug(workingDir string) string {
-	cleaned := filepath.Clean(workingDir)
-	if cleaned == "" || cleaned == "." {
-		cleaned = workingDir
-	}
-
-	base := strings.ToLower(filepath.Base(cleaned))
-	if base == "." || base == string(os.PathSeparator) || base == "" {
-		base = "project"
-	}
-
-	slugBase := sanitizeSegment(base)
-	if slugBase == "" {
-		slugBase = "project"
-	}
-
-	hash := sha256.Sum256([]byte(cleaned))
-	return fmt.Sprintf("%s-%s", slugBase, hex.EncodeToString(hash[:])[:6])
-}
-
-func sanitizeSegment(value string) string {
-	value = strings.ToLower(value)
-	var b strings.Builder
-	prevHyphen := false
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			prevHyphen = false
-			continue
-		}
-		if !prevHyphen {
-			b.WriteRune('-')
-			prevHyphen = true
-		}
-	}
-	return strings.Trim(b.String(), "-")
-}
-
-type persistedSession struct {
-	ID           string            `json:"id"`
-	CreatedAt    time.Time         `json:"created_at"`
-	LastUpdated  time.Time         `json:"last_updated"`
-	FirstPrompt  string            `json:"first_prompt"`
-	Provider     string            `json:"provider"`
-	Model        string            `json:"model"`
-	WorkingDir   string            `json:"working_dir"`
-	ProjectSlug  string            `json:"project_slug,omitempty"`
-	Messages     []json.RawMessage `json:"messages"`
-	ContextFiles map[string]string `json:"context_files"`
-}
-
-func (store *SessionStore) LoadSession(id string) (*Session, error) {
-	index, err := store.loadIndex()
-	if err != nil {
-		return nil, err
-	}
-
-	var slug string
-	var recorded Session
-	found := false
-	for _, entry := range index.Sessions {
-		if entry.ID == id {
-			recorded = entry
-			slug = entry.ProjectSlug
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return nil, fmt.Errorf("session %s not found", id)
-	}
-
-	if slug == "" {
-		slug = projectSlug(recorded.WorkingDir)
-	}
-	if slug == "" {
-		slug = defaultProjectSlug
-	}
-
-	sessionDir := filepath.Join(store.storageDir, "session-"+id)
-	sessionFile := filepath.Join(sessionDir, "session.json")
-
-	data, err := os.ReadFile(sessionFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read session file: %w", err)
-	}
-
-	var persisted persistedSession
-	if err := json.Unmarshal(data, &persisted); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal session data: %w", err)
-	}
-
-	session := &Session{
-		ID:           persisted.ID,
-		CreatedAt:    persisted.CreatedAt,
-		LastUpdated:  persisted.LastUpdated,
-		FirstPrompt:  persisted.FirstPrompt,
-		Provider:     persisted.Provider,
-		Model:        persisted.Model,
-		WorkingDir:   persisted.WorkingDir,
-		ProjectSlug:  persisted.ProjectSlug,
-		ContextFiles: persisted.ContextFiles,
-	}
-
-	if session.ProjectSlug == "" {
-		session.ProjectSlug = slug
-	}
-
-	if session.ContextFiles == nil {
-		session.ContextFiles = make(map[string]string)
-	}
-
-	for _, rawMsg := range persisted.Messages {
-		var restored llms.MessageContent
-		if err := json.Unmarshal(rawMsg, &restored); err != nil {
-			return nil, fmt.Errorf("restore message: %w", err)
-		}
-		session.Messages = append(session.Messages, restored)
-	}
-
-	session.removeUnmatchedToolCalls()
-
-	return session, nil
-}
-
-func (store *SessionStore) ListSessions(limit int) ([]Session, error) {
-	index, err := store.loadIndex()
-	if err != nil {
-		return nil, err
-	}
-
-	targetSlug := store.projectSlug
-	if targetSlug == "" {
-		currentDir, _ := os.Getwd()
-		targetSlug = projectSlug(currentDir)
-		if targetSlug == "" {
-			targetSlug = defaultProjectSlug
-		}
-	}
-
-	var filtered []Session
-	for _, session := range index.Sessions {
-		if session.ProjectSlug == "" {
-			session.ProjectSlug = projectSlug(session.WorkingDir)
-		}
-		if session.ProjectSlug == "" {
-			session.ProjectSlug = defaultProjectSlug
-		}
-		if session.ProjectSlug == targetSlug {
-			filtered = append(filtered, session)
-		}
-	}
-
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].LastUpdated.After(filtered[j].LastUpdated)
-	})
-
-	if limit > 0 && len(filtered) > limit {
-		return filtered[:limit], nil
-	}
-
-	return filtered, nil
-}
-
-func (store *SessionStore) CleanupOldSessions() error {
-	index, err := store.loadIndex()
-	if err != nil {
-		return err
-	}
-
-	var sessionsToKeep []Session
-	cutoffTime := time.Now().AddDate(0, 0, -store.maxAgeDays)
-	maxAgeEnabled := store.maxAgeDays > 0
-
-	grouped := make(map[string][]Session)
-	for _, session := range index.Sessions {
-		if session.ProjectSlug == "" {
-			session.ProjectSlug = projectSlug(session.WorkingDir)
-		}
-		if session.ProjectSlug == "" {
-			session.ProjectSlug = defaultProjectSlug
-		}
-		grouped[session.ProjectSlug] = append(grouped[session.ProjectSlug], session)
-	}
-
-	for slug, sessions := range grouped {
-		sort.Slice(sessions, func(i, j int) bool {
-			return sessions[i].LastUpdated.After(sessions[j].LastUpdated)
-		})
-
-		kept := 0
-		for _, session := range sessions {
-			if maxAgeEnabled && session.LastUpdated.Before(cutoffTime) {
-				store.removeSessionDir(slug, session.ID)
-				continue
-			}
-
-			if store.maxSessions > 0 && kept >= store.maxSessions {
-				store.removeSessionDir(slug, session.ID)
-				continue
-			}
-
-			session.ProjectSlug = slug
-			sessionsToKeep = append(sessionsToKeep, session)
-			kept++
-		}
-	}
-
-	sort.Slice(sessionsToKeep, func(i, j int) bool {
-		return sessionsToKeep[i].LastUpdated.After(sessionsToKeep[j].LastUpdated)
-	})
-
-	index.Sessions = sessionsToKeep
-	return store.saveIndex(index)
-}
-
-func (store *SessionStore) removeSessionDir(slug, id string) {
-	path := filepath.Join(store.storageDir, "session-"+id)
-	if err := os.RemoveAll(path); err != nil && !os.IsNotExist(err) {
-		slog.Warn("failed to remove session", "session_id", id, "path", path, "error", err)
-	}
-}
-
-func (store *SessionStore) loadIndex() (*SessionIndex, error) {
-	indexFile := filepath.Join(store.storageDir, "index.json")
-
-	if _, err := os.Stat(indexFile); os.IsNotExist(err) {
-		slog.Error("Session store index is missing", "path", indexFile)
-		return &SessionIndex{Sessions: []Session{}}, nil
-	}
-
-	data, err := os.ReadFile(indexFile)
-	if err != nil {
-		slog.Error("Failed to read session store index ", "path", indexFile)
-		return nil, fmt.Errorf("failed to read index file: %w", err)
-	}
-
-	// Handle empty index file
-	if len(strings.TrimSpace(string(data))) == 0 {
-		slog.Warn("Session store index is empty, initializing new index", "path", indexFile)
-		return &SessionIndex{Sessions: []Session{}}, nil
-	}
-
-	var index SessionIndex
-	if err := json.Unmarshal(data, &index); err != nil {
-		slog.Error("Session store index failed to unmarshal", "path", indexFile)
-		return nil, fmt.Errorf("failed to unmarshal index: %w", err)
-	}
-
-	for i := range index.Sessions {
-		if index.Sessions[i].ProjectSlug == "" {
-			index.Sessions[i].ProjectSlug = projectSlug(index.Sessions[i].WorkingDir)
-		}
-		if index.Sessions[i].ProjectSlug == "" {
-			index.Sessions[i].ProjectSlug = defaultProjectSlug
-		}
-	}
-
-	return &index, nil
-}
-
-func (store *SessionStore) saveIndex(index *SessionIndex) error {
-	indexFile := filepath.Join(store.storageDir, "index.json")
-
-	data, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal index: %w", err)
-	}
-
-	if err := os.WriteFile(indexFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write index file: %w", err)
-	}
-
-	return nil
-}
-
-func (store *SessionStore) updateIndex(session *Session) error {
-	index, err := store.loadIndex()
-	if err != nil {
-		return err
-	}
-
-	if session.ProjectSlug == "" {
-		session.ProjectSlug = projectSlug(session.WorkingDir)
-	}
-	if session.ProjectSlug == "" {
-		session.ProjectSlug = defaultProjectSlug
-	}
-
-	found := false
-	for i, s := range index.Sessions {
-		if s.ID == session.ID {
-			index.Sessions[i] = *session
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		index.Sessions = append(index.Sessions, *session)
-	}
-
-	return store.saveIndex(index)
-}
-
-func formatRelativeTime(t time.Time) string {
-	now := time.Now()
-
-	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
-		return fmt.Sprintf("Today %s", t.Format("15:04"))
-	}
-
-	yesterday := now.AddDate(0, 0, -1)
-	if t.Year() == yesterday.Year() && t.YearDay() == yesterday.YearDay() {
-		return fmt.Sprintf("Yesterday %s", t.Format("15:04"))
-	}
-
-	if t.Year() == now.Year() {
-		return t.Format("Jan 2, 15:04")
-	}
-
-	return t.Format("Jan 2 2006, 15:04")
-}
-
-func FormatSessionList(sessions []Session) string {
-	if len(sessions) == 0 {
-		return "No previous sessions found. Start chatting to create a new session!"
-	}
-
-	var b strings.Builder
-	b.WriteString("Recent Sessions:\n\n")
-
-	for i, session := range sessions {
-		messageCount := len(session.Messages)
-		b.WriteString(fmt.Sprintf("%2d. [%s] %s\n", i+1, formatRelativeTime(session.LastUpdated), session.FirstPrompt))
-		b.WriteString(fmt.Sprintf("    %d messages • %s", messageCount, session.Model))
-
-		currentDir, _ := os.Getwd()
-		if session.WorkingDir != "" && session.WorkingDir != currentDir {
-			shortPath := session.WorkingDir
-			homeDir, _ := os.UserHomeDir()
-			if homeDir != "" {
-				shortPath = strings.Replace(shortPath, homeDir, "~", 1)
-			}
-			b.WriteString(fmt.Sprintf(" • %s", shortPath))
-		}
-
-		b.WriteString("\n")
-		if i < len(sessions)-1 {
-			b.WriteString("\n")
-		}
-	}
-
-	return b.String()
-}
-
-func (store *SessionStore) Flush() {
-	for len(store.saveChan) > 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	time.Sleep(50 * time.Millisecond)
 }

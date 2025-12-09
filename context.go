@@ -58,14 +58,14 @@ type ContextInfo struct {
 // GetContextInfo returns detailed information about context usage.
 func (s *Session) GetContextInfo() ContextInfo {
 	info := ContextInfo{
-		Model:       s.getModelName(),
-		TotalTokens: s.getModelContextSize(),
+		Model:              s.getModelName(),
+		TotalTokens:        s.getModelContextSize(),
+		SystemPromptTokens: s.systemPromptTokens,
+		SystemToolsTokens:  s.systemToolsTokens,
+		MemoryFilesTokens:  s.memoryFilesTokens,
+		MessagesTokens:     s.messagesTokens,
 	}
 
-	info.SystemPromptTokens = s.CountSystemPromptTokens()
-	info.SystemToolsTokens = s.CountSystemToolsTokens()
-	info.MemoryFilesTokens = s.CountMemoryFilesTokens()
-	info.MessagesTokens = s.CountMessagesTokens()
 	info.UsedTokens = info.SystemPromptTokens + info.SystemToolsTokens + info.MemoryFilesTokens + info.MessagesTokens
 
 	buffer := int(math.Round(float64(info.TotalTokens) * autocompactBufferRatio))
@@ -235,7 +235,6 @@ func renderContextInfo(info ContextInfo) string {
 	systemToolsPercent := percentage(info.SystemToolsTokens, total)
 	memoryFilesPercent := percentage(info.MemoryFilesTokens, total)
 	messagesPercent := percentage(info.MessagesTokens, total)
-	freePercent := percentage(info.FreeTokens, total)
 
 	b.WriteString("  ⎿  Context Usage\n")
 	b.WriteString(fmt.Sprintf("     %s   %s · %s/%s tokens (%.1f%%)\n",
@@ -250,7 +249,7 @@ func renderContextInfo(info ContextInfo) string {
 	b.WriteString(formatContextLine("System tools", info.SystemToolsTokens, total, systemToolsPercent))
 	b.WriteString(formatContextLine("Memory files", info.MemoryFilesTokens, total, memoryFilesPercent))
 	b.WriteString(formatContextLine("Messages", info.MessagesTokens, total, messagesPercent))
-	b.WriteString(formatFreeSpaceLine(info, total, freePercent))
+	b.WriteString(formatFreeSpaceLine(info, total))
 
 	return b.String()
 }
@@ -328,7 +327,7 @@ func formatContextLine(label string, tokens, total int, percent float64) string 
 }
 
 // formatFreeSpaceLine builds a formatted line for free space with low water mark indicator.
-func formatFreeSpaceLine(info ContextInfo, total int, percent float64) string {
+func formatFreeSpaceLine(info ContextInfo, total int) string {
 	bar := renderFreeSpaceBar(info, total)
 	totalFreeSpace := info.FreeTokens + info.AutocompactBuffer
 	return fmt.Sprintf("     %s   ⛶ Free space: %s tokens (%.1f%%)\n",

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,7 +33,7 @@ type ContentComponent struct {
 	height     int
 
 	// Sub-components (now simplified - no navigation logic)
-	chat   ChatComponent
+	Chat   *ChatComponent
 	help   HelpWindow
 	models ModelsWindow
 	resume ResumeWindow
@@ -44,28 +43,22 @@ type ContentComponent struct {
 	viewport     viewport.Model // For text navigation
 	selectedItem int            // For list navigation
 	scrollOffset int            // For list navigation
-
-	// Exit handling
-	lastEscapeTime time.Time
-	escDebounceMs  int
 }
 
 // NewContentComponent creates a new content component
-func NewContentComponent(width, height int) ContentComponent {
+func NewContentComponent(width, height int, markdownEnabled bool) ContentComponent {
 	return ContentComponent{
-		activeView:     ViewChat,
-		width:          width,
-		height:         height,
-		chat:           NewChatComponent(width, height),
-		help:           NewHelpWindow(),
-		models:         NewModelsWindow(),
-		resume:         NewResumeWindow(),
-		navMode:        NavText,
-		viewport:       viewport.New(width, height),
-		selectedItem:   0,
-		scrollOffset:   0,
-		lastEscapeTime: time.Time{},
-		escDebounceMs:  300, // 300ms for double-ESC detection
+		activeView:   ViewChat,
+		width:        width,
+		height:       height,
+		Chat:         NewChatComponent(width, height, markdownEnabled),
+		help:         NewHelpWindow(),
+		models:       NewModelsWindow(),
+		resume:       NewResumeWindow(),
+		navMode:      NavText,
+		viewport:     viewport.New(width, height),
+		selectedItem: 0,
+		scrollOffset: 0,
 	}
 }
 
@@ -75,11 +68,11 @@ func (c *ContentComponent) SetSize(width, height int) {
 	c.height = height
 	c.viewport.Width = width
 	c.viewport.Height = height
-	c.chat.SetWidth(width)
-	c.chat.SetHeight(height)
-	c.help.SetSize(width, height)
-	c.models.SetSize(width, height)
-	c.resume.SetSize(width, height)
+	h := height - 1
+	c.Chat.SetSize(width, h)
+	c.help.SetSize(width, h)
+	c.models.SetSize(width, h)
+	c.resume.SetSize(width, h)
 }
 
 // GetActiveView returns the current view type
@@ -111,8 +104,31 @@ func (c *ContentComponent) ShowHelp(topic string) tea.Cmd {
 	}
 }
 
-// ShowModels switches to models view
+// ShowModels switches to models view (legacy - for backward compatibility)
 func (c *ContentComponent) ShowModels(models []AnthropicModel, currentModel string) tea.Cmd {
+	// Convert AnthropicModel to unified Model type
+	unifiedModels := make([]Model, len(models))
+	for i, m := range models {
+		status := "ready"
+		if m.ID == currentModel {
+			status = "active"
+		}
+		displayName := m.DisplayName
+		if displayName == "" {
+			displayName = m.ID
+		}
+		unifiedModels[i] = Model{
+			ID:          m.ID,
+			DisplayName: displayName,
+			Provider:    "anthropic",
+			Status:      status,
+		}
+	}
+	return c.ShowUnifiedModels(unifiedModels, currentModel)
+}
+
+// ShowUnifiedModels switches to models view with unified model list
+func (c *ContentComponent) ShowUnifiedModels(models []Model, currentModel string) tea.Cmd {
 	c.activeView = ViewModels
 	c.navMode = NavList
 	c.models.SetModels(models, currentModel)
@@ -120,7 +136,7 @@ func (c *ContentComponent) ShowModels(models []AnthropicModel, currentModel stri
 	c.scrollOffset = 0
 
 	return func() tea.Msg {
-		return ChangeModeMsg{NewMode: "models"}
+		return ChangeModeMsg{NewMode: "select"}
 	}
 }
 
@@ -132,9 +148,11 @@ func (c *ContentComponent) ShowResume(sessions []Session) tea.Cmd {
 	c.selectedItem = 0
 	c.scrollOffset = 0
 
-	return func() tea.Msg {
-		return ChangeModeMsg{NewMode: "resume"}
+	changeModeCmd := func() tea.Msg {
+		return ChangeModeMsg{NewMode: "select"}
 	}
+
+	return changeModeCmd
 }
 
 // SetModelsLoading shows loading state for models
@@ -147,6 +165,15 @@ func (c *ContentComponent) SetModelsError(err string) {
 	c.models.SetError(err)
 }
 
+// SetResumeLoading shows loading state for resume
+func (c *ContentComponent) SetResumeLoading() {
+	c.activeView = ViewResume
+	c.navMode = NavList
+	c.resume.SetLoading(true)
+	c.selectedItem = 0
+	c.scrollOffset = 0
+}
+
 // Update handles messages and navigation
 func (c *ContentComponent) Update(msg tea.Msg) (ContentComponent, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -155,7 +182,8 @@ func (c *ContentComponent) Update(msg tea.Msg) (ContentComponent, tea.Cmd) {
 	switch c.activeView {
 	case ViewChat:
 		var cmd tea.Cmd
-		c.chat, cmd = c.chat.Update(msg)
+		newChat, cmd := c.Chat.Update(msg)
+		c.Chat = &newChat
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -211,15 +239,8 @@ func (c *ContentComponent) handleExitKeys(msg tea.KeyMsg) tea.Cmd {
 		// Ctrl+C exits to chat
 		return c.ShowChat()
 	case "esc":
-		// Check for double-ESC
-		now := time.Now()
-		if !c.lastEscapeTime.IsZero() && now.Sub(c.lastEscapeTime) < time.Duration(c.escDebounceMs)*time.Millisecond {
-			// Double-ESC detected
-			c.lastEscapeTime = time.Time{}
-			return c.ShowChat()
-		}
-		c.lastEscapeTime = now
-		return nil
+		// Single ESC exits to chat
+		return c.ShowChat()
 	}
 	return nil
 }
@@ -272,66 +293,147 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	var scrollInfoCmd tea.Cmd
+
 	switch msg.String() {
 	case "j", "down":
-		if c.selectedItem < itemCount-1 {
-			c.selectedItem++
+		var newIndex int
+		if c.activeView == ViewModels {
+			newIndex = c.models.NextSelectableIndex(c.selectedItem, IsModelSelectable)
+		} else {
+			if c.selectedItem < itemCount-1 {
+				newIndex = c.selectedItem + 1
+			} else {
+				newIndex = c.selectedItem
+			}
+		}
+		if newIndex != c.selectedItem {
+			c.selectedItem = newIndex
 			// Scroll if needed
 			if c.selectedItem >= c.scrollOffset+visibleSlots {
 				c.scrollOffset = c.selectedItem - visibleSlots + 1
 			}
+			scrollInfoCmd = c.getScrollInfoCmd()
 		}
 	case "k", "up":
-		if c.selectedItem > 0 {
-			c.selectedItem--
+		var newIndex int
+		if c.activeView == ViewModels {
+			newIndex = c.models.PrevSelectableIndex(c.selectedItem, IsModelSelectable)
+		} else {
+			if c.selectedItem > 0 {
+				newIndex = c.selectedItem - 1
+			} else {
+				newIndex = c.selectedItem
+			}
+		}
+		if newIndex != c.selectedItem {
+			c.selectedItem = newIndex
 			// Scroll if needed
 			if c.selectedItem < c.scrollOffset {
 				c.scrollOffset = c.selectedItem
 			}
+			scrollInfoCmd = c.getScrollInfoCmd()
 		}
 	case "ctrl+d": // Half page down
 		move := visibleSlots / 2
 		if move < 1 {
 			move = 1
 		}
-		c.selectedItem += move
-		if c.selectedItem >= itemCount {
-			c.selectedItem = itemCount - 1
+		targetIndex := c.selectedItem + move
+		if targetIndex >= itemCount {
+			targetIndex = itemCount - 1
 		}
+		// For models, find the nearest selectable item at or after target
+		if c.activeView == ViewModels {
+			for i := targetIndex; i < itemCount; i++ {
+				if IsModelSelectable(c.models.Items[i]) {
+					targetIndex = i
+					break
+				}
+			}
+			// If no selectable item found forward, search backward
+			if !IsModelSelectable(c.models.Items[targetIndex]) {
+				for i := targetIndex; i >= 0; i-- {
+					if IsModelSelectable(c.models.Items[i]) {
+						targetIndex = i
+						break
+					}
+				}
+			}
+		}
+		c.selectedItem = targetIndex
 		// Adjust scroll
 		if c.selectedItem >= c.scrollOffset+visibleSlots {
 			c.scrollOffset = c.selectedItem - visibleSlots + 1
 		}
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "ctrl+u": // Half page up
 		move := visibleSlots / 2
 		if move < 1 {
 			move = 1
 		}
-		c.selectedItem -= move
-		if c.selectedItem < 0 {
-			c.selectedItem = 0
+		targetIndex := c.selectedItem - move
+		if targetIndex < 0 {
+			targetIndex = 0
 		}
+		// For models, find the nearest selectable item at or before target
+		if c.activeView == ViewModels {
+			for i := targetIndex; i >= 0; i-- {
+				if IsModelSelectable(c.models.Items[i]) {
+					targetIndex = i
+					break
+				}
+			}
+			// If no selectable item found backward, search forward
+			if !IsModelSelectable(c.models.Items[targetIndex]) {
+				for i := targetIndex; i < itemCount; i++ {
+					if IsModelSelectable(c.models.Items[i]) {
+						targetIndex = i
+						break
+					}
+				}
+			}
+		}
+		c.selectedItem = targetIndex
 		// Adjust scroll
 		if c.selectedItem < c.scrollOffset {
 			c.scrollOffset = c.selectedItem
 		}
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "g", "home":
-		c.selectedItem = 0
+		if c.activeView == ViewModels {
+			c.selectedItem = c.models.FirstSelectableIndex(IsModelSelectable)
+		} else {
+			c.selectedItem = 0
+		}
 		c.scrollOffset = 0
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "G", "end":
-		c.selectedItem = itemCount - 1
+		if c.activeView == ViewModels {
+			c.selectedItem = c.models.LastSelectableIndex(IsModelSelectable)
+		} else {
+			c.selectedItem = itemCount - 1
+		}
 		if c.selectedItem >= visibleSlots {
 			c.scrollOffset = c.selectedItem - visibleSlots + 1
 		}
+		scrollInfoCmd = c.getScrollInfoCmd()
 	case "enter":
 		// Handle selection
 		switch c.activeView {
 		case ViewModels:
-			if model := c.models.GetSelectedModel(c.selectedItem); model != nil {
+			if model := c.models.GetSelectedModel(c.selectedItem); model != nil && IsModelSelectable(*model) {
 				showChatCmd := c.ShowChat()
+				// If model has a custom OnSelect handler, use it instead of the default
+				if model.OnSelect != nil {
+					return tea.Batch(showChatCmd, model.OnSelect)
+				}
 				return tea.Batch(
 					showChatCmd,
-					func() tea.Msg { return modelSelectedMsg{model: model} },
+					func() tea.Msg {
+						return modelSelectedMsg{model: model,
+							onSelect: model.OnSelect}
+					},
 				)
 			}
 		case ViewResume:
@@ -345,6 +447,11 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 
+	return scrollInfoCmd
+}
+
+// getScrollInfoCmd returns a command that sends scroll info as a message
+func (c *ContentComponent) getScrollInfoCmd() tea.Cmd {
 	return nil
 }
 
@@ -352,7 +459,7 @@ func (c *ContentComponent) handleListNavigation(msg tea.KeyMsg) tea.Cmd {
 func (c *ContentComponent) View() string {
 	switch c.activeView {
 	case ViewChat:
-		return c.chat.View()
+		return c.Chat.View()
 	case ViewHelp:
 		return c.renderHelpView()
 	case ViewModels:
@@ -382,59 +489,30 @@ func (c *ContentComponent) renderHelpView() string {
 
 	// Ensure the view fills the full height
 	return lipgloss.NewStyle().
-		Height(c.height).
+		// Height(c.height).
 		Render(content)
 }
 
 // renderModelsView renders the models selection view
 func (c *ContentComponent) renderModelsView() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#F952F9")).
-		Background(lipgloss.Color("#000000")).
-		Padding(0, 1)
-
-	title := titleStyle.Render(" Select Model ")
-
 	content := c.models.RenderList(c.selectedItem, c.scrollOffset, c.models.GetVisibleSlots())
 
-	combined := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		content,
-	)
-
-	// Ensure the view fills the full height
+	// Apply height constraint to prevent overflow clipping from the top
+	// Use height-1 to account for the title line
 	return lipgloss.NewStyle().
-		Height(c.height).
-		Render(combined)
+		Height(c.height - 1).
+		MaxHeight(c.height - 1).
+		Render(content)
 }
 
 // renderResumeView renders the session selection view
 func (c *ContentComponent) renderResumeView() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#F952F9")).
-		Background(lipgloss.Color("#000000")).
-		Padding(0, 1)
-
-	title := titleStyle.Render(" Resume Session ")
-
 	content := c.resume.RenderList(c.selectedItem, c.scrollOffset, c.resume.GetVisibleSlots())
 
-	combined := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		content,
-	)
-
-	// Ensure the view fills the full height
+	// Apply height constraint to prevent overflow clipping from the top
+	// Use height-1 to account for the title line
 	return lipgloss.NewStyle().
-		Height(c.height).
-		Render(combined)
-}
-
-// GetChat returns the chat component (for direct manipulation)
-func (c *ContentComponent) GetChat() *ChatComponent {
-	return &c.chat
+		Height(c.height - 1).
+		MaxHeight(c.height - 1).
+		Render(content)
 }

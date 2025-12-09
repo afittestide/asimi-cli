@@ -60,14 +60,20 @@ func TestGetContextInfo(t *testing.T) {
 		Parts: []llms.ContentPart{llms.TextPart("abcd")},
 	}
 
-	session := &Session{
-		config: &LLMConfig{
+	cfg := &Config{
+		LLM: LLMConfig{
 			Provider: "anthropic",
 			Model:    "claude-3-5-sonnet-latest",
 		},
-		Messages:     []llms.MessageContent{system, user},
-		ContextFiles: map[string]string{"file.txt": "abcd"},
 	}
+	session, err := NewSession(&sessionMockLLMContext{}, cfg, RepoInfo{}, func(any) {})
+	if err != nil {
+		t.Fatalf("creating session: %v", err)
+	}
+	session.Messages = []llms.MessageContent{system, user}
+	session.ContextFiles = map[string]string{"file.txt": "abcd"}
+	session.toolDefs = nil
+	session.updateTokenCounts()
 
 	info := session.GetContextInfo()
 
@@ -107,14 +113,22 @@ func TestGetContextInfoWithOpenAI(t *testing.T) {
 		Parts: []llms.ContentPart{llms.TextPart("hello")},
 	}
 
-	session := &Session{
-		config: &LLMConfig{
+	cfg := &Config{
+		LLM: LLMConfig{
 			Provider: "openai",
 			Model:    "gpt-4o",
 		},
-		Messages:     []llms.MessageContent{system, user},
-		ContextFiles: map[string]string{},
 	}
+	session, err := NewSession(&sessionMockLLMContext{}, cfg, RepoInfo{}, func(any) {})
+	if err != nil {
+		t.Fatalf("creating session: %v", err)
+	}
+	if len(session.Messages) != 1 {
+		t.Fatalf("expected system message in session")
+	}
+	session.Messages[0] = system
+	session.Messages = append(session.Messages, user)
+	session.updateTokenCounts()
 
 	info := session.GetContextInfo()
 
@@ -217,8 +231,7 @@ func TestHandleContextCommand(t *testing.T) {
 // TestAGENTSmdInSystemPrompt verifies that AGENTS.md content is included in the system prompt
 func TestAGENTSmdInSystemPrompt(t *testing.T) {
 	llm := &sessionMockLLMContext{}
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{}, RepoInfo{}, func(any) {})
 	assert.NoError(t, err)
 
 	info := sess.GetContextInfo()
@@ -230,7 +243,7 @@ func TestAGENTSmdInSystemPrompt(t *testing.T) {
 
 	// System prompt should include AGENTS.md content if it exists
 	// Check if AGENTS.md exists by trying to read it
-	projectContext := readProjectContext()
+	projectContext := readProjectContext("AGENTS.md")
 	if projectContext != "" {
 		t.Logf("AGENTS.md found with %d characters", len(projectContext))
 

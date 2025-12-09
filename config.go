@@ -1,10 +1,13 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +16,9 @@ import (
 	"github.com/knadh/koanf/providers/file"
 	koanf "github.com/knadh/koanf/v2"
 )
+
+//go:embed dotagents/asimi.conf
+var defaultConfContent string
 
 type oauthProviderConfig struct {
 	AuthURL      string
@@ -24,32 +30,19 @@ type oauthProviderConfig struct {
 
 // Config represents the application configuration structure
 type Config struct {
-	Server     ServerConfig     `koanf:"server"`
-	Database   DatabaseConfig   `koanf:"database"`
+	Storage    StorageConfig    `koanf:"storage"`
 	Logging    LoggingConfig    `koanf:"logging"`
+	UI         UIConfig         `koanf:"ui"`
 	LLM        LLMConfig        `koanf:"llm"`
 	History    HistoryConfig    `koanf:"history"`
-	Permission PermissionConfig `koanf:"permission"`
-	Hooks      HooksConfig      `koanf:"hooks"`
-	StatusLine StatusLineConfig `koanf:"statusline"`
 	Session    SessionConfig    `koanf:"session"`
 	Container  ContainerConfig  `koanf:"container"`
 	RunInShell RunInShellConfig `koanf:"run_in_shell"`
 }
 
-// ServerConfig holds server configuration
-type ServerConfig struct {
-	Host string `koanf:"host"`
-	Port int    `koanf:"port"`
-}
-
-// DatabaseConfig holds database configuration
-type DatabaseConfig struct {
-	Host     string `koanf:"host"`
-	Port     int    `koanf:"port"`
-	User     string `koanf:"user"`
-	Password string `koanf:"password"`
-	Name     string `koanf:"name"`
+// StorageConfig holds storage configuration
+type StorageConfig struct {
+	DatabasePath string `koanf:"database_path"` // Path to SQLite database
 }
 
 // LoggingConfig holds logging configuration
@@ -60,61 +53,16 @@ type LoggingConfig struct {
 
 // LLMConfig holds LLM configuration
 type LLMConfig struct {
-	Provider                      string            `koanf:"provider"`
-	Model                         string            `koanf:"model"`
-	APIKey                        string            `koanf:"api_key"`
-	BaseURL                       string            `koanf:"base_url"`
-	APIKeyHelper                  string            `koanf:"api_key_helper"`
-	CleanupPeriodDays             int               `koanf:"cleanup_period_days"`
-	Env                           map[string]string `koanf:"env"`
-	IncludeCoAuthoredBy           bool              `koanf:"include_coauthored_by"`
-	ForceLoginMethod              string            `koanf:"force_login_method"`
-	EnableAllProjectMcpServers    bool              `koanf:"enable_all_project_mcp_servers"`
-	EnabledMcpjsonServers         []string          `koanf:"enabled_mcpjson_servers"`
-	DisabledMcpjsonServers        []string          `koanf:"disabled_mcpjson_servers"`
-	AwsAuthRefresh                string            `koanf:"aws_auth_refresh"`
-	AwsCredentialExport           string            `koanf:"aws_credential_export"`
-	AutoUpdates                   bool              `koanf:"auto_updates"`
-	PreferredNotifChannel         string            `koanf:"preferred_notif_channel"`
-	Theme                         string            `koanf:"theme"`
-	Verbose                       bool              `koanf:"verbose"`
-	AnthropicAPIKey               string            `koanf:"anthropic_api_key"`
-	AnthropicAuthToken            string            `koanf:"anthropic_auth_token"`
-	AnthropicCustomHeaders        string            `koanf:"anthropic_custom_headers"`
-	AnthropicSmallFastModel       string            `koanf:"anthropic_small_fast_model"`
-	AnthropicSmallFastModelRegion string            `koanf:"anthropic_small_fast_model_aws_region"`
-	AwsBearerTokenBedrock         string            `koanf:"aws_bearer_token_bedrock"`
-	BashDefaultTimeoutMs          int               `koanf:"bash_default_timeout_ms"`
-	BashMaxTimeoutMs              int               `koanf:"bash_max_timeout_ms"`
-	BashMaxOutputLength           int               `koanf:"bash_max_output_length"`
-	BashMaintainProjectWorkingDir bool              `koanf:"bash_maintain_project_working_dir"`
-	PodmanAllowHostFallback       bool              `koanf:"sheel_command_fallback_to_host"`
-	ApiKeyHelperTtlMs             int               `koanf:"api_key_helper_ttl_ms"`
-	SkipAutoInstall               bool              `koanf:"skip_auto_install"`
-	MaxOutputTokens               int               `koanf:"max_output_tokens"`
-	UseBedrock                    bool              `koanf:"use_bedrock"`
-	UseVertex                     bool              `koanf:"use_vertex"`
-	SkipBedrockAuth               bool              `koanf:"skip_bedrock_auth"`
-	SkipVertexAuth                bool              `koanf:"skip_vertex_auth"`
-	DisableNonesentialTraffic     bool              `koanf:"disable_nonesential_traffic"`
-	DisableTerminalTitle          bool              `koanf:"disable_terminal_title"`
-	DisableAutoUpdater            bool              `koanf:"disable_auto_updater"`
-	DisableBugCommand             bool              `koanf:"disable_bug_command"`
-	DisableCostWarnings           bool              `koanf:"disable_cost_warnings"`
-	DisableErrorReporting         bool              `koanf:"disable_error_reporting"`
-	DisableNonEssentialModelCalls bool              `koanf:"disable_non_essential_model_calls"`
-	DisableTelemetry              bool              `koanf:"disable_telemetry"`
-	HttpProxy                     string            `koanf:"http_proxy"`
-	HttpsProxy                    string            `koanf:"https_proxy"`
-	MaxThinkingTokens             int               `koanf:"max_thinking_tokens"`
-	McpTimeout                    int               `koanf:"mcp_timeout"`
-	McpToolTimeout                int               `koanf:"mcp_tool_timeout"`
-	MaxMcpOutputTokens            int               `koanf:"max_mcp_output_tokens"`
-	UseBuiltinRipgrep             bool              `koanf:"use_builtin_ripgrep"`
-	MaxTurns                      int               `koanf:"max_turns"`
-	// OAuth tokens (optional) when authenticating via OAuth2
-	AuthToken    string `koanf:"auth_token"`
-	RefreshToken string `koanf:"refresh_token"`
+	Provider                   string `koanf:"provider"`
+	Model                      string `koanf:"model"`
+	APIKey                     string `koanf:"api_key"`
+	BaseURL                    string `koanf:"base_url"`
+	MaxThinkingTokens          int    `koanf:"max_thinking_tokens"`
+	MaxTurns                   int    `koanf:"max_turns"`
+	DisableContextSanitization bool   `koanf:"disable_sanitization"`
+	AuthToken                  string `koanf:"auth_token"`
+	RefreshToken               string `koanf:"refresh_token"`
+	ExperimentalModels         bool   `koanf:"experimental_models"`
 }
 
 // HistoryConfig holds persistent session history configuration
@@ -127,9 +75,20 @@ type HistoryConfig struct {
 	SaveInterval int  `koanf:"save_interval"`
 }
 
+// UIConfig holds UI-specific configuration
+type UIConfig struct {
+	MarkdownEnabled bool `koanf:"markdown_enabled"`
+}
+
 // defaultConfig returns the configuration populated with sensible defaults.
 func defaultConfig() Config {
+	homeDir, _ := os.UserHomeDir()
+	dbPath := filepath.Join(homeDir, ".local", "share", "asimi", "asimi.sqlite")
+
 	return Config{
+		Storage: StorageConfig{
+			DatabasePath: dbPath,
+		},
 		History: HistoryConfig{
 			Enabled:      true,
 			MaxSessions:  50,
@@ -137,6 +96,9 @@ func defaultConfig() Config {
 			ListLimit:    0,
 			AutoSave:     false,
 			SaveInterval: 300,
+		},
+		UI: UIConfig{
+			MarkdownEnabled: false,
 		},
 		Session: SessionConfig{
 			Enabled:      true,
@@ -147,42 +109,21 @@ func defaultConfig() Config {
 			SaveInterval: 300,
 		},
 		RunInShell: RunInShellConfig{
-			RunOnHost: []string{`^gh\s.*`},
+			RunOnHost:     []string{`^gh\s`, `^podman\s`},
+			SafeRunOnHost: []string{`^gh\s+(issue|pr)\s+(view|list)`},
 		},
 	}
 }
 
-// PermissionConfig holds permission configuration
-// TODO: Ensure we're not using it and remove
-type PermissionConfig struct {
-	Allow                        []string `koanf:"allow"`
-	Ask                          []string `koanf:"ask"`
-	Deny                         []string `koanf:"deny"`
-	AdditionalDirectories        []string `koanf:"additional_directories"`
-	DefaultMode                  string   `koanf:"default_mode"`
-	DisableBypassPermissionsMode string   `koanf:"disable_bypass_permissions_mode"`
-}
-
-// HooksConfig holds hooks configuration
-type HooksConfig struct {
-	PreTool  []string `koanf:"pre_tool"`
-	PostTool []string `koanf:"post_tool"`
-}
-
-// StatusLineConfig holds status line configuration
-type StatusLineConfig struct {
-	Enabled  bool   `koanf:"enabled"`
-	Template string `koanf:"template"`
-}
-
 // SessionConfig holds session persistence configuration
 type SessionConfig struct {
-	Enabled      bool `koanf:"enabled"`
-	MaxSessions  int  `koanf:"max_sessions"`
-	MaxAgeDays   int  `koanf:"max_age_days"`
-	ListLimit    int  `koanf:"list_limit"`
-	AutoSave     bool `koanf:"auto_save"`
-	SaveInterval int  `koanf:"save_interval"`
+	Enabled      bool   `koanf:"enabled"`
+	MaxSessions  int    `koanf:"max_sessions"`
+	MaxAgeDays   int    `koanf:"max_age_days"`
+	ListLimit    int    `koanf:"list_limit"`
+	AutoSave     bool   `koanf:"auto_save"`
+	SaveInterval int    `koanf:"save_interval"`
+	AgentsFile   string `koanf:"agents_file"` // Project context file name (default: AGENTS.md, can be CLAUDE.md)
 }
 
 // ContainerMount represents a mount point for the container
@@ -199,8 +140,60 @@ type ContainerConfig struct {
 // RunInShellConfig holds configuration for the run_in_shell tool
 type RunInShellConfig struct {
 	// RunOnHost is a list of regex patterns for commands that should run on the host
-	// instead of in the container
+	// instead of in the container. These commands require user approval before execution.
 	RunOnHost []string `koanf:"run_on_host"`
+	// SafeRunOnHost is a list of regex patterns for commands that can run on the host
+	// without requiring user approval (e.g., read-only commands like `gh issue view`)
+	SafeRunOnHost []string `koanf:"safe_run_on_host"`
+	// TimeoutMinutes is the timeout for shell commands in minutes (default: 10)
+	TimeoutMinutes    int    `koanf:"timeout_minutes"`
+	AllowHostFallback bool   `koanf:"allow_host_fallback"`
+	NoCleanup         bool   `koanf:"no_cleanup"`
+	ImageName         string `koanf:"image_name"` // Container image name (default: asimi-sandbox-<project>:latest)
+}
+
+// TODO: find a better way and remove this global
+// ConfigCreated tracks whether the config file was created on this run
+var ConfigCreated bool
+
+// userConfigPath returns the path to the user config directory and file.
+// Returns (cfgDir, cfgPath, error).
+func userConfigPath() (string, string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+	cfgDir := filepath.Join(homeDir, ".config", "asimi")
+	cfgPath := filepath.Join(cfgDir, "asimi.conf")
+	return cfgDir, cfgPath, nil
+}
+
+// EnsureUserConfigExists checks if the user config file exists and creates it if not.
+// Returns true if the config file was created (first run), false otherwise.
+func EnsureUserConfigExists() (bool, error) {
+	cfgDir, cfgPath, err := userConfigPath()
+	if err != nil {
+		return false, err
+	}
+
+	// Check if config file already exists
+	if _, err := os.Stat(cfgPath); err == nil {
+		return false, nil // Config exists, not first run
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("failed to check config file: %w", err)
+	}
+
+	// Config doesn't exist - create it
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		return false, fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(cfgPath, []byte(defaultConfContent), 0o644); err != nil {
+		return false, fmt.Errorf("failed to create config file: %w", err)
+	}
+
+	log.Printf("Created user config file at %s", cfgPath)
+	return true, nil
 }
 
 // LoadConfig loads configuration from multiple sources
@@ -210,15 +203,15 @@ func LoadConfig() (*Config, error) {
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Failed to get user home directory: %v", err)
+		slog.Error("Failed to get user home directory", "error", err)
 	} else {
-		userConfigPath := filepath.Join(homeDir, ".config", "asimi", "conf.toml")
+		userConfigPath := filepath.Join(homeDir, ".config", "asimi", "asimi.conf")
 		if err := k.Load(file.Provider(userConfigPath), koanftoml.Parser()); err != nil {
 			log.Printf("Failed to load user config from %s: %v", userConfigPath, err)
 		}
 	}
 
-	projectConfigPath := filepath.Join(".asimi", "conf.toml")
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
 	if _, err := os.Stat(projectConfigPath); err == nil {
 		if err := k.Load(file.Provider(projectConfigPath), koanftoml.Parser()); err != nil {
 			log.Printf("Failed to load project config from %s: %v", projectConfigPath, err)
@@ -273,46 +266,144 @@ func LoadConfig() (*Config, error) {
 		config.Session.Enabled = true // Default to enabled
 	}
 
-	return &config, nil
-}
-
-// SaveConfig saves the current config to the project-level conf.toml file
-func SaveConfig(config *Config) error {
-	projectConfigPath := filepath.Join(".asimi", "conf.toml")
-
-	// Ensure .asimi directory exists
-	if err := os.MkdirAll(".asimi", 0o755); err != nil {
-		return fmt.Errorf("failed to create .asimi directory: %w", err)
-	}
-
-	// Create koanf instance and load current project config if it exists
-	k := koanf.New(".")
-	if _, err := os.Stat(projectConfigPath); err == nil {
-		if err := k.Load(file.Provider(projectConfigPath), koanftoml.Parser()); err != nil {
-			return fmt.Errorf("failed to load existing project config: %w", err)
+	// Auto-discovery: If no provider is configured, detect from environment variables
+	// Priority: Anthropic > OpenAI > Google AI
+	if config.LLM.Provider == "" {
+		if anthropicKey := os.Getenv("ANTHROPIC_API_KEY"); anthropicKey != "" {
+			config.LLM.Provider = "anthropic"
+			config.LLM.Model = "claude-sonnet-4-20250514"
+			config.LLM.APIKey = anthropicKey
+			log.Printf("Auto-configured provider: anthropic (from ANTHROPIC_API_KEY)")
+		} else if openaiKey := os.Getenv("OPENAI_API_KEY"); openaiKey != "" {
+			config.LLM.Provider = "openai"
+			config.LLM.Model = "gpt-4o"
+			config.LLM.APIKey = openaiKey
+			log.Printf("Auto-configured provider: openai (from OPENAI_API_KEY)")
+		} else if geminiKey := os.Getenv("GEMINI_API_KEY"); geminiKey != "" {
+			config.LLM.Provider = "googleai"
+			config.LLM.Model = "gemini-2.5-flash"
+			config.LLM.APIKey = geminiKey
+			log.Printf("Auto-configured provider: googleai (from GEMINI_API_KEY)")
+		} else if googleKey := os.Getenv("GOOGLE_API_KEY"); googleKey != "" {
+			config.LLM.Provider = "googleai"
+			config.LLM.Model = "gemini-2.5-flash"
+			config.LLM.APIKey = googleKey
+			log.Printf("Auto-configured provider: googleai (from GOOGLE_API_KEY)")
 		}
 	}
 
-	// Update the model setting
-	if err := k.Set("llm.model", config.LLM.Model); err != nil {
-		return fmt.Errorf("failed to update model in config: %w", err)
+	// If provider is set but API key is not, try to load from environment
+	if config.LLM.Provider != "" && config.LLM.APIKey == "" {
+		switch config.LLM.Provider {
+		case "anthropic":
+			if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			}
+		case "openai":
+			if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			}
+		case "googleai":
+			if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			} else if key := os.Getenv("GOOGLE_API_KEY"); key != "" {
+				config.LLM.APIKey = key
+			}
+		}
 	}
 
-	// Save to file
-	data, err := k.Marshal(koanftoml.Parser())
+	return &config, nil
+}
+
+// ReloadProjectConf reloads the project's configuration file
+func (c *Config) ReloadProjectConf() error {
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
+
+	// Check if project config exists
+	if _, err := os.Stat(projectConfigPath); os.IsNotExist(err) {
+		return nil // No project config to reload
+	}
+
+	// Create a new koanf instance and load project config
+	k := koanf.New(".")
+	if err := k.Load(file.Provider(projectConfigPath), koanftoml.Parser()); err != nil {
+		return fmt.Errorf("failed to load project config: %w", err)
+	}
+
+	// Unmarshal into the current config, overwriting project-level settings
+	if err := k.Unmarshal("", c); err != nil {
+		return fmt.Errorf("failed to unmarshal project config: %w", err)
+	}
+
+	return nil
+}
+
+// SaveConfig saves the current config to the user-level config file (~/.config/asimi/asimi.conf).
+// It preserves all comments in the existing file.
+func SaveConfig(config *Config) error {
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return err
+	}
+	userConfigPath := filepath.Join(homeDir, ".config", "asimi", "asimi.conf")
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(userConfigPath); err == nil {
+		content = string(data)
+	}
+	// Update provider and model using comment-preserving helpers
+	content = updateOrInsertTOMLValue(content, "llm", "provider", config.LLM.Provider)
+	content = updateOrInsertTOMLValue(content, "llm", "model", config.LLM.Model)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(userConfigPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	if err := os.WriteFile(projectConfigPath, data, 0o644); err != nil {
+	if err := os.WriteFile(userConfigPath, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
 	return nil
 }
 
-// UpdateUserLLMAuth updates or creates ~/.config/asimi/conf.toml with the given LLM auth settings.
+// SetProjectConfig updates keys in the project config file (.agents/asimi.conf).
+// It accepts a section name followed by key-value pairs, similar to slog.Info().
+// Example: SetProjectConfig("session", "agents_file", "CLAUDE.md", "enabled", "true")
+// It preserves all comments in the existing file.
+func SetProjectConfig(section string, keyValues ...string) error {
+	if len(keyValues)%2 != 0 {
+		return fmt.Errorf("SetProjectConfig requires an even number of key-value arguments")
+	}
+
+	projectConfigPath := filepath.Join(".agents", "asimi.conf")
+	if err := os.MkdirAll(".agents", 0o755); err != nil {
+		return fmt.Errorf("failed to create .agents directory: %w", err)
+	}
+
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(projectConfigPath); err == nil {
+		content = string(data)
+	}
+
+	// Update each key-value pair
+	for i := 0; i < len(keyValues); i += 2 {
+		key := keyValues[i]
+		value := keyValues[i+1]
+		content = updateOrInsertTOMLValue(content, section, key, value)
+	}
+
+	if err := os.WriteFile(projectConfigPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateUserLLMAuth updates or creates ~/.config/asimi/asimi.conf with the given LLM auth settings.
 // It saves API keys securely in the keyring and only stores provider/model in the config file.
+// This function preserves all comments in the existing config file.
 func UpdateUserLLMAuth(provider, apiKey, model string) error {
 	// Save API key securely in keyring
 	if err := SaveAPIKeyToKeyring(provider, apiKey); err != nil {
@@ -321,221 +412,55 @@ func UpdateUserLLMAuth(provider, apiKey, model string) error {
 		return updateAPIKeyInFile(provider, apiKey, model)
 	}
 
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
 
-	// If file does not exist, create minimal content
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		content := "[llm]\n" +
-			fmt.Sprintf("provider = \"%s\"\n", provider) +
-			fmt.Sprintf("model = \"%s\"\n", model) +
-			"auth_method = \"apikey_keyring\"\n"
-		return os.WriteFile(cfgPath, []byte(content), 0o600)
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(cfgPath); err == nil {
+		content = string(data)
 	}
 
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to read user config: %w", err)
-	}
-	lines := strings.Split(string(data), "\n")
+	// Update values using comment-preserving helpers
+	content = updateOrInsertTOMLValue(content, "llm", "provider", provider)
+	content = updateOrInsertTOMLValue(content, "llm", "model", model)
+	content = updateOrInsertTOMLValue(content, "llm", "auth_method", "apikey_keyring")
 
-	// Find [llm] section
-	llmStart := -1
-	llmEnd := len(lines)
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[llm]" {
-			llmStart = i
-			// find end at next section header
-			for j := i + 1; j < len(lines); j++ {
-				t := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-					llmEnd = j
-					break
-				}
-			}
-			break
-		}
-	}
+	// Remove plaintext API key if it exists (we're using keyring now)
+	content = removeTOMLKey(content, "llm", "api_key")
 
-	// Helper to set or insert a key=value in the [llm] section
-	setKey := func(key, value string) {
-		quoted := fmt.Sprintf("%s = \"%s\"", key, escapeTOMLString(value))
-		if llmStart == -1 {
-			return
-		}
-		found := false
-		for i := llmStart + 1; i < llmEnd; i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, key+" ") || strings.HasPrefix(t, key+"=") {
-				// Replace entire line
-				indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
-				lines[i] = indent + quoted
-				found = true
-				break
-			}
-		}
-		if !found {
-			// Insert before llmEnd
-			if llmEnd > len(lines) {
-				llmEnd = len(lines)
-			}
-			// Ensure there is at least an empty line before end
-			insertAt := llmEnd
-			newLines := append([]string{}, lines[:insertAt]...)
-			newLines = append(newLines, quoted)
-			newLines = append(newLines, lines[insertAt:]...)
-			lines = newLines
-			llmEnd++
-		}
-	}
-
-	if llmStart == -1 {
-		// Append a new [llm] section
-		var b strings.Builder
-		b.WriteString(string(data))
-		if len(lines) > 0 && lines[len(lines)-1] != "" {
-			b.WriteString("\n")
-		}
-		b.WriteString("[llm]\n")
-		b.WriteString(fmt.Sprintf("provider = \"%s\"\n", provider))
-		b.WriteString(fmt.Sprintf("model = \"%s\"\n", model))
-		b.WriteString(fmt.Sprintf("api_key = \"%s\"\n", escapeTOMLString(apiKey)))
-		return os.WriteFile(cfgPath, []byte(b.String()), 0o644)
-	}
-
-	// Update keys in-place
-	setKey("provider", provider)
-	setKey("model", model)
-	setKey("auth_method", "apikey_keyring")
-
-	// Remove plaintext API key if it exists
-	removeKey := func(key string) {
-		for i := llmStart + 1; i < llmEnd; i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, key+" ") || strings.HasPrefix(t, key+"=") {
-				// Remove this line
-				newLines := append([]string{}, lines[:i]...)
-				newLines = append(newLines, lines[i+1:]...)
-				lines = newLines
-				llmEnd--
-				break
-			}
-		}
-	}
-	removeKey("api_key")
-
-	return os.WriteFile(cfgPath, []byte(strings.Join(lines, "\n")), 0o600)
+	return os.WriteFile(cfgPath, []byte(content), 0o600)
 }
 
-// updateAPIKeyInFile is the fallback method for storing API keys in file (less secure)
+// updateAPIKeyInFile is the fallback method for storing API keys in file (less secure).
+// This function preserves all comments in the existing config file.
 func updateAPIKeyInFile(provider, apiKey, model string) error {
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
 
-	// If file does not exist, create minimal content
-	if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-		content := "[llm]\n" +
-			fmt.Sprintf("provider = \"%s\"\n", provider) +
-			fmt.Sprintf("model = \"%s\"\n", model) +
-			fmt.Sprintf("api_key = \"%s\"\n", escapeTOMLString(apiKey)) +
-			"auth_method = \"apikey_file\"\n"
-		return os.WriteFile(cfgPath, []byte(content), 0o600)
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(cfgPath); err == nil {
+		content = string(data)
 	}
 
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to read user config: %w", err)
-	}
-	lines := strings.Split(string(data), "\n")
+	// Update values using comment-preserving helpers
+	content = updateOrInsertTOMLValue(content, "llm", "provider", provider)
+	content = updateOrInsertTOMLValue(content, "llm", "model", model)
+	content = updateOrInsertTOMLValue(content, "llm", "api_key", apiKey)
+	content = updateOrInsertTOMLValue(content, "llm", "auth_method", "apikey_file")
 
-	// Find [llm] section
-	llmStart := -1
-	llmEnd := len(lines)
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "[llm]" {
-			llmStart = i
-			// find end at next section header
-			for j := i + 1; j < len(lines); j++ {
-				t := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-					llmEnd = j
-					break
-				}
-			}
-			break
-		}
-	}
-
-	// Helper to set or insert a key=value in the [llm] section
-	setKey := func(key, value string) {
-		quoted := fmt.Sprintf("%s = \"%s\"", key, escapeTOMLString(value))
-		if llmStart == -1 {
-			return
-		}
-		found := false
-		for i := llmStart + 1; i < llmEnd; i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, key+" ") || strings.HasPrefix(t, key+"=") {
-				// Replace entire line
-				indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
-				lines[i] = indent + quoted
-				found = true
-				break
-			}
-		}
-		if !found {
-			// Insert before llmEnd
-			if llmEnd > len(lines) {
-				llmEnd = len(lines)
-			}
-			// Ensure there is at least an empty line before end
-			insertAt := llmEnd
-			newLines := append([]string{}, lines[:insertAt]...)
-			newLines = append(newLines, quoted)
-			newLines = append(newLines, lines[insertAt:]...)
-			lines = newLines
-			llmEnd++
-		}
-	}
-
-	if llmStart == -1 {
-		// Append a new [llm] section
-		var b strings.Builder
-		b.WriteString(string(data))
-		if len(lines) > 0 && lines[len(lines)-1] != "" {
-			b.WriteString("\n")
-		}
-		b.WriteString("[llm]\n")
-		b.WriteString(fmt.Sprintf("provider = \"%s\"\n", provider))
-		b.WriteString(fmt.Sprintf("model = \"%s\"\n", model))
-		b.WriteString(fmt.Sprintf("api_key = \"%s\"\n", escapeTOMLString(apiKey)))
-		b.WriteString("auth_method = \"apikey_file\"\n")
-		return os.WriteFile(cfgPath, []byte(b.String()), 0o600)
-	}
-
-	// Update keys in-place
-	setKey("provider", provider)
-	setKey("model", model)
-	setKey("api_key", apiKey)
-	setKey("auth_method", "apikey_file")
-
-	return os.WriteFile(cfgPath, []byte(strings.Join(lines, "\n")), 0o600)
+	return os.WriteFile(cfgPath, []byte(content), 0o600)
 }
 
 func escapeTOMLString(s string) string {
@@ -545,181 +470,248 @@ func escapeTOMLString(s string) string {
 	return s
 }
 
+// =============================================================================
+// TOML Comment-Preserving Helper Functions
+// =============================================================================
+// These functions use regex-based patching to modify TOML files while preserving
+// all comments (both full-line comments and inline comments).
+
+// findTOMLSectionBounds finds the start and end positions of a TOML section.
+// Returns (sectionStart, sectionEnd, found) where:
+// - sectionStart is the index of the line containing [section]
+// - sectionEnd is the index of the first line of the next section (or len(lines))
+// - found indicates whether the section was found
+func findTOMLSectionBounds(lines []string, section string) (int, int, bool) {
+	sectionStart := -1
+	sectionEnd := len(lines)
+
+	// Build regex to match the section header
+	sectionPattern := regexp.MustCompile(`^\s*\[` + regexp.QuoteMeta(section) + `\]\s*$`)
+	nextSectionPattern := regexp.MustCompile(`^\s*\[[^\]]+\]\s*$`)
+
+	for i, line := range lines {
+		if sectionStart == -1 {
+			if sectionPattern.MatchString(line) {
+				sectionStart = i
+			}
+		} else {
+			// Look for the next section
+			if nextSectionPattern.MatchString(line) {
+				sectionEnd = i
+				break
+			}
+		}
+	}
+
+	return sectionStart, sectionEnd, sectionStart != -1
+}
+
+// updateTOMLValue updates a single key's value in a TOML section, preserving comments.
+// Returns the modified content and whether the key was found and updated.
+func updateTOMLValue(content, section, key, newValue string) (string, bool) {
+	lines := strings.Split(content, "\n")
+	sectionStart, sectionEnd, found := findTOMLSectionBounds(lines, section)
+	if !found {
+		return content, false
+	}
+
+	// Build regex to match the key within the section
+	// Matches: key = "value", key = 'value', key = value
+	// Preserves inline comments
+	keyPattern := regexp.MustCompile(`^(\s*` + regexp.QuoteMeta(key) + `\s*=\s*)("[^"]*"|'[^']*'|[^#\n]*)(.*)$`)
+
+	for i := sectionStart + 1; i < sectionEnd; i++ {
+		line := lines[i]
+		if matches := keyPattern.FindStringSubmatch(line); matches != nil {
+			// matches[1] = "key = " (with any leading whitespace)
+			// matches[2] = the old value
+			// matches[3] = inline comment (if any)
+			newLine := matches[1] + `"` + escapeTOMLString(newValue) + `"` + matches[3]
+			lines[i] = newLine
+			return strings.Join(lines, "\n"), true
+		}
+	}
+
+	return content, false
+}
+
+// insertTOMLValue inserts a new key=value in a section (at the end of the section).
+// If the section doesn't exist, it returns the content unchanged.
+func insertTOMLValue(content, section, key, value string) string {
+	lines := strings.Split(content, "\n")
+	sectionStart, sectionEnd, found := findTOMLSectionBounds(lines, section)
+	if !found {
+		return content
+	}
+
+	// Find the best insertion point (before the next section or at end of section content)
+	insertAt := sectionEnd
+
+	// Look for the last non-empty, non-comment line in the section to insert after it
+	for i := sectionEnd - 1; i > sectionStart; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			insertAt = i + 1
+			break
+		}
+	}
+
+	// If section is empty (only header), insert right after header
+	if insertAt == sectionEnd && sectionEnd == sectionStart+1 {
+		insertAt = sectionStart + 1
+	} else if insertAt == sectionEnd {
+		// Check if we're at the section header still
+		for i := sectionStart + 1; i < sectionEnd; i++ {
+			trimmed := strings.TrimSpace(lines[i])
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				break
+			}
+			if i == sectionEnd-1 {
+				insertAt = sectionEnd
+			}
+		}
+	}
+
+	newLine := key + ` = "` + escapeTOMLString(value) + `"`
+
+	// Insert the new line
+	newLines := make([]string, 0, len(lines)+1)
+	newLines = append(newLines, lines[:insertAt]...)
+	newLines = append(newLines, newLine)
+	newLines = append(newLines, lines[insertAt:]...)
+
+	return strings.Join(newLines, "\n")
+}
+
+// removeTOMLKey removes a key from a section, preserving surrounding comments.
+// Returns the modified content.
+func removeTOMLKey(content, section, key string) string {
+	lines := strings.Split(content, "\n")
+	sectionStart, sectionEnd, found := findTOMLSectionBounds(lines, section)
+	if !found {
+		return content
+	}
+
+	// Build regex to match the key
+	keyPattern := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(key) + `\s*=`)
+
+	for i := sectionStart + 1; i < sectionEnd; i++ {
+		if keyPattern.MatchString(lines[i]) {
+			// Remove this line
+			newLines := make([]string, 0, len(lines)-1)
+			newLines = append(newLines, lines[:i]...)
+			newLines = append(newLines, lines[i+1:]...)
+			return strings.Join(newLines, "\n")
+		}
+	}
+
+	return content
+}
+
+// ensureTOMLSection ensures a section exists in the content.
+// If the section doesn't exist, it appends it at the end.
+// Returns the modified content.
+func ensureTOMLSection(content, section string) string {
+	lines := strings.Split(content, "\n")
+	_, _, found := findTOMLSectionBounds(lines, section)
+	if found {
+		return content
+	}
+
+	// Append the section at the end
+	var result strings.Builder
+	result.WriteString(content)
+
+	// Ensure there's a newline before the new section
+	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
+		result.WriteString("\n")
+	}
+	// Add blank line if content doesn't end with one
+	if len(content) > 0 && !strings.HasSuffix(content, "\n\n") {
+		result.WriteString("\n")
+	}
+
+	result.WriteString("[" + section + "]\n")
+	return result.String()
+}
+
+// updateOrInsertTOMLValue updates a key if it exists, or inserts it if it doesn't.
+// If the section doesn't exist, it creates the section first.
+func updateOrInsertTOMLValue(content, section, key, value string) string {
+	// Ensure section exists
+	content = ensureTOMLSection(content, section)
+
+	// Try to update existing key
+	updated, found := updateTOMLValue(content, section, key, value)
+	if found {
+		return updated
+	}
+
+	// Key doesn't exist, insert it
+	return insertTOMLValue(content, section, key, value)
+}
+
 // UpdateUserOAuthTokens saves OAuth tokens securely in the OS keyring and updates provider in config.
+// This function preserves all comments in the existing config file.
 func UpdateUserOAuthTokens(provider, accessToken, refreshToken string, expiry time.Time) error {
 	// Save tokens securely in keyring
 	if err := SaveTokenToKeyring(provider, accessToken, refreshToken, expiry); err != nil {
 		// Fall back to file storage with warning
 		log.Printf("Warning: Failed to save tokens to keyring, falling back to file storage: %v", err)
-		return updateOAuthTokensInFile(provider, accessToken, refreshToken, expiry)
+		return updateOAuthTokensInFile(provider, accessToken, refreshToken)
 	}
 
 	// Only save provider info in the config file (not the tokens)
-	homeDir, err := os.UserHomeDir()
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
 
-	data := []byte{}
-	if b, err := os.ReadFile(cfgPath); err == nil {
-		data = b
-	}
-	lines := strings.Split(string(data), "\n")
-
-	// Ensure we have an [llm] section
-	llmStart := -1
-	llmEnd := len(lines)
-	for i, line := range lines {
-		t := strings.TrimSpace(line)
-		if t == "[llm]" {
-			llmStart = i
-			for j := i + 1; j < len(lines); j++ {
-				tt := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(tt, "[") && strings.HasSuffix(tt, "]") {
-					llmEnd = j
-					break
-				}
-			}
-			break
-		}
-	}
-	if llmStart == -1 {
-		// append
-		if len(lines) > 0 && lines[len(lines)-1] != "" {
-			lines = append(lines, "")
-		}
-		lines = append(lines, "[llm]")
-		llmStart = len(lines) - 1
-		llmEnd = len(lines)
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(cfgPath); err == nil {
+		content = string(data)
 	}
 
-	setKey := func(key, value string) {
-		quoted := fmt.Sprintf("%s = \"%s\"", key, escapeTOMLString(value))
-		found := false
-		for i := llmStart + 1; i < llmEnd; i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, key+" ") || strings.HasPrefix(t, key+"=") {
-				indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
-				lines[i] = indent + quoted
-				found = true
-				break
-			}
-		}
-		if !found {
-			insertAt := llmEnd
-			newLines := append([]string{}, lines[:insertAt]...)
-			newLines = append(newLines, quoted)
-			newLines = append(newLines, lines[insertAt:]...)
-			lines = newLines
-			llmEnd++
-		}
-	}
+	// Update values using comment-preserving helpers
+	content = updateOrInsertTOMLValue(content, "llm", "provider", provider)
 
-	// Only set provider and a note about secure storage
-	setKey("provider", provider)
-	setKey("auth_method", "oauth_keyring")
+	// Remove any plaintext tokens from config if they exist (we're using keyring now)
+	content = removeTOMLKey(content, "llm", "auth_token")
+	content = removeTOMLKey(content, "llm", "refresh_token")
 
-	// Remove any plaintext tokens from config if they exist
-	removeKey := func(key string) {
-		for i := llmStart + 1; i < llmEnd; i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, key+" ") || strings.HasPrefix(t, key+"=") {
-				// Remove this line
-				newLines := append([]string{}, lines[:i]...)
-				newLines = append(newLines, lines[i+1:]...)
-				lines = newLines
-				llmEnd--
-				break
-			}
-		}
-	}
-	removeKey("auth_token")
-	removeKey("refresh_token")
-
-	return os.WriteFile(cfgPath, []byte(strings.Join(lines, "\n")), 0o600) // More restrictive permissions
+	return os.WriteFile(cfgPath, []byte(content), 0o600)
 }
 
-// updateOAuthTokensInFile is the fallback method for storing tokens in file (less secure)
-func updateOAuthTokensInFile(provider, accessToken, refreshToken string, expiry time.Time) error {
-	homeDir, err := os.UserHomeDir()
+// updateOAuthTokensInFile is the fallback method for storing tokens in file (less secure).
+// This function preserves all comments in the existing config file.
+func updateOAuthTokensInFile(provider, accessToken, refreshToken string) error {
+	cfgDir, cfgPath, err := userConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get user home dir: %w", err)
+		return err
 	}
-	cfgDir := filepath.Join(homeDir, ".config", "asimi")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config dir: %w", err)
 	}
-	cfgPath := filepath.Join(cfgDir, "conf.toml")
 
-	data := []byte{}
-	if b, err := os.ReadFile(cfgPath); err == nil {
-		data = b
-	}
-	lines := strings.Split(string(data), "\n")
-
-	// Ensure we have an [llm] section
-	llmStart := -1
-	llmEnd := len(lines)
-	for i, line := range lines {
-		t := strings.TrimSpace(line)
-		if t == "[llm]" {
-			llmStart = i
-			for j := i + 1; j < len(lines); j++ {
-				tt := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(tt, "[") && strings.HasSuffix(tt, "]") {
-					llmEnd = j
-					break
-				}
-			}
-			break
-		}
-	}
-	if llmStart == -1 {
-		// append
-		if len(lines) > 0 && lines[len(lines)-1] != "" {
-			lines = append(lines, "")
-		}
-		lines = append(lines, "[llm]")
-		llmStart = len(lines) - 1
-		llmEnd = len(lines)
+	// Read existing content or start with empty
+	var content string
+	if data, err := os.ReadFile(cfgPath); err == nil {
+		content = string(data)
 	}
 
-	setKey := func(key, value string) {
-		quoted := fmt.Sprintf("%s = \"%s\"", key, escapeTOMLString(value))
-		found := false
-		for i := llmStart + 1; i < llmEnd; i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, key+" ") || strings.HasPrefix(t, key+"=") {
-				indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
-				lines[i] = indent + quoted
-				found = true
-				break
-			}
-		}
-		if !found {
-			insertAt := llmEnd
-			newLines := append([]string{}, lines[:insertAt]...)
-			newLines = append(newLines, quoted)
-			newLines = append(newLines, lines[insertAt:]...)
-			lines = newLines
-			llmEnd++
-		}
-	}
-
-	// Set provider to ensure consistency
-	setKey("provider", provider)
-	setKey("auth_method", "oauth_file")
-	setKey("auth_token", accessToken)
+	// Update values using comment-preserving helpers
+	content = updateOrInsertTOMLValue(content, "llm", "provider", provider)
+	content = updateOrInsertTOMLValue(content, "llm", "auth_method", "oauth_file")
+	content = updateOrInsertTOMLValue(content, "llm", "auth_token", accessToken)
 	if refreshToken != "" {
-		setKey("refresh_token", refreshToken)
+		content = updateOrInsertTOMLValue(content, "llm", "refresh_token", refreshToken)
 	}
 
-	return os.WriteFile(cfgPath, []byte(strings.Join(lines, "\n")), 0o600) // More restrictive permissions
+	return os.WriteFile(cfgPath, []byte(content), 0o600)
 }
 func getEnv(key, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
@@ -732,12 +724,12 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 	p := oauthProviderConfig{}
 	switch provider {
 	case "googleai":
-		// Defaults for Google accounts (Gemini)
-		p.AuthURL = getEnv(os.Getenv("ASIMI_OAUTH_GOOGLE_AUTH_URL"), "https://accounts.google.com/o/oauth2/v2/auth")
-		p.TokenURL = getEnv(os.Getenv("ASIMI_OAUTH_GOOGLE_TOKEN_URL"), "https://oauth2.googleapis.com/token")
-		p.ClientID = os.Getenv("ASIMI_OAUTH_GOOGLE_CLIENT_ID")
-		p.ClientSecret = os.Getenv("ASIMI_OAUTH_GOOGLE_CLIENT_SECRET")
-		scopes := os.Getenv("ASIMI_OAUTH_GOOGLE_SCOPES")
+		// Use standard Google environment variable names
+		p.AuthURL = getEnv("GOOGLE_AUTH_URL", "https://accounts.google.com/o/oauth2/v2/auth")
+		p.TokenURL = getEnv("GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+		p.ClientID = os.Getenv("GOOGLE_CLIENT_ID")
+		p.ClientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
+		scopes := os.Getenv("GOOGLE_OAUTH_SCOPES")
 		if scopes == "" {
 			// Default to the Generative Language scope
 			p.Scopes = []string{"https://www.googleapis.com/auth/generative-language"}
@@ -745,20 +737,22 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 			p.Scopes = strings.Split(scopes, ",")
 		}
 	case "openai":
-		p.AuthURL = os.Getenv("ASIMI_OAUTH_OPENAI_AUTH_URL")
-		p.TokenURL = os.Getenv("ASIMI_OAUTH_OPENAI_TOKEN_URL")
-		p.ClientID = os.Getenv("ASIMI_OAUTH_OPENAI_CLIENT_ID")
-		p.ClientSecret = os.Getenv("ASIMI_OAUTH_OPENAI_CLIENT_SECRET")
-		scopes := os.Getenv("ASIMI_OAUTH_OPENAI_SCOPES")
+		// Use standard OpenAI environment variable names
+		p.AuthURL = os.Getenv("OPENAI_AUTH_URL")
+		p.TokenURL = os.Getenv("OPENAI_TOKEN_URL")
+		p.ClientID = os.Getenv("OPENAI_CLIENT_ID")
+		p.ClientSecret = os.Getenv("OPENAI_CLIENT_SECRET")
+		scopes := os.Getenv("OPENAI_OAUTH_SCOPES")
 		if scopes != "" {
 			p.Scopes = strings.Split(scopes, ",")
 		}
 	case "anthropic":
-		p.AuthURL = os.Getenv("ASIMI_OAUTH_ANTHROPIC_AUTH_URL")
-		p.TokenURL = os.Getenv("ASIMI_OAUTH_ANTHROPIC_TOKEN_URL")
-		p.ClientID = os.Getenv("ASIMI_OAUTH_ANTHROPIC_CLIENT_ID")
-		p.ClientSecret = os.Getenv("ASIMI_OAUTH_ANTHROPIC_CLIENT_SECRET")
-		scopes := os.Getenv("ASIMI_OAUTH_ANTHROPIC_SCOPES")
+		// Use standard Anthropic environment variable names
+		p.AuthURL = os.Getenv("ANTHROPIC_AUTH_URL")
+		p.TokenURL = os.Getenv("ANTHROPIC_TOKEN_URL")
+		p.ClientID = os.Getenv("ANTHROPIC_CLIENT_ID")
+		p.ClientSecret = os.Getenv("ANTHROPIC_CLIENT_SECRET")
+		scopes := os.Getenv("ANTHROPIC_OAUTH_SCOPES")
 		if scopes != "" {
 			p.Scopes = strings.Split(scopes, ",")
 		}
@@ -766,7 +760,12 @@ func getOAuthConfig(provider string) (oauthProviderConfig, error) {
 		return p, fmt.Errorf("unsupported provider for oauth: %s", provider)
 	}
 	if p.AuthURL == "" || p.TokenURL == "" || p.ClientID == "" {
-		return p, fmt.Errorf("OAuth not configured. Set ASIMI_OAUTH_* env vars for %s", provider)
+		providerName := strings.ToUpper(provider)
+		if provider == "googleai" {
+			providerName = "GOOGLE"
+		}
+		return p, fmt.Errorf("OAuth not configured. Set %s_CLIENT_ID, %s_CLIENT_SECRET, %s_AUTH_URL, and %s_TOKEN_URL",
+			providerName, providerName, providerName, providerName)
 	}
 	return p, nil
 }

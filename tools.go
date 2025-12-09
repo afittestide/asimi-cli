@@ -1,15 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -93,6 +89,13 @@ type ReadFileInput struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
+// readFileInputRaw is used to handle string values for numeric fields (workaround for Claude Code CLI)
+type readFileInputRaw struct {
+	Path   string `json:"path"`
+	Offset any    `json:"offset,omitempty"`
+	Limit  any    `json:"limit,omitempty"`
+}
+
 // ReadFileTool is a tool for reading files
 type ReadFileTool struct{}
 
@@ -112,8 +115,28 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 		params.Path = input
 	}
 
+	// Workaround for Claude Code CLI bug: numeric params come as strings
+	// If offset/limit are zero but the input contains them, try flexible parsing
+	if (params.Offset == 0 && strings.Contains(input, `"offset"`)) ||
+		(params.Limit == 0 && strings.Contains(input, `"limit"`)) {
+		var rawParams readFileInputRaw
+		if json.Unmarshal([]byte(input), &rawParams) == nil {
+			params.Path = rawParams.Path
+			if s, ok := rawParams.Offset.(string); ok && s != "" {
+				fmt.Sscanf(s, "%d", &params.Offset)
+			}
+			if s, ok := rawParams.Limit.(string); ok && s != "" {
+				fmt.Sscanf(s, "%d", &params.Limit)
+			}
+		}
+	}
+
 	// Clean up the path to remove any surrounding quotes
 	params.Path = strings.Trim(params.Path, `"'`)
+
+	if err := validatePathWithinProject(params.Path); err != nil {
+		return "", err
+	}
 
 	content, err := os.ReadFile(params.Path)
 	if err != nil {
@@ -152,6 +175,19 @@ func (t ReadFileTool) Call(ctx context.Context, input string) (string, error) {
 	return strings.Join(selectedLines, "\n"), nil
 }
 
+func (t ReadFileTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Absolute or relative path to the file",
+			},
+		},
+		"required": []string{"path"},
+	}
+}
+
 // String formats a read_file tool call for display
 func (t ReadFileTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract path
@@ -160,7 +196,7 @@ func (t ReadFileTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = fmt.Sprintf(" %s", params.Path)
 	}
 
 	// First line: tool name and parameters
@@ -169,16 +205,16 @@ func (t ReadFileTool) Format(input, result string, err error) string {
 	// Second line: result summary
 	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine = fmt.Sprintf("%sError: %v", treeFinalPrefix, err)
 	} else {
 		lines := strings.Count(result, "\n") + 1
 		if result == "" {
 			lines = 0
 		}
-		secondLine = fmt.Sprintf("  ⎿  Read %d lines", lines)
+		secondLine = fmt.Sprintf("%sRead %d lines", treeFinalPrefix, lines)
 	}
 
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 // WriteFileInput is the input for the WriteFileTool
@@ -229,6 +265,23 @@ func (t WriteFileTool) Call(ctx context.Context, input string) (string, error) {
 	return fmt.Sprintf("Successfully wrote to %s", params.Path), nil
 }
 
+func (t WriteFileTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Target file path",
+			},
+			"content": map[string]any{
+				"type":        "string",
+				"description": "File contents to write",
+			},
+		},
+		"required": []string{"path", "content"},
+	}
+}
+
 // String formats a write_file tool call for display
 func (t WriteFileTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract path
@@ -237,7 +290,7 @@ func (t WriteFileTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = fmt.Sprintf(" %s", params.Path)
 	}
 
 	// First line: tool name and parameters
@@ -246,12 +299,12 @@ func (t WriteFileTool) Format(input, result string, err error) string {
 	// Second line: result summary
 	var secondLine string
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine = fmt.Sprintf("%sError: %v", treeFinalPrefix, err)
 	} else {
-		secondLine = "  ⎿  File written successfully"
+		secondLine = fmt.Sprintf("%sFile written successfully", treeFinalPrefix)
 	}
 
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 // ListDirectoryInput is the input for the ListDirectoryTool
@@ -286,6 +339,10 @@ func (t ListDirectoryTool) Call(ctx context.Context, input string) (string, erro
 		params.Path = "."
 	}
 
+	if err := validatePathWithinProject(params.Path); err != nil {
+		return "", err
+	}
+
 	files, err := os.ReadDir(params.Path)
 	if err != nil {
 		return "", err
@@ -298,6 +355,18 @@ func (t ListDirectoryTool) Call(ctx context.Context, input string) (string, erro
 	return strings.Join(fileNames, "\n"), nil
 }
 
+func (t ListDirectoryTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "Directory path (defaults to '.')",
+			},
+		},
+	}
+}
+
 // String formats a list_files tool call for display
 func (t ListDirectoryTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract path
@@ -306,27 +375,26 @@ func (t ListDirectoryTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = params.Path
 	} else {
-		paramStr = "(.)"
+		paramStr = "."
 	}
 
 	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("List Files%s", paramStr)
+	firstLine := fmt.Sprintf("List Files %s", paramStr)
 
 	// Second line: result summary
-	var secondLine string
+	secondLine := treeFinalPrefix
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine += fmt.Sprintf("Error: %v", err)
 	} else {
 		files := strings.Split(strings.TrimSpace(result), "\n")
 		if result == "" {
 			files = []string{}
 		}
-		secondLine = fmt.Sprintf("  ⎿  Found %d items", len(files))
+		secondLine += fmt.Sprintf("Found %d items", len(files))
 	}
-
-	return firstLine + "\n" + secondLine
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 // ReplaceTextInput is the input for the ReplaceTextTool
@@ -388,6 +456,27 @@ func (t ReplaceTextTool) Call(ctx context.Context, input string) (string, error)
 	return fmt.Sprintf("Successfully modified file: %s (%d replacements)", params.Path, occurrences), nil
 }
 
+func (t ReplaceTextTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type":        "string",
+				"description": "File path",
+			},
+			"old_text": map[string]any{
+				"type":        "string",
+				"description": "Text to replace",
+			},
+			"new_text": map[string]any{
+				"type":        "string",
+				"description": "Replacement text",
+			},
+		},
+		"required": []string{"path", "old_text", "new_text"},
+	}
+}
+
 // String formats a replace_text tool call for display
 func (t ReplaceTextTool) Format(input, result string, err error) string {
 	// Parse input JSON to extract path
@@ -396,23 +485,23 @@ func (t ReplaceTextTool) Format(input, result string, err error) string {
 
 	paramStr := ""
 	if params.Path != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Path)
+		paramStr = fmt.Sprintf(" %s", params.Path)
 	}
 
 	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("Replace Text%s", paramStr)
+	firstLine := fmt.Sprintf("Replace Text %s", paramStr)
 
 	// Second line: result summary
-	var secondLine string
+	secondLine := treeFinalPrefix
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine += fmt.Sprintf("Error: %v", err)
 	} else {
 		if strings.Contains(result, "No occurrences") {
-			secondLine = "  ⎿  No matches found"
+			secondLine += "No matches found"
 		} else if strings.Contains(result, "No changes") {
-			secondLine = "  ⎿  No changes needed"
+			secondLine += "No changes needed"
 		} else {
-			secondLine = "  ⎿  Text replaced successfully"
+			secondLine += "Text replaced successfully"
 		}
 	}
 
@@ -428,24 +517,29 @@ type RunInShell struct {
 type RunInShellInput struct {
 	Command     string `json:"command"`
 	Description string `json:"description"`
+	// RequestApproval is an internal field (not included in JSON schema) that indicates
+	// whether this command requires user approval before execution on the host.
+	// This is set by the tool based on config patterns, not by the LLM.
+	RequestApproval bool `json:"-"`
 }
 
 // RunInShellOutput is the output of the RunInShell tool
 type RunInShellOutput struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	Output   string `json:"stdout"`
 	ExitCode string `json:"exitCode"`
 }
 
 type shellRunner interface {
 	Run(context.Context, RunInShellInput) (RunInShellOutput, error)
+	Restart(context.Context) error
+	Close(context.Context) error
+	AllowFallback(bool)
 }
 
 var (
-	shellRunnerMu       sync.RWMutex
-	currentShellRunner  shellRunner
-	shellRunnerOnce     sync.Once
-	shellRunnerInstance shellRunner // Populated by fx
+	shellRunnerMu      sync.RWMutex
+	currentShellRunner shellRunner
+	shellRunnerOnce    sync.Once
 )
 
 func setShellRunnerForTesting(r shellRunner) func() {
@@ -466,19 +560,10 @@ func initShellRunner(config *Config) {
 
 	// Initialize podman shell runner with config
 	repoInfo := GetRepoInfo()
-	currentShellRunner = newPodmanShellRunner(config.LLM.PodmanAllowHostFallback, config, repoInfo)
+	currentShellRunner = newPodmanShellRunner(config.RunInShell.AllowHostFallback, config, repoInfo)
 }
 
 func getShellRunner() shellRunner {
-	// If shellRunnerInstance is set (via fx), use it
-	shellRunnerMu.RLock()
-	if shellRunnerInstance != nil {
-		defer shellRunnerMu.RUnlock()
-		return shellRunnerInstance
-	}
-	shellRunnerMu.RUnlock()
-
-	// Otherwise fall back to legacy initialization
 	shellRunnerOnce.Do(func() {
 		repoInfo := GetRepoInfo()
 		shellRunnerMu.Lock()
@@ -494,23 +579,38 @@ func getShellRunner() shellRunner {
 }
 
 // shouldRunOnHost checks if a command matches any of the run_on_host patterns
-func (t RunInShell) shouldRunOnHost(command string) bool {
+// and whether it requires user approval (i.e., not in safe_run_on_host patterns).
+func (t RunInShell) shouldRunOnHost(command string) (runOnHost, requiresApproval bool) {
 	if t.config == nil || len(t.config.RunInShell.RunOnHost) == 0 {
-		return false
+		return
 	}
-
-	for _, pattern := range t.config.RunInShell.RunOnHost {
+	// First check if command matches any safe_run_on_host pattern (no approval needed)
+	for _, pattern := range t.config.RunInShell.SafeRunOnHost {
 		matched, err := regexp.MatchString(pattern, command)
 		if err != nil {
 			// Log warning but continue checking other patterns
 			continue
 		}
 		if matched {
-			return true
+			runOnHost = true
+			requiresApproval = false
+			return
 		}
 	}
 
-	return false
+	// Check if command matches any run_on_host pattern
+	for _, pattern := range t.config.RunInShell.RunOnHost {
+		matched, _ := regexp.MatchString(pattern, command)
+		if matched {
+			runOnHost = true
+			requiresApproval = true
+			return
+		}
+	}
+
+	runOnHost = false
+	requiresApproval = false
+	return
 }
 
 func (t RunInShell) Name() string {
@@ -518,7 +618,7 @@ func (t RunInShell) Name() string {
 }
 
 func (t RunInShell) Description() string {
-	return "Executes a shell command in a persistent shell session inside a container. The project root is mounted at `/workspace`, and when in a worktree, the shell automatically navigates to the worktree directory. Current working directory is maintained between commands. The input should be a JSON object with 'command' and optional 'description' fields."
+	return "Executes a shell command in a persistent shell session inside a container. The project root is mounted at `/workspace`, and when in a worktree, the shell automatically navigates to the worktree directory. Current working directory is maintained between commands. The input should be a JSON object with 'command' and optional 'description' fields.\n\nIMPORTANT: Each command runs in an isolated subshell for stability and predictability. This means:\n- Environment variables set with 'export' do NOT persist between commands\n- Directory changes with 'cd' do NOT persist between commands\n- Each command starts fresh in the project/worktree root directory\n- To perform multi-step operations, combine them in a single command using && or ; (e.g., 'cd dir && make && cd ..')\n- Redirects and heredocs work correctly within each command"
 }
 
 func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
@@ -529,17 +629,40 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	}
 
 	var output RunInShellOutput
+	var runErr error
+
 	// Check if command should run on host based on config patterns
-	if t.shouldRunOnHost(params.Command) {
-		// Run directly on host
-		output, err = hostShellRunner{}.Run(ctx, params)
+	runOnHost, requiresApproval := t.shouldRunOnHost(params.Command)
+	if runOnHost {
+		slog.Info("Executing safe command on HOST", "needs approval", requiresApproval, "command", params.Command)
+
+		// Set the approval flag based on config patterns
+		params.RequestApproval = requiresApproval
+
+		// Run directly on host using hostRun (which handles approval internally)
+		output, runErr = hostRun(ctx, params)
 	} else {
 		runner := getShellRunner()
-		output, err = runner.Run(ctx, params)
+		output, runErr = runner.Run(ctx, params)
+
+		// If we got a harness error, try to restart and retry once
+		if runErr != nil {
+			slog.Warn("Shell runner failed", "error", runErr)
+
+			// Try to restart the container connection
+			if restartErr := runner.Restart(ctx); restartErr != nil {
+				// If restart fails, return the original error
+				return "", fmt.Errorf("command failed and restart failed: %w (restart error: %v)", runErr, restartErr)
+			}
+
+			// Retry the command once after restart
+			output, runErr = runner.Run(ctx, params)
+			slog.Info("bash: Command Finished", "error", runErr)
+		}
 	}
 
-	if err != nil {
-		return "", err
+	if runErr != nil {
+		return "", runErr
 	}
 
 	outputBytes, err := json.Marshal(output)
@@ -550,54 +673,74 @@ func (t RunInShell) Call(ctx context.Context, input string) (string, error) {
 	return string(outputBytes), nil
 }
 
-// String formats a run_in_shell tool call for display
-func (t RunInShell) Format(input, result string, err error) string {
-	// Parse input JSON to extract command
-	var params RunInShellInput
-	json.Unmarshal([]byte(input), &params)
-
-	paramStr := ""
-	if params.Command != "" {
-		cmd := params.Command
-		// Truncate long commands
-		if len(cmd) > 50 {
-			cmd = cmd[:47] + "..."
-		}
-		paramStr = fmt.Sprintf("(%s)", cmd)
+func (t RunInShell) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"command": map[string]any{
+				"type":        "string",
+				"description": "Shell command to run",
+			},
+			"description": map[string]any{
+				"type":        "string",
+				"description": "Why we run this command, will be displayed to the user",
+			},
+		},
+		"required": []string{"command"},
 	}
-
-	// First line: tool name and parameters
-	firstLine := fmt.Sprintf("Run In Shell%s", paramStr)
-
-	// Second line: result summary
-	var secondLine string
-	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
-	} else {
-		// Parse JSON output to get exit code
-		var output map[string]interface{}
-		if json.Unmarshal([]byte(result), &output) == nil {
-			if exitCode, ok := output["exitCode"].(float64); ok {
-				if exitCode == 0 {
-					secondLine = "  ⎿  Command completed successfully"
-				} else {
-					secondLine = fmt.Sprintf("  ⎿  Command failed (exit code %d)", int(exitCode))
-				}
-			} else {
-				secondLine = "  ⎿  Command executed"
-			}
-		} else {
-			secondLine = "  ⎿  Command executed"
-		}
-	}
-
-	return firstLine + "\n" + secondLine
 }
 
-type hostShellRunner struct{}
+// String formats a run_in_shell tool call for display
+func (t RunInShell) Format(input, result string, err error) string {
+	var params RunInShellInput
+	var ec string
+	json.Unmarshal([]byte(input), &params)
+	line3 := ""
+	if err != nil {
+		line3 = fmt.Sprintf("%sERROR: %v\n", treeFinalPrefix, err)
+	} else if result != "" {
+		var output map[string]interface{}
+		err := json.Unmarshal([]byte(result), &output)
+		if err == nil {
+			ec = output["exitCode"].(string)
+			if ec != "0" {
+				// TODO: Format with warning color
+				line3 = fmt.Sprintf("%s%s\n", treeFinalPrefix, ec)
+			}
+		} else {
+			line3 = fmt.Sprintf("%sERROR: %s\n", treeFinalPrefix, err)
+		}
+	}
 
-func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
+	var ret strings.Builder
+	ret.WriteString(params.Description + "\n")
+	if line3 == "" {
+		ret.WriteString(fmt.Sprintf("%s$ %s\n", treeFinalPrefix, params.Command))
+	} else {
+		ret.WriteString(fmt.Sprintf("%s$ %s\n", treeMidPrefix, params.Command))
+	}
+	ret.WriteString(line3)
+	return ret.String()
+}
+
+func hostRun(ctx context.Context, params RunInShellInput) (RunInShellOutput, error) {
 	var output RunInShellOutput
+
+	// Check if approval is required
+	if params.RequestApproval {
+		approved, err := requestHostCommandApproval(ctx, params.Command)
+		if err != nil {
+			output.Output = fmt.Sprintf("Error requesting approval: %v", err)
+			output.ExitCode = "1"
+			return output, err
+		}
+
+		if !approved {
+			output.Output = "Command execution denied by user"
+			output.ExitCode = "1"
+			return output, fmt.Errorf("command denied by user: %s", params.Command)
+		}
+	}
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
@@ -613,8 +756,7 @@ func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInSh
 	runErr := cmd.Run()
 
 	// Populate stdout and stderr separately
-	output.Stdout = stdout.String()
-	output.Stderr = stderr.String()
+	output.Output = stdout.String() + "\n" + stderr.String()
 
 	if runErr != nil {
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
@@ -631,6 +773,52 @@ func (hostShellRunner) Run(ctx context.Context, params RunInShellInput) (RunInSh
 	}
 
 	return output, nil
+}
+
+// HostCommandApprovalRequest represents a request for user approval to run a host command
+type HostCommandApprovalRequest struct {
+	Command      string
+	ResponseChan chan bool
+}
+
+// hostCommandApprovalChan is used to send approval requests to the TUI
+var hostCommandApprovalChan chan HostCommandApprovalRequest
+
+// SetHostCommandApprovalChannel sets the channel used for host command approval requests
+// This should be called by the TUI during initialization
+func SetHostCommandApprovalChannel(ch chan HostCommandApprovalRequest) {
+	hostCommandApprovalChan = ch
+}
+
+// requestHostCommandApproval sends an approval request to the TUI and waits for a response
+func requestHostCommandApproval(ctx context.Context, command string) (bool, error) {
+	if hostCommandApprovalChan == nil {
+		// No approval channel configured - deny by default for safety
+		slog.Warn("Host command approval requested but no approval channel configured", "command", command)
+		return false, fmt.Errorf("no approval mechanism configured")
+	}
+
+	responseChan := make(chan bool, 1)
+	request := HostCommandApprovalRequest{
+		Command:      command,
+		ResponseChan: responseChan,
+	}
+
+	// Send the approval request
+	select {
+	case hostCommandApprovalChan <- request:
+		// Request sent successfully
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+
+	// Wait for the response
+	select {
+	case approved := <-responseChan:
+		return approved, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
 }
 
 type PodmanUnavailableError struct {
@@ -688,6 +876,11 @@ func (t ReadManyFilesTool) Call(ctx context.Context, input string) (string, erro
 	}
 
 	for _, path := range uniqueMatches {
+		if err := validatePathWithinProject(path); err != nil {
+			// Skip files outside the project directory
+			continue
+		}
+
 		content, err := os.ReadFile(path)
 		if err != nil {
 			// If we can't read a file, we can skip it and continue.
@@ -699,6 +892,23 @@ func (t ReadManyFilesTool) Call(ctx context.Context, input string) (string, erro
 	}
 
 	return contentBuilder.String(), nil
+}
+
+func (t ReadManyFilesTool) ParameterSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"paths": map[string]any{
+				"type":        "array",
+				"description": "Array of file paths or glob patterns to read",
+				"items": map[string]any{
+					"type":        "string",
+					"description": "A file path or glob pattern",
+				},
+			},
+		},
+		"required": []string{"paths"},
+	}
 }
 
 // String formats a read_many_files tool call for display
@@ -718,452 +928,23 @@ func (t ReadManyFilesTool) Format(input, result string, err error) string {
 	firstLine := fmt.Sprintf("Read Many Files%s", paramStr)
 
 	// Second line: result summary
-	var secondLine string
+	secondLine := treeFinalPrefix
 	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
+		secondLine += fmt.Sprintf("Error: %v", err)
 	} else {
 		// Count files by counting "---\t" markers
 		fileCount := strings.Count(result, "---\t")
-		secondLine = fmt.Sprintf("  ⎿  Read %d files", fileCount)
+		secondLine += fmt.Sprintf("Read %d files", fileCount)
 	}
 
-	return firstLine + "\n" + secondLine
-}
-
-// MergeToolInput defines the parameters expected by the merge tool.
-type MergeToolInput struct {
-	WorktreePath  string `json:"worktree_path"`
-	Branch        string `json:"branch"`
-	MainBranch    string `json:"main_branch"`
-	Push          bool   `json:"push,omitempty"`
-	AutoApprove   bool   `json:"auto_approve,omitempty"`
-	CommitMessage string `json:"commit_message,omitempty"`
-	SkipReview    bool   `json:"skip_review,omitempty"`
-}
-
-// MergeTool orchestrates squashing and merging a worktree-backed branch.
-type MergeTool struct{}
-
-func (t MergeTool) Name() string {
-	return "merge"
-}
-
-func (t MergeTool) Description() string {
-	return "Squashes the commits from a worktree-backed branch onto the main branch after a review in lazygit, then removes the worktree and deletes the branch."
-}
-
-func (t MergeTool) Call(ctx context.Context, input string) (string, error) {
-	var params MergeToolInput
-	if err := json.Unmarshal([]byte(input), &params); err != nil {
-		return "", fmt.Errorf("invalid input: %w", err)
-	}
-
-	worktreePath := strings.TrimSpace(params.WorktreePath)
-	if worktreePath == "" {
-		return "", errors.New("worktree_path is required")
-	}
-	absWorktree, err := filepath.Abs(worktreePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve worktree path: %w", err)
-	}
-
-	branch := strings.TrimSpace(params.Branch)
-	if branch == "" {
-		return "", errors.New("branch is required")
-	}
-
-	mainBranch := strings.TrimSpace(params.MainBranch)
-	if mainBranch == "" {
-		mainBranch = "main"
-	}
-
-	commitMsg := strings.TrimSpace(params.CommitMessage)
-
-	if _, err := os.Stat(absWorktree); err != nil {
-		return "", fmt.Errorf("invalid worktree_path: %w", err)
-	}
-
-	if !params.SkipReview {
-		lazygitCmd := strings.TrimSpace(os.Getenv("ASIMI_LAZYGIT_CMD"))
-		if lazygitCmd == "" {
-			lazygitCmd = "lazygit"
-		}
-		if _, err := exec.LookPath(lazygitCmd); err != nil {
-			return "", fmt.Errorf("unable to locate lazygit command: %w", err)
-		}
-
-		cmd := exec.CommandContext(ctx, lazygitCmd)
-		cmd.Dir = absWorktree
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
-
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("lazygit exited with an error: %w", err)
-		}
-	}
-
-	readerNeeded := (!params.AutoApprove) || commitMsg == ""
-	var reader *bufio.Reader
-	if readerNeeded {
-		reader = bufio.NewReader(os.Stdin)
-	}
-
-	approved := params.AutoApprove
-	if !approved {
-		fmt.Printf("Proceed with squash merge of %s onto %s? (y/N): ", branch, mainBranch)
-		ans, err := readYesNo(reader)
-		if err != nil {
-			return "", fmt.Errorf("failed to read approval: %w", err)
-		}
-		approved = ans
-	}
-
-	if !approved {
-		return "Merge cancelled by user", nil
-	}
-
-	if commitMsg == "" {
-		if params.AutoApprove {
-			return "", errors.New("commit_message is required when auto_approve is true")
-		}
-		fmt.Print("Enter squash commit message: ")
-		line, err := readLine(reader)
-		if err != nil {
-			return "", fmt.Errorf("failed to read commit message: %w", err)
-		}
-		if line == "" {
-			return "", errors.New("commit message cannot be empty")
-		}
-		commitMsg = line
-	}
-
-	var log bytes.Buffer
-	log.WriteString("Starting merge process...\n")
-
-	baseRef := fmt.Sprintf("origin/%s", mainBranch)
-	if err := runGitCommand(ctx, absWorktree, &log, "fetch", "origin", mainBranch); err != nil {
-		log.WriteString(fmt.Sprintf("git fetch origin %s failed: %v\n", mainBranch, err))
-		baseRef = mainBranch
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "rebase", baseRef); err != nil {
-		runGitCommand(ctx, absWorktree, &log, "rebase", "--abort")
-		return "", fmt.Errorf("git rebase failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "reset", "--soft", baseRef); err != nil {
-		return "", fmt.Errorf("git reset failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "add", "-A"); err != nil {
-		return "", fmt.Errorf("git add failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, absWorktree, &log, "commit", "-m", commitMsg); err != nil {
-		return "", fmt.Errorf("git commit failed: %w\n%s", err, log.String())
-	}
-
-	repoRoot, err := resolveRepoRoot(ctx, absWorktree)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve repository root: %w", err)
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "checkout", mainBranch); err != nil {
-		return "", fmt.Errorf("git checkout %s failed: %w\n%s", mainBranch, err, log.String())
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "pull", "--ff-only", "origin", mainBranch); err != nil {
-		log.WriteString(fmt.Sprintf("git pull origin %s failed: %v (continuing without remote update)\n", mainBranch, err))
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "merge", "--ff-only", branch); err != nil {
-		return "", fmt.Errorf("git merge failed: %w\n%s", err, log.String())
-	}
-
-	if params.Push {
-		if err := runGitCommand(ctx, repoRoot, &log, "push", "origin", mainBranch); err != nil {
-			return "", fmt.Errorf("git push failed: %w\n%s", err, log.String())
-		}
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "worktree", "remove", "--force", absWorktree); err != nil {
-		return "", fmt.Errorf("git worktree remove failed: %w\n%s", err, log.String())
-	}
-
-	if err := runGitCommand(ctx, repoRoot, &log, "branch", "-D", branch); err != nil {
-		return "", fmt.Errorf("git branch -D failed: %w\n%s", err, log.String())
-	}
-
-	log.WriteString("Merge completed successfully.\n")
-	return log.String(), nil
-}
-
-func (t MergeTool) Format(input, result string, err error) string {
-	var params MergeToolInput
-	_ = json.Unmarshal([]byte(input), &params)
-
-	branch := params.Branch
-	if branch == "" {
-		branch = "(unknown)"
-	}
-	mainBranch := params.MainBranch
-	if mainBranch == "" {
-		mainBranch = "main"
-	}
-
-	firstLine := fmt.Sprintf("Merge (%s -> %s)", branch, mainBranch)
-	var secondLine string
-	if err != nil {
-		secondLine = fmt.Sprintf("  ⎿  Error: %v", err)
-	} else {
-		secondLine = "  ⎿  Merge completed"
-	}
-
-	return firstLine + "\n" + secondLine
-}
-
-func runGitCommand(ctx context.Context, dir string, log *bytes.Buffer, args ...string) error {
-	if log != nil {
-		log.WriteString(fmt.Sprintf("$ git %s\n", strings.Join(args, " ")))
-	}
-
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = gitCommandEnv()
-	if log != nil {
-		cmd.Stdout = log
-		cmd.Stderr = log
-	}
-
-	return cmd.Run()
-}
-
-func resolveRepoRoot(ctx context.Context, worktreePath string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", worktreePath, "rev-parse", "--git-common-dir")
-	cmd.Env = gitCommandEnv()
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git rev-parse --git-common-dir failed: %w (%s)", err, out.String())
-	}
-
-	commonDir := strings.TrimSpace(out.String())
-	if commonDir == "" {
-		return "", errors.New("git common dir not found")
-	}
-
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(worktreePath, commonDir)
-	}
-
-	return filepath.Dir(commonDir), nil
-}
-
-func readYesNo(reader *bufio.Reader) (bool, error) {
-	response, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, err
-	}
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes", nil
-}
-
-func readLine(reader *bufio.Reader) (string, error) {
-	line, err := reader.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
-}
-
-func gitCommandEnv() []string {
-	env := os.Environ()
-	filtered := make([]string, 0, len(env))
-	for _, value := range env {
-		if strings.HasPrefix(value, "GIT_") {
-			continue
-		}
-		filtered = append(filtered, value)
-	}
-	return filtered
-}
-
-// WebSearchInput is the input for the WebSearchTool
-type WebSearchInput struct {
-	Query      string `json:"query"`
-	MaxResults int    `json:"max_results,omitempty"`
-}
-
-// WebSearchTool is a tool for searching the web using DuckDuckGo
-type WebSearchTool struct{}
-
-func (t WebSearchTool) Name() string {
-	return "web_search"
-}
-
-func (t WebSearchTool) Description() string {
-	return "Searches the web using DuckDuckGo and returns relevant results. The input should be a JSON object with a 'query' field containing the search query. Optionally specify 'max_results' (default 5, max 10) to limit the number of results."
-}
-
-func (t WebSearchTool) Call(ctx context.Context, input string) (string, error) {
-	var params WebSearchInput
-	err := json.Unmarshal([]byte(input), &params)
-	if err != nil {
-		// If unmarshalling fails, assume the input is a raw query
-		params.Query = strings.Trim(input, `"'`)
-		params.MaxResults = 5
-	}
-
-	if params.Query == "" {
-		return "", fmt.Errorf("search query cannot be empty")
-	}
-
-	// Set default max results if not specified
-	if params.MaxResults == 0 {
-		params.MaxResults = 5
-	} else if params.MaxResults > 10 {
-		params.MaxResults = 10
-	}
-
-	// Perform DuckDuckGo HTML search
-	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(params.Query))
-
-	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set user agent to avoid being blocked
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Asimi/1.0)")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform search: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("search returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Parse HTML results using regex (simple approach for DuckDuckGo HTML)
-	results := parseSearchResults(string(body), params.MaxResults)
-
-	if len(results) == 0 {
-		return "No results found.", nil
-	}
-
-	// Format results as JSON
-	output := struct {
-		Query   string         `json:"query"`
-		Results []SearchResult `json:"results"`
-	}{
-		Query:   params.Query,
-		Results: results,
-	}
-
-	resultJSON, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal results: %w", err)
-	}
-
-	return string(resultJSON), nil
-}
-
-func (t WebSearchTool) Format(input, result string, err error) string {
-	var params WebSearchInput
-	json.Unmarshal([]byte(input), &params)
-
-	paramStr := ""
-	if params.Query != "" {
-		paramStr = fmt.Sprintf("(%s)", params.Query)
-	}
-
-	firstLine := fmt.Sprintf("Web Search%s", paramStr)
-
-	if err != nil {
-		return fmt.Sprintf("%s\n  Error: %v", firstLine, err)
-	}
-
-	// Parse result to count results
-	var output struct {
-		Results []SearchResult `json:"results"`
-	}
-	json.Unmarshal([]byte(result), &output)
-
-	resultCount := len(output.Results)
-	return fmt.Sprintf("%s\n  Found %d result(s)", firstLine, resultCount)
-}
-
-// SearchResult represents a single search result
-type SearchResult struct {
-	Title   string `json:"title"`
-	URL     string `json:"url"`
-	Snippet string `json:"snippet"`
-}
-
-// parseSearchResults extracts search results from DuckDuckGo HTML
-func parseSearchResults(html string, maxResults int) []SearchResult {
-	var results []SearchResult
-
-	// Pattern to match result blocks in DuckDuckGo HTML
-	resultPattern := regexp.MustCompile(`<div class="result__body">.*?<a rel="nofollow" class="result__a" href="(.*?)">(.*?)</a>.*?<a class="result__snippet"[^>]*>(.*?)</a>`)
-	matches := resultPattern.FindAllStringSubmatch(html, -1)
-
-	for i, match := range matches {
-		if i >= maxResults {
-			break
-		}
-
-		if len(match) >= 4 {
-			// Clean up HTML entities and tags
-			title := cleanHTML(match[2])
-			snippet := cleanHTML(match[3])
-			resultURL := cleanHTML(match[1])
-
-			results = append(results, SearchResult{
-				Title:   title,
-				URL:     resultURL,
-				Snippet: snippet,
-			})
-		}
-	}
-
-	return results
-}
-
-// cleanHTML removes HTML tags and decodes HTML entities
-func cleanHTML(s string) string {
-	// Remove HTML tags
-	tagPattern := regexp.MustCompile(`<[^>]*>`)
-	s = tagPattern.ReplaceAllString(s, "")
-
-	// Decode common HTML entities
-	s = strings.ReplaceAll(s, "&amp;", "&")
-	s = strings.ReplaceAll(s, "&lt;", "<")
-	s = strings.ReplaceAll(s, "&gt;", ">")
-	s = strings.ReplaceAll(s, "&quot;", "\"")
-	s = strings.ReplaceAll(s, "&#x27;", "'")
-	s = strings.ReplaceAll(s, "&nbsp;", " ")
-
-	// Trim whitespace
-	s = strings.TrimSpace(s)
-
-	return s
+	return firstLine + "\n" + secondLine + "\n"
 }
 
 type Tool interface {
 	tools.Tool
 	Format(input, result string, err error) string
+	// ParameterSchema returns the JSON schema for the tool's parameters
+	ParameterSchema() map[string]any
 }
 
 func getAvailableTools(config *Config) []Tool {
@@ -1174,8 +955,6 @@ func getAvailableTools(config *Config) []Tool {
 		ReplaceTextTool{},
 		RunInShell{config: config},
 		ReadManyFilesTool{},
-		MergeTool{},
-		WebSearchTool{},
 	}
 }
 

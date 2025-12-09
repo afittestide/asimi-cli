@@ -39,16 +39,26 @@
 ## Message Flow
 
 ```
-User Input: ":help modes"
+User Input: ":help modes" + Enter
         │
         ▼
-┌───────────────────┐
-│  handleEnterKey() │
-│                   │
-│  Parses command   │
-└─────────┬─────────┘
-          │
-          ▼
+┌─────────────────────────┐
+│ PromptComponent.Update()│
+│                         │
+│ Detects Enter key       │
+│ Creates SubmitPromptMsg │
+└───────────┬─────────────┘
+            │
+            ▼
+┌──────────────────────────┐
+│ handleCustomMessages()   │
+│                          │
+│ Receives SubmitPromptMsg │
+│ Parses ":help modes"     │
+│ Calls handleHelpCommand()│
+└───────────┬──────────────┘
+            │
+            ▼
 ┌─────────────────────┐
 │ handleHelpCommand() │
 │                     │
@@ -102,6 +112,48 @@ User Input: ":help modes"
 ┌────────────────────────────┐
 │   Focus returns to prompt  │
 └────────────────────────────┘
+```
+
+## Prompt Submission Architecture
+
+The prompt submission flow has been refactored to use a message-based architecture:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                  Prompt Submission Flow                   │
+└──────────────────────────────────────────────────────────┘
+
+User presses Enter (Vi insert or normal mode)
+        │
+        ▼
+┌─────────────────────────────────────────────────────────┐
+│  PromptComponent.Update(tea.KeyMsg)                     │
+│                                                          │
+│  1. Detects Enter key (not Alt+Enter)                   │
+│  2. Validates prompt is non-empty                        │
+│  3. Clears textarea and resets cursor                    │
+│  4. Returns SubmitPromptMsg{Prompt: content}            │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  TUIModel.handleCustomMessages(SubmitPromptMsg)         │
+│                                                          │
+│  1. Clears toasts and refreshes git info                │
+│  2. Handles history navigation/rollback if needed       │
+│  3. Adds message to chat history                        │
+│  4. Auto-compacts if context is low                     │
+│  5. Starts streaming response from LLM                  │
+│  6. Updates prompt history                              │
+│  7. Saves to persistent history                         │
+└─────────────────────────────────────────────────────────┘
+
+Benefits of this architecture:
+- Separation of concerns: PromptComponent handles UI, TUIModel handles logic
+- Consistent behavior across Vi modes
+- Proper command propagation from nested components
+- Easier to test and maintain
+- Prevents empty prompt submission
 ```
 
 ## State Diagram
@@ -251,13 +303,20 @@ viewport.View() ──► Scrollable display
 │                    Asimi Application                     │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
+│  Prompt Component                                        │
+│  ├─► Handles Enter key in Vi insert/normal modes        │
+│  └─► Emits SubmitPromptMsg with prompt content          │
+│                                                          │
 │  Command Registry                                        │
 │  ├─► /help ──► handleHelpCommand()                      │
 │  │                                                       │
 │  TUI Model                                               │
 │  ├─► helpViewer *HelpViewer                             │
 │  ├─► handleKeyMsg() ──► Routes to helpViewer.Update()  │
-│  ├─► handleCustomMessages() ──► Shows help              │
+│  ├─► handleCustomMessages()                             │
+│  │   ├─► Receives SubmitPromptMsg                       │
+│  │   ├─► Parses commands (e.g., :help)                  │
+│  │   └─► Shows help via showHelpMsg                     │
 │  ├─► handleWindowSizeMsg() ──► Resizes help viewer      │
 │  └─► applyModalOverlays() ──► Renders help viewer       │
 │                                                          │

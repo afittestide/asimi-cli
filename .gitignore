@@ -10,3 +10,5 @@ coverage.html
 *.log
 worktrees/
 notes/
+tmp/
+dist/

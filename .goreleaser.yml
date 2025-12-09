@@ -1,0 +1,118 @@
+version: 2
+
+before:
+  hooks:
+    - go mod download
+    - go mod verify
+
+builds:
+  - id: asimi
+    binary: asimi
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -mod=vendor
+      - -tags=containers_image_openpgp
+    ldflags:
+      - -s -w
+
+archives:
+  - id: asimi
+    name_template: 'asimi_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance Improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: afittestide
+    name: asimi-cli
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Release {{ .Tag }}
+    
+    ### Installation
+    
+    #### Homebrew (macOS/Linux)
+    ```bash
+    brew install afittestide/tap/asimi
+    ```
+    
+    #### Binary Download
+    Download the appropriate binary for your platform below.
+    
+  footer: |
+    ---
+    **Full Changelog**: https://github.com/afittestide/asimi-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+brews:
+  - name: asimi
+    repository:
+      owner: afittestide
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/afittestide/asimi-cli
+    description: "AI-powered CLI assistant with container support - safe, opinionated coding agent"
+    license: MIT
+    directory: Formula
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    dependencies:
+      - name: podman
+        type: optional
+    install: |
+      bin.install "asimi"
+    test: |
+      system "#{bin}/asimi", "--version"
+    caveats: |
+      Asimi requires Podman for containerized shell execution.
+      Install it with: brew install podman
+      
+      For configuration, see: https://github.com/afittestide/asimi-cli

@@ -30,64 +30,56 @@ import (
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
+// Update the version as part of the version release process
+var version = "0.2.1"
+
 var program *tea.Program
 
 var cli struct {
 	Version       bool   `help:"Print version information"`
-	Prompt        string `arg:"" optional:"" help:"Prompt to send to the agent (non-interactive mode)"`
+	Prompt        string `short:"p" help:"Prompt to send to the agent"`
 	Debug         bool   `help:"Enable debug logging"`
+	NoCleanup     bool   `help:"Don't remove container on exit (for debugging)"`
 	CPUProfile    string `help:"Write CPU profile to file"`
 	MemProfile    string `help:"Write memory profile to file"`
 	Trace         string `help:"Write execution trace to file"`
 	ProfileExitMs int    `help:"Exit after N milliseconds (for profiling startup)"`
 }
 
-// Update the version as part of the version release process
-var version = "0.2.0-rc.4"
-
-func getLogFilePath() (string, error) {
+func initLogger() {
 	var logDir string
+	var logPath string
 
-	if !cli.Debug {
+	// Determine log directory and path
+	if cli.Debug {
+		// In debug mode, log to current directory
+		logDir = "."
+		logPath = filepath.Join(logDir, "asimi.log")
+		logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(fmt.Errorf("failed to open log file %s: %w", logPath, err))
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	} else {
+		// In production mode, log to user's data directory
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("failed to get user home directory: %w", err)
+			panic(fmt.Errorf("failed to get user home directory: %w", err))
 		}
 		logDir = filepath.Join(homeDir, ".local", "share", "asimi")
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create log directory %s: %w", logDir, err)
+			panic(fmt.Errorf("failed to create log directory %s: %w", logDir, err))
 		}
-
+		logPath = filepath.Join(logDir, "asimi.log")
+		logFile := &lumberjack.Logger{
+			Filename:   logPath,
+			MaxSize:    10, // megabytes
+			MaxBackups: 3,
+			MaxAge:     28, // days
+			Compress:   true,
+		}
+		slog.SetDefault(slog.New(slog.NewTextHandler(logFile, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	}
-
-	return filepath.Join(logDir, "asimi.log"), nil
-}
-
-func initLogger() {
-	logPath, err := getLogFilePath()
-	if err != nil {
-		panic(fmt.Errorf("failed to determine log file path: %w", err))
-	}
-
-	// Set up lumberjack for log rotation
-	logFile := &lumberjack.Logger{
-		Filename:   logPath,
-		MaxSize:    10, // megabytes
-		MaxBackups: 3,
-		MaxAge:     28, // days
-		Compress:   true,
-	}
-
-	// Set log level based on debug flag, default to INFO
-	logLevel := slog.LevelInfo
-	if cli.Debug {
-		logLevel = slog.LevelDebug
-	}
-
-	opts := &slog.HandlerOptions{
-		Level: logLevel,
-	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, opts)))
 }
 
 func runInteractiveMode() error {
@@ -120,6 +112,7 @@ func runInteractiveMode() error {
 		fx.Provide(
 			ProvideLogger,
 			ProvideConfig,
+			ProvideStorage,
 			ProvideRepoInfo,
 			ProvideShellRunner,
 			ProvidePromptHistory,
@@ -131,7 +124,7 @@ func runInteractiveMode() error {
 		fx.Invoke(
 			ProvideModelClient,
 		),
-		fx.Populate(&shellRunnerInstance, &tuiProgram),
+		fx.Populate(&currentShellRunner, &tuiProgram),
 	)
 
 	// Create fx app with all providers
@@ -145,6 +138,13 @@ func runInteractiveMode() error {
 	defer app.Stop(ctx)
 
 	slog.Debug("[TIMING] fx app initialized", "duration", time.Since(startTime))
+
+	// Check for updates in background (non-blocking)
+	go func() {
+		if AutoCheckForUpdates(version) {
+			program.Send(updateAvailableMsg{})
+		}
+	}()
 
 	// If profile-exit-ms is set, schedule an exit after that duration
 	if cli.ProfileExitMs > 0 {
@@ -180,13 +180,26 @@ type llmInitErrorMsg struct {
 	err error
 }
 
+// compactCompleteMsg is sent when conversation compaction completes successfully
+type compactCompleteMsg struct {
+	summary string
+}
+
+// compactErrorMsg is sent when conversation compaction fails
+type compactErrorMsg struct {
+	err error
+}
+
+// updateAvailableMsg is sent when a newer version is available
+type updateAvailableMsg struct{}
+
 func main() {
 	startTime := time.Now()
 	kong.Parse(&cli)
 
 	// Handle --version flag
 	if cli.Version {
-		fmt.Printf("Asimi CLI v%s\n", asimiVersion())
+		fmt.Printf("Asimi CLI v%s\n", version)
 		os.Exit(0)
 	}
 
@@ -228,12 +241,12 @@ func main() {
 
 	// Determine if we should run in non-interactive mode
 	// Non-interactive mode is triggered by:
-	// 1. Explicit prompt argument: asimi "prompt here"
+	// 1. Explicit -p flag: asimi -p "prompt here"
 	// 2. Non-interactive stdin (pipe/redirect): echo "prompt" | asimi
 	isStdinTerminal := isatty.IsTerminal(os.Stdin.Fd())
 	hasPromptArg := cli.Prompt != ""
 
-	// If no prompt argument but stdin is not a terminal, read from stdin
+	// If no -p flag but stdin is not a terminal, read from stdin
 	if !hasPromptArg && !isStdinTerminal {
 		// Read prompt from stdin
 		var builder strings.Builder
@@ -274,7 +287,7 @@ func main() {
 		llm, err := getModelClient(config)
 		if err != nil {
 			fmt.Printf("Error creating LLM client: %v\n", err)
-			fmt.Printf("Please authenticate by running the program in interactive mode and use ':login'\n")
+			fmt.Printf("Please authenticate by running the program in interactive mode and ':models'\n")
 			os.Exit(1)
 		}
 		// Set up streaming for non-interactive mode
@@ -527,44 +540,16 @@ func getModelClient(config *Config) (llms.Model, error) {
 				// Token exists but expired - try to refresh it
 				slog.Info("Token expired, attempting refresh", "provider", config.LLM.Provider)
 
-				// Only attempt refresh for providers that support OAuth
-				if config.LLM.Provider == "anthropic" {
-					auth := &AuthAnthropic{}
-					newAccessToken, refreshErr := auth.access()
-					if refreshErr == nil {
-						// Successfully refreshed - update config with new token
-						slog.Info("Token refresh successful", "provider", config.LLM.Provider)
-						config.LLM.AuthToken = newAccessToken
-						// Get updated token data from keyring (auth.access() should have saved it)
-						token2, err := GetOauthToken(config.LLM.Provider)
-						if err == nil && token2 != nil {
-							config.LLM.RefreshToken = token2.RefreshToken
-							// Verify the tokens were actually saved by auth.access()
-							// If not, this is a critical issue that needs to be logged
-							if token2.AccessToken != newAccessToken {
-								slog.Warn("Token mismatch after refresh - keyring may not have been updated",
-									"provider", config.LLM.Provider)
-							}
-						} else {
-							// This shouldn't happen - auth.access() should have saved the tokens
-							slog.Warn("Failed to retrieve updated tokens from keyring after refresh",
-								"provider", config.LLM.Provider, "error", err)
-						}
-					} else {
-						// Refresh failed - log error and fall back to API key
-						slog.Warn("Token refresh failed, falling back to API key",
-							"provider", config.LLM.Provider, "error", refreshErr)
-						apiKey, err := GetAPIKeyFromKeyring(config.LLM.Provider)
-						if err == nil && apiKey != "" {
-							config.LLM.APIKey = apiKey
-						}
-					}
-				} else {
-					// For non-Anthropic providers, just fall back to API key when token expired
+				// Try to refresh the token
+				if !refreshOAuthToken(config) {
+					// Refresh failed - fall back to API key
+					slog.Warn("Token refresh failed, falling back to API key", "provider", config.LLM.Provider)
 					apiKey, err := GetAPIKeyFromKeyring(config.LLM.Provider)
 					if err == nil && apiKey != "" {
 						config.LLM.APIKey = apiKey
 					}
+				} else {
+					slog.Info("Token refresh successful", "provider", config.LLM.Provider)
 				}
 			}
 		} else {
@@ -628,8 +613,9 @@ func getModelClient(config *Config) (llms.Model, error) {
 			// Create custom HTTP client with OAuth transport
 			httpClient := &http.Client{
 				Transport: &anthropicOAuthTransport{
-					token: accessToken,
-					base:  http.DefaultTransport,
+					token:  accessToken,
+					config: config,
+					base:   http.DefaultTransport,
 				},
 			}
 			opts = append(opts, anthropic.WithHTTPClient(httpClient))
@@ -716,11 +702,18 @@ func ensureOllamaConfigured(rawBaseURL string) error {
 
 // anthropicOAuthTransport adds OAuth headers for Anthropic API
 type anthropicOAuthTransport struct {
-	token string
-	base  http.RoundTripper
+	token  string
+	config *Config
+	base   http.RoundTripper
 }
 
 func (t *anthropicOAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Check if token needs refresh before making the request
+	if t.config != nil && refreshOAuthToken(t.config) {
+		// Token was refreshed, update transport token
+		t.token = t.config.LLM.AuthToken
+	}
+
 	// Clone request to avoid mutating caller's request
 	r := req.Clone(req.Context())
 

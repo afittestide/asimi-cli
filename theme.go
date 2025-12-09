@@ -2,6 +2,9 @@ package main
 
 import "github.com/charmbracelet/lipgloss"
 
+// globalTheme is the application-wide theme instance
+var globalTheme *Theme
+
 // Theme defines the colors and styles for the UI.
 type Theme struct {
 	// Terminal7 color scheme
@@ -11,10 +14,14 @@ type Theme struct {
 	Warning          lipgloss.Color
 	Error            lipgloss.Color
 	PromptBackground lipgloss.Color
-	ChatBackground   lipgloss.Color
+	StatusBackground lipgloss.Color
 	TextError        lipgloss.Color
 	PaneBackground   lipgloss.Color
 	DarkBorder       lipgloss.Color
+
+	// Prompt focus indicators
+	PromptOnBorder  lipgloss.Color // Border color when focused on prompt (INSERT/COMMAND/LEARNING modes)
+	PromptOffBorder lipgloss.Color // Border color when focused away from prompt (NORMAL/VISUAL modes)
 
 	// Legacy colors for compatibility
 	PrimaryColor   lipgloss.Color
@@ -32,6 +39,7 @@ type Theme struct {
 }
 
 // NewTheme creates and returns a new Theme with Terminal7 colors.
+// It also sets the global theme instance.
 func NewTheme() *Theme {
 	// Terminal7 color scheme
 	promptBorder := lipgloss.Color("#F952F9")
@@ -40,12 +48,16 @@ func NewTheme() *Theme {
 	warning := lipgloss.Color("#F4DB53")
 	errorColor := lipgloss.Color("#F54545")
 	promptBackground := lipgloss.Color("#271D30")
-	chatBackground := lipgloss.Color("#11051E")
+
 	textError := lipgloss.Color("#004444")
 	paneBackground := lipgloss.Color("#000000")
 	darkBorder := lipgloss.Color("#373702")
 
-	return &Theme{
+	// Prompt focus indicators
+	promptOnBorder := lipgloss.Color("#F952F9")  // Magent - focus on prompt (INSERT/other)
+	promptOffBorder := lipgloss.Color("#373702") // Dark - focus away from prompt (NORMAL/VISUAL)
+
+	theme := &Theme{
 		// Terminal7 colors
 		PromptBorder:     promptBorder,
 		ChatBorder:       chatBorder,
@@ -53,10 +65,13 @@ func NewTheme() *Theme {
 		Warning:          warning,
 		Error:            errorColor,
 		PromptBackground: promptBackground,
-		ChatBackground:   chatBackground,
 		TextError:        textError,
 		PaneBackground:   paneBackground,
 		DarkBorder:       darkBorder,
+
+		// Prompt focus indicators
+		PromptOnBorder:  promptOnBorder,
+		PromptOffBorder: promptOffBorder,
 
 		// Legacy colors for compatibility
 		PrimaryColor:   promptBorder,
@@ -81,4 +96,9 @@ func NewTheme() *Theme {
 			Foreground(textColor).
 			Background(promptBackground),
 	}
+
+	// Set the global theme
+	globalTheme = theme
+
+	return theme
 }

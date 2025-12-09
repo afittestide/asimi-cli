@@ -1,70 +1,73 @@
 # Asimi CLI - Agent Guide
 
-**Language**: Go
+**Language**: Go 1.25+ | **Build**: Go modules | **Test**: go test + testify
 
-## Quick Commands
+## Build & Run
 
 ```bash
-# Development
-just run              # Run the application
-just build            # Build binary
+just install          # Install dependencies & build
+just run              # Run with debug logging
+just build            # Build binary only
 just test             # Run all tests
-just test-coverage    # Run tests with coverage
+just test-coverage    # Tests with coverage report
 just lint             # Run golangci-lint
-just fmt              # Format code
-just modules          # Vendor dependencies
-
-# Infrastructure
-just bootstrap        # Install dev tools (golangci-lint, podman)
-just infrabuild       # Build dev container
-just infraclean       # Clean container resources
-
-# Profiling
-just profile          # Profile startup performance
-just measure          # Measure run_in_shell performance
+just fmt              # Format code with go fmt
 ```
 
 ## Code Style
 
-**Write idiomatic Go** - Keep it simple, flat, and direct.
+**Idiomatic Go** - Simple, flat, dense
 
-- **Naming**: Short and meaningful
+- **Imports**: Standard lib → external → internal (goimports handles this)
+- **Naming**: Short, meaningful (e.g., `cfg` not `configuration`)
+- **Structure**: Flat - avoid new dirs/files unless necessary
+- **Comments**: Only for non-obvious code
+- **Errors**: Return errors, don't panic (except in main/init)
+- **Types**: Prefer explicit over interface{} or any
 - **No wrappers**: Avoid unnecessary abstractions
 - **No build tags**: Keep builds simple
-- **Inline comments**: Only for non-trivial code
-- **Flat structure**: Avoid creating new directories/files
 
-## Libraries
+## Key Libraries
 
-- `slog` - Logging (use `--debug` flag)
-- `bubbletea` - Terminal UI
-- `koanf` - Configuration
+- `slog` - Structured logging (use `--debug` flag)
+- `bubbletea` - Terminal UI framework
+- `koanf` - Configuration (TOML)
 - `kong` - CLI parsing
 - `langchaingo` - LLM communications
-- `go-git` - Git operations (NEVER shell out to git)
-- `podman/docker` - Container management in `podman_runner.go` (NEVER shell out)
+- `go-git` - Git ops (NEVER shell out to git)
+- `podman/v5` - Container management (NEVER shell out)
+- `testify/require` - Test assertions
 
 ## Testing
 
-- Run tests: `go test ./...`
-- Coverage: `just test-coverage`
-- Search code: `rg <pattern>`
+```bash
+go test ./...                    # Run all tests
+go test -v ./... -run TestName   # Run specific test
+just test-coverage               # Generate coverage report
+```
 
-## Release Management
+## Project Conventions
 
-- Follow **SemVer**
-- Update **CHANGELOG.md** with: Fixed, Changed, Added
-- Use git tags to sync code and changelog
-- Commit messages: Use present progressive ("adding feature", not "added feature")
+- **Logs**: `./asimi.log` (debug mode) or `~/.local/share/asimi/`
+- **Config**: `~/.config/asimi/asimi.toml` or `.agents/asimi.toml`
+- **Scratch**: Use `test_tmp/` for temporary files
+- **Commits**: Present progressive ("adding X", not "added X")
+- **Releases**: SemVer + update CHANGELOG.md before tagging
 
 ## Workflow
 
-Check the `docs` when getting started and make sure to update any relevant docs.
-Once a change is finished and ALL tests pass update the CHANGELOG.md
-**DON'T MERGE** - ask user for approval
+1. Check `docs/` for context
+2. Make changes, run tests: `just test`
+3. Update CHANGELOG.md with Fixed/Changed/Added
+4. **DON'T MERGE** - ask user for approval
 
+## Infrastructure
 
-## Logs & Config
+```bash
+just bootstrap    # Install golangci-lint, setup podman
+just infrabuild   # Build dev container (asimi-shell:latest)
+just infraclean   # Clean container resources
+```
 
 - Logs: ./asimi.log
 - Config: `~/.config/asimi/conf.toml` or `.asimi/conf.toml`

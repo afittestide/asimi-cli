@@ -1,6 +1,3 @@
-//go:build !ignore
-// +build !ignore
-
 package main
 
 import (
@@ -16,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"al.essio.dev/pkg/shellescape"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/containers/podman/v5/pkg/bindings"
@@ -27,6 +25,7 @@ type PodmanShellRunner struct {
 	imageName        string
 	containerName    string
 	allowFallback    bool
+	noCleanup        bool // Skip container removal on exit (for debugging)
 	config           *Config
 	repoInfo         RepoInfo
 	mu               sync.Mutex
@@ -35,7 +34,6 @@ type PodmanShellRunner struct {
 	// Fields for container attachment
 	stdinPipe  io.WriteCloser
 	stdoutPipe io.ReadCloser
-	stderrPipe io.ReadCloser
 	// Command output storage
 	outputs       map[int]*commandOutput
 	outputsMu     sync.Mutex
@@ -43,28 +41,42 @@ type PodmanShellRunner struct {
 }
 
 type commandOutput struct {
-	stdout     string
-	stderr     string
+	output     string
 	exitCode   string
 	ready      chan struct{} // closed when both stdout and stderr are complete
-	stdoutDone bool
-	stderrDone bool
+	outputDone bool
 }
 
 func newPodmanShellRunner(allowFallback bool, config *Config, repoInfo RepoInfo) *PodmanShellRunner {
 	pid := os.Getpid()
-	return &PodmanShellRunner{
-		imageName:     "localhost/asimi-shell:latest",
+	noCleanup := false
+	imageName := fmt.Sprintf("localhost/asimi-sandbox-%s:latest", repoInfo.Slug)
+
+	if config != nil {
+		if config.RunInShell.NoCleanup {
+			noCleanup = true
+		}
+		if config.RunInShell.ImageName != "" {
+			imageName = config.RunInShell.ImageName
+		}
+	} else {
+		slog.Debug("Config is nil, using image: ", "name", imageName)
+	}
+
+	ret := &PodmanShellRunner{
+		imageName:     imageName,
 		containerName: fmt.Sprintf("asimi-shell-%d", pid),
 		allowFallback: allowFallback,
+		noCleanup:     noCleanup,
 		config:        config,
 		repoInfo:      repoInfo,
 		stdinPipe:     nil,
 		stdoutPipe:    nil,
-		stderrPipe:    nil,
 		outputs:       make(map[int]*commandOutput),
 		nextCommandID: 1,
 	}
+	slog.Debug("New podman shell runner", "object", ret)
+	return ret
 }
 
 // initialize sets up everything needed to run commands: connection, container, and bash session
@@ -123,6 +135,11 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 			r.mu.Lock()
 			r.containerStarted = true
 			r.mu.Unlock()
+
+			// Notify user that container was launched
+			if program != nil {
+				program.Send(containerLaunchMsg{message: "🐳 Container launched"})
+			}
 		}
 	} else {
 		r.mu.Unlock()
@@ -141,22 +158,19 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		slog.Debug("creating pipes for stdin, stdout, stderr")
 		stdinReader, stdinWriter := io.Pipe()
 		stdoutReader, stdoutWriter := io.Pipe()
-		stderrReader, stderrWriter := io.Pipe()
 
 		// Attach to the container in a goroutine so it doesn't block
 		slog.Debug("starting Attach goroutine")
 		go func() {
 			slog.Debug("Attach goroutine started", "containerName", r.containerName)
-			if err := containers.Attach(r.conn, r.containerName, stdinReader, stdoutWriter, stderrWriter, nil, nil); err != nil {
+			if err := containers.Attach(r.conn, r.containerName, stdinReader, stdoutWriter, nil, nil, nil); err != nil {
 				slog.Error("error attaching to container", "error", err)
 				// Handle error: close pipes and reset
 				stdinReader.Close()
 				stdoutWriter.Close()
-				stderrWriter.Close()
 				r.mu.Lock()
 				r.stdinPipe = nil
 				r.stdoutPipe = nil
-				r.stderrPipe = nil
 				r.mu.Unlock()
 				slog.Debug("container attachment reset after error")
 			} else {
@@ -167,27 +181,26 @@ func (r *PodmanShellRunner) initialize(ctx context.Context) error {
 		r.mu.Lock()
 		r.stdinPipe = stdinWriter
 		r.stdoutPipe = stdoutReader
-		r.stderrPipe = stderrReader
 		r.mu.Unlock()
 
 		slog.Debug("container pipes configured")
 
 		// Start persistent reader loops for stdout and stderr
 		slog.Debug("starting persistent reader loops")
-		go r.readStream(stdoutReader, true)  // true = stdout
-		go r.readStream(stderrReader, false) // false = stderr
+		go r.readStream(stdoutReader)
 
 		slog.Debug("container attachment established", "repoInfo", r.repoInfo)
 
-		var cdCmd string
+		var rc strings.Builder
 		// Navigate to worktree if we're in one
+		rc.WriteString("git config --global core.pager cat\n")
 		if r.repoInfo.WorktreePath != "" {
-			cdCmd = fmt.Sprintf("cd %s/%s\n", r.repoInfo.ProjectRoot, r.repoInfo.WorktreePath)
+			rc.WriteString(fmt.Sprintf("cd %s/%s\n", r.repoInfo.ProjectRoot, r.repoInfo.WorktreePath))
 		} else {
-			cdCmd = fmt.Sprintf("cd %s\n", r.repoInfo.ProjectRoot)
+			rc.WriteString(fmt.Sprintf("cd %s\n", r.repoInfo.ProjectRoot))
 		}
 		slog.Debug("navigating to path in the container", "path", r.repoInfo.WorktreePath)
-		if _, err := r.stdinPipe.Write([]byte(cdCmd)); err != nil {
+		if _, err := r.stdinPipe.Write([]byte(rc.String())); err != nil {
 			slog.Error("failed to navigate to worktree", "error", err)
 		}
 	}
@@ -247,12 +260,8 @@ func (r *PodmanShellRunner) establishConnection(ctx context.Context) (context.Co
 
 // readStream continuously reads from a stream looking for command markers
 // and populates the outputs map when complete command outputs are found
-func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
-	streamName := "stderr"
-	if isStdout {
-		streamName = "stdout"
-	}
-	slog.Debug("stream reader started", "stream", streamName)
+func (r *PodmanShellRunner) readStream(reader io.Reader) {
+	slog.Debug("stream reader started")
 
 	scanner := bufio.NewScanner(reader)
 	buf := make([]byte, 1024*1024) // 1MB buffer
@@ -265,58 +274,42 @@ func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
 	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
 		line := scanner.Text()
-		slog.Debug("stream reader line", "stream", streamName, "line", line)
+		slog.Debug("stream reader line", "line", line)
 
-		// Check for start marker
-		if strings.Contains(line, "__ASIMI_STDOUT_START_") || strings.Contains(line, "__ASIMI_STDERR_START_") {
-			// Extract ID from marker
-			parts := strings.Split(line, "__ASIMI_")
+		// Check for start marker (format: __ASIMI_STDOUT_START:123)
+		if strings.Contains(line, "__ASIMI_STDOUT_START:") {
+			// Extract ID from marker by splitting on ':'
+			// Format is "__ASIMI_STDOUT_START:ID"
+			parts := strings.Split(line, ":")
 			if len(parts) >= 2 {
-				idParts := strings.Split(parts[1], "__")
-				if len(idParts) >= 1 {
-					// Extract the ID part
-					prefix := "STDOUT_START_"
-					if !isStdout {
-						prefix = "STDERR_START_"
-					}
-					if strings.HasPrefix(idParts[0], prefix) {
-						idStr := strings.TrimPrefix(idParts[0], prefix)
-						if _, err := fmt.Sscanf(idStr, "%d", &currentID); err == nil {
-							inCommand = true
-							output.Reset()
-							slog.Debug("found start marker", "stream", streamName, "id", currentID)
-							continue
-						}
-					}
+				if _, err := fmt.Sscanf(parts[1], "%d", &currentID); err == nil {
+					inCommand = true
+					output.Reset()
+					slog.Debug("found start marker", "id", currentID)
+					continue
 				}
 			}
 		}
 
-		// Check for end marker
-		if inCommand && (strings.HasPrefix(line, "__ASIMI_STDOUT_END_") || strings.HasPrefix(line, "__ASIMI_STDERR_END_")) {
-			// Extract exit code from marker
+		// Check for end marker (format: __ASIMI_STDOUT_END:123:0)
+		if inCommand && strings.HasPrefix(line, "__ASIMI_STDOUT_END:") {
+			// Extract ID and exit code from marker by splitting on ':'
+			// Format is "__ASIMI_STDOUT_END:ID:exitcode"
+			parts := strings.Split(line, ":")
 			var exitCode string
-			if colonIdx := strings.Index(line, ":"); colonIdx != -1 {
-				exitCode = line[colonIdx+1:]
+			if len(parts) >= 3 {
+				exitCode = parts[2]
 			}
-			slog.Debug("found end marker", "stream", streamName, "id", currentID, "exitCode", exitCode)
+			slog.Debug("found end marker", "id", currentID, "exitCode", exitCode)
 
 			// Store output
 			r.outputsMu.Lock()
 			if cmd, exists := r.outputs[currentID]; exists {
-				if isStdout {
-					cmd.stdout = output.String()
-					cmd.exitCode = exitCode
-					cmd.stdoutDone = true
-				} else {
-					cmd.stderr = output.String()
-					cmd.stderrDone = true
-				}
-				// If both streams are done, signal ready
-				if cmd.stdoutDone && cmd.stderrDone {
-					close(cmd.ready)
-					slog.Debug("command output complete", "id", currentID)
-				}
+				cmd.output = output.String()
+				cmd.exitCode = exitCode
+				cmd.outputDone = true
+				close(cmd.ready)
+				slog.Debug("command output complete", "id", currentID)
 			}
 			r.outputsMu.Unlock()
 
@@ -336,26 +329,15 @@ func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		slog.Error("stream reader error", "stream", streamName, "error", err)
+		slog.Error("stream reader error", "error", err)
 	}
 
 	// Clean up any pending commands when reader exits
 	r.outputsMu.Lock()
 	for id, cmd := range r.outputs {
-		// Mark this stream as done and close ready if both streams are done
-		if isStdout {
-			if !cmd.stdoutDone {
-				cmd.stdoutDone = true
-				slog.Debug("marking stdout done due to reader exit", "id", id)
-			}
-		} else {
-			if !cmd.stderrDone {
-				cmd.stderrDone = true
-				slog.Debug("marking stderr done due to reader exit", "id", id)
-			}
-		}
-		// If both streams are done, close ready channel
-		if cmd.stdoutDone && cmd.stderrDone {
+		if !cmd.outputDone {
+			cmd.outputDone = true
+			slog.Debug("marking output done due to reader exit", "id", id)
 			select {
 			case <-cmd.ready:
 				// Already closed
@@ -367,24 +349,29 @@ func (r *PodmanShellRunner) readStream(reader io.Reader, isStdout bool) {
 	}
 	r.outputsMu.Unlock()
 
-	slog.Debug("stream reader exited", "stream", streamName)
+	slog.Debug("stream reader exited")
 }
 
 // createContainer creates and starts a new container
 func (r *PodmanShellRunner) createContainer(ctx context.Context) error {
-	slog.Debug("creating new container", "image", r.imageName, "containerName", r.containerName)
+	slog.Debug("creating new container", "image", r.imageName, "containerName", r.containerName, "noCleanup", r.noCleanup)
 
 	s := specgen.NewSpecGenerator(r.imageName, false)
 	s.Name = r.containerName
-	autoRemove := true
+	// Only auto-remove if not in no-cleanup mode
+	autoRemove := !r.noCleanup
 	s.Remove = &autoRemove
+	if r.noCleanup {
+		slog.Info("Container will NOT be auto-removed on exit (--no-cleanup flag set)")
+	}
 
-	// Disable TTY to keep stdout and stderr separate
-	terminal := false
+	// Enable TTY to support a pty, which merges stdout and stderr
+	terminal := true
 	s.Terminal = &terminal
+	s.Env = map[string]string{"TERM": "dumb"}
 
 	// Set up bash to read from stdin
-	s.Command = []string{"bash", "-s"}
+	s.Command = []string{"bash", "-i"}
 	stdinOpen := true
 	s.Stdin = &stdinOpen
 
@@ -444,9 +431,11 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 		// If podman is not available, fall back to host shell only if allowed
 		if r.allowFallback {
 			slog.Debug("falling back to host shell")
-			return hostShellRunner{}.Run(ctx, params)
+			return hostRun(ctx, params)
 		}
-		return RunInShellOutput{}, fmt.Errorf("podman unavailable and fallback to host shell is disabled: %w", err)
+		// TODO: return a more general error for errors not matching:
+		// "failed to create container: no such image: localhost/asimi-shell:latest: image not known"
+		return RunInShellOutput{}, fmt.Errorf("Sandbox container image is missing. Did you run `:init` ?")
 	}
 
 	// Get next command ID
@@ -465,17 +454,9 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	r.outputs[id] = cmd
 	r.outputsMu.Unlock()
 
-	// Build command wrapped with markers for stdout and stderr
-	var cmdStr strings.Builder
-	cmdStr.WriteString(fmt.Sprintf("echo '__ASIMI_STDOUT_START_%d__'", id))
-	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDERR_START_%d__' >&2", id))
-	cmdStr.WriteString("; " + params.Command)
-	cmdStr.WriteString("; __EXIT_CODE=$?")
-	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDOUT_END_%d__:'$__EXIT_CODE", id))
-	cmdStr.WriteString(fmt.Sprintf("; echo '__ASIMI_STDERR_END_%d__:'$__EXIT_CODE >&2", id))
-	cmdStr.WriteString("\n")
-
-	command := cmdStr.String()
+	// Quote the command using shellescape to preserve newlines (for heredocs) while escaping special chars
+	// This prevents redirects from being parsed as function redirects
+	command := fmt.Sprintf("__asimi_run %d %s\n", id, shellescape.Quote(params.Command))
 	slog.Debug("wrapped command", "command", command)
 
 	// Write the command to the persistent session's stdin
@@ -491,9 +472,13 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	}
 	slog.Debug("command written to stdin successfully")
 
-	// Get timeout from config or use default of 120 seconds
-	timeout := 120 * time.Second
-	// TODO: Use config.LLM.PodmanShellTimeoutMs when available
+	// Get timeout from config or use default of 2 minutes
+	// TODO: move the default to config.go
+	timeoutMinutes := 2
+	if r.config != nil && r.config.RunInShell.TimeoutMinutes > 0 {
+		timeoutMinutes = r.config.RunInShell.TimeoutMinutes
+	}
+	timeout := time.Duration(timeoutMinutes) * time.Minute
 	slog.Debug("using timeout", "timeout", timeout)
 
 	// Wait for output to be ready with timeout
@@ -501,19 +486,24 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	case <-cmd.ready:
 		slog.Debug("command output ready", "id", id)
 	case <-time.After(timeout):
-		slog.Error("timeout waiting for command output", "id", id, "cmd", params.Command)
+		slog.Warn("timeout waiting for command output", "id", id, "cmd", params.Command, "timeout", timeout)
 		// Clean up map entry
 		r.outputsMu.Lock()
 		delete(r.outputs, id)
 		r.outputsMu.Unlock()
-		return RunInShellOutput{}, fmt.Errorf("timeout waiting for command output")
+
+		// Return timeout as command output, not as a harness error
+		// This allows the LLM to see the timeout and handle it appropriately
+		return RunInShellOutput{
+			Output:   fmt.Sprintf("Command timed out after %v", timeout),
+			ExitCode: "124", // Standard timeout exit code
+		}, nil
 	}
 
 	// Retrieve output from map
 	r.outputsMu.Lock()
 	output := RunInShellOutput{
-		Stdout:   cmd.stdout,
-		Stderr:   cmd.stderr,
+		Output:   cmd.output,
 		ExitCode: cmd.exitCode,
 	}
 	// Clean up map entry
@@ -524,46 +514,105 @@ func (r *PodmanShellRunner) Run(ctx context.Context, params RunInShellInput) (Ru
 	return output, nil
 }
 
-// Close closes the container attachment, stops and removes the container.
+// Restart resets the container attachment to recover from connection errors.
+// The container keeps running, we just close and clear the pipes so they'll be
+// re-established on the next command.
+func (r *PodmanShellRunner) Restart(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	slog.Info("restarting container attachment", "containerName", r.containerName)
+
+	// Close existing pipes if they exist
+	if r.stdinPipe != nil {
+		r.stdinPipe.Close()
+		r.stdinPipe = nil
+	}
+	if r.stdoutPipe != nil {
+		r.stdoutPipe.Close()
+		r.stdoutPipe = nil
+	}
+
+	// Clear any pending outputs
+	r.outputsMu.Lock()
+	for id, cmd := range r.outputs {
+		select {
+		case <-cmd.ready:
+			// Already closed
+		default:
+			close(cmd.ready)
+		}
+		delete(r.outputs, id)
+		slog.Debug("cleared pending command during restart", "id", id)
+	}
+	r.outputsMu.Unlock()
+
+	slog.Info("container attachment restarted - will reconnect on next command")
+	return nil
+}
+
+// Close closes the container attachment, stops and optionally removes the container.
 func (r *PodmanShellRunner) Close(ctx context.Context) error {
-	slog.Debug("closing podman shell runner")
+	slog.Debug("closing podman shell runner", "noCleanup", r.noCleanup)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Close the pipes first
+	// Send exit command to bash before closing pipes
 	if r.stdinPipe != nil {
+		slog.Debug("sending exit command to bash")
+		// Ignore errors here as the pipe might already be broken
+		r.stdinPipe.Write([]byte("exit\n"))
 		slog.Debug("closing stdin pipe")
+		// TODO: try first exit the shell to solve the dangling containers bug
 		r.stdinPipe.Close()
 	}
 	if r.stdoutPipe != nil {
 		slog.Debug("closing stdout pipe")
 		r.stdoutPipe.Close()
 	}
-	if r.stderrPipe != nil {
-		slog.Debug("closing stderr pipe")
-		r.stderrPipe.Close()
-	}
 
 	r.stdinPipe = nil
 	r.stdoutPipe = nil
-	r.stderrPipe = nil
 
-	// Stop and remove the container if we have a connection
-	if r.conn != nil {
-		slog.Debug("stopping container", "containerName", r.containerName)
-		timeout := uint(5)
+	// Stop and optionally remove the container if we have a connection
+	if r.conn != nil && r.containerStarted {
+		// Use a very short timeout since we sent exit to bash
+		// If bash doesn't exit quickly, force kill the container
+		timeout := uint(1)
+		slog.Debug("stopping container", "containerName", r.containerName, "timeout", timeout)
 		if err := containers.Stop(r.conn, r.containerName, &containers.StopOptions{Timeout: &timeout}); err != nil {
-			slog.Warn("failed to stop container", "error", err)
+			slog.Debug("stop returned error (may already be stopped)", "error", err)
+			// Don't return error, continue to try removal
 		}
 
-		slog.Debug("removing container", "containerName", r.containerName)
-		force := true
-		if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{Force: &force}); err != nil {
-			slog.Warn("failed to remove container", "error", err)
+		// Only remove the container if not in no-cleanup mode
+		if !r.noCleanup {
+			slog.Debug("removing container", "containerName", r.containerName)
+			force := true
+			volumes := true
+			if _, err := containers.Remove(r.conn, r.containerName, &containers.RemoveOptions{
+				Force:   &force,
+				Volumes: &volumes,
+			}); err != nil {
+				slog.Debug("remove returned error", "error", err)
+				// Don't return error, just log it
+			} else {
+				slog.Debug("container removed successfully", "containerName", r.containerName)
+			}
+		} else {
+			slog.Info("Container NOT removed (--no-cleanup flag set)", "containerName", r.containerName)
+			slog.Info("To manually remove the container later, run:", "command", fmt.Sprintf("podman rm -f %s", r.containerName))
 		}
 	}
 
+	// Reset containerStarted so the runner can be reused after Close()
+	// This allows the container to be recreated on the next Run() call
+	r.containerStarted = false
+
 	slog.Debug("podman shell runner closed successfully")
 	return nil
+}
+func (r *PodmanShellRunner) AllowFallback(allow bool) {
+	r.allowFallback = allow
 }

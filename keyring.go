@@ -12,9 +12,20 @@ import (
 )
 
 const (
-	keyringService = "asimi-cli"
-	keyringPrefix  = "oauth_"
+	keyringPrefix = "oauth_"
 )
+
+// keyringService is the service name used for keyring operations
+// Tests can override this to use a test-specific service
+var keyringService = getKeyringService()
+
+func getKeyringService() string {
+	// Allow tests to use a separate keyring service to avoid polluting production credentials
+	if os.Getenv("ASIMI_KEYRING_SERVICE") != "" {
+		return os.Getenv("ASIMI_KEYRING_SERVICE")
+	}
+	return "dev.asimi.asimi-cli"
+}
 
 // TokenData holds OAuth token information
 type TokenData struct {
@@ -26,6 +37,11 @@ type TokenData struct {
 
 // SaveTokenToKeyring securely stores OAuth tokens in the OS keyring
 func SaveTokenToKeyring(provider, accessToken, refreshToken string, expiry time.Time) error {
+	// Validate that we're not saving empty tokens
+	if accessToken == "" {
+		return fmt.Errorf("cannot save empty access token for provider %s", provider)
+	}
+
 	data := TokenData{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,

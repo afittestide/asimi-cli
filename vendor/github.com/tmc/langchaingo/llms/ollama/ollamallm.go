@@ -2,6 +2,7 @@ package ollama
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -112,28 +113,50 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 	for _, mc := range messages {
 		msg := &ollamaclient.Message{Role: typeToRole(mc.Role)}
 
-		// Look at all the parts in mc; expect to find a single Text part and
-		// any number of binary parts.
-		var text string
-		foundText := false
+		// Look at all the parts in mc; support Text, Binary (images), tool calls
+		// and tool call responses.
+		var textParts []string
 		var images []ollamaclient.ImageData
 
 		for _, p := range mc.Parts {
 			switch pt := p.(type) {
 			case llms.TextContent:
-				if foundText {
-					return nil, errors.New("expecting a single Text content")
+				if strings.TrimSpace(pt.Text) != "" {
+					textParts = append(textParts, pt.Text)
 				}
-				foundText = true
-				text = pt.Text
 			case llms.BinaryContent:
 				images = append(images, ollamaclient.ImageData(pt.Data))
+			case llms.ToolCall:
+				if pt.FunctionCall == nil {
+					continue
+				}
+
+				var args map[string]any
+				if strings.TrimSpace(pt.FunctionCall.Arguments) != "" {
+					if err := json.Unmarshal([]byte(pt.FunctionCall.Arguments), &args); err != nil {
+						return nil, fmt.Errorf("ollama: invalid tool call arguments: %w", err)
+					}
+				}
+
+				msg.ToolCalls = append(msg.ToolCalls, ollamaclient.ToolCall{
+					Function: ollamaclient.ToolFunction{
+						Name:      pt.FunctionCall.Name,
+						Arguments: args,
+					},
+				})
+			case llms.ToolCallResponse:
+				msg.ToolName = pt.Name
+				if strings.TrimSpace(pt.Content) != "" {
+					textParts = append(textParts, pt.Content)
+				}
 			default:
-				return nil, errors.New("only support Text and BinaryContent parts right now")
+				return nil, fmt.Errorf("ollama: unsupported content part type %T", pt)
 			}
 		}
 
-		msg.Content = text
+		if len(textParts) > 0 {
+			msg.Content = strings.Join(textParts, "\n")
+		}
 		msg.Images = images
 		chatMsgs = append(chatMsgs, msg)
 	}
@@ -146,21 +169,44 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 	// Get our ollamaOptions from llms.CallOptions
 	ollamaOptions := makeOllamaOptionsFromOptions(o.options.ollamaOptions, opts)
 
-	// Handle thinking mode if specified via metadata
+	// Handle thinking mode - start with default from options
+	thinkEnabled := o.options.think
+	// Override if specified via metadata
 	if opts.Metadata != nil {
 		if config, ok := opts.Metadata["thinking_config"].(*llms.ThinkingConfig); ok {
 			if config.Mode != llms.ThinkingModeNone && o.SupportsReasoning() {
 				// Enable thinking for models that support it
-				ollamaOptions.Think = true
+				thinkEnabled = true
 			}
 		}
 	}
+
+	// Convert tools from llms.Tool to ollamaclient.Tool
+	var ollamaTools []ollamaclient.Tool
+	if len(opts.Tools) > 0 {
+		ollamaTools = make([]ollamaclient.Tool, 0, len(opts.Tools))
+		for _, tool := range opts.Tools {
+			if tool.Function != nil {
+				ollamaTools = append(ollamaTools, ollamaclient.Tool{
+					Type: tool.Type,
+					Function: ollamaclient.FunctionTool{
+						Name:        tool.Function.Name,
+						Description: tool.Function.Description,
+						Parameters:  tool.Function.Parameters,
+					},
+				})
+			}
+		}
+	}
+
 	req := &ollamaclient.ChatRequest{
 		Model:    model,
 		Format:   format,
 		Messages: chatMsgs,
 		Options:  ollamaOptions,
 		Stream:   opts.StreamingFunc != nil,
+		Tools:    ollamaTools,
+		Think:    thinkEnabled,
 	}
 
 	keepAlive := o.options.keepAlive
@@ -170,6 +216,7 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 
 	var fn ollamaclient.ChatResponseFunc
 	streamedResponse := ""
+	var streamedToolCalls []ollamaclient.ToolCall
 	var resp ollamaclient.ChatResponse
 
 	fn = func(response ollamaclient.ChatResponse) error {
@@ -180,12 +227,17 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 		}
 		if response.Message != nil {
 			streamedResponse += response.Message.Content
+			// Accumulate tool calls from streaming responses
+			if len(response.Message.ToolCalls) > 0 {
+				streamedToolCalls = append(streamedToolCalls, response.Message.ToolCalls...)
+			}
 		}
 		if !req.Stream || response.Done {
 			resp = response
 			resp.Message = &ollamaclient.Message{
-				Role:    "assistant",
-				Content: streamedResponse,
+				Role:      "assistant",
+				Content:   streamedResponse,
+				ToolCalls: streamedToolCalls,
 			}
 		}
 		return nil
@@ -231,14 +283,41 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 
 	// Note: Ollama may include thinking in the main content when Think mode is enabled
 	// Future versions may provide separate thinking content
-	if ollamaOptions.Think && o.SupportsReasoning() {
+	if thinkEnabled && o.SupportsReasoning() {
 		genInfo["ThinkingEnabled"] = true
+	}
+
+	// Convert ollama tool calls to llms.ToolCall format
+	var toolCalls []llms.ToolCall
+	if resp.Message != nil && len(resp.Message.ToolCalls) > 0 {
+		toolCalls = make([]llms.ToolCall, 0, len(resp.Message.ToolCalls))
+		for i, tc := range resp.Message.ToolCalls {
+			// Ollama doesn't provide tool call IDs, so we generate one
+			id := fmt.Sprintf("call_%d", i)
+
+			// Convert arguments map to JSON string
+			argsBytes, err := json.Marshal(tc.Function.Arguments)
+			if err != nil {
+				// If marshaling fails, use empty JSON object
+				argsBytes = []byte("{}")
+			}
+
+			toolCalls = append(toolCalls, llms.ToolCall{
+				ID:   id,
+				Type: "function",
+				FunctionCall: &llms.FunctionCall{
+					Name:      tc.Function.Name,
+					Arguments: string(argsBytes),
+				},
+			})
+		}
 	}
 
 	choices := []*llms.ContentChoice{
 		{
 			Content:        content,
 			GenerationInfo: genInfo,
+			ToolCalls:      toolCalls,
 		},
 	}
 
@@ -318,16 +397,6 @@ func makeOllamaOptionsFromOptions(ollamaOptions ollamaclient.Options, opts llms.
 	ollamaOptions.RepeatPenalty = float32(opts.RepetitionPenalty)
 	ollamaOptions.FrequencyPenalty = float32(opts.FrequencyPenalty)
 	ollamaOptions.PresencePenalty = float32(opts.PresencePenalty)
-
-	// Extract thinking configuration for models that support it
-	if opts.Metadata != nil {
-		if config, ok := opts.Metadata["thinking_config"].(*llms.ThinkingConfig); ok {
-			// Enable thinking mode if not explicitly disabled
-			if config.Mode != llms.ThinkingModeNone {
-				ollamaOptions.Think = true
-			}
-		}
-	}
 
 	return ollamaOptions
 }

@@ -2,224 +2,303 @@
 
 ## Overview
 
-The init command analyzes a codebase and generates an AGENTS.md file containing build commands, test commands, and code style guidelines. This file becomes part of the system prompt for all future AI sessions in the project.
+The init command analyzes a codebase and generates infrastructure files for working with Asimi. It creates:
+- **AGENTS.md** - Build commands, test commands, and code style guidelines
+- **Justfile** - Task runner with common development tasks
+- **.agents/asimi.conf** - Project-specific configuration
+- **.agents/sandbox/Dockerfile** - Container image for sandboxed shell execution
+- **.agents/sandbox/bashrc** - Bash configuration for the container
+
+These files become part of the system prompt for all future AI sessions in the project.
 
 ## Trigger Points
 
-The init command can be triggered in two ways:
+The init command can be triggered via:
+- Command mode: `:init` (normal initialization)
+- Command mode: `:init clear` (remove and regenerate all files)
 
-- Via REST API endpoint: `POST /session/:id/init`
-- Via keyboard shortcut: Default `<leader>i` (configured as `project_init`)
+## Command Execution Flow
 
-## Session Initialization Process
+### 1. Entry Point: `handleInitCommand`
 
-### Entry Point
+Located in `commands.go`, this function:
+- Validates that a session exists (requires `:login` first)
+- Checks for `clear` argument to determine mode
+- Creates `.agents/sandbox` directory structure
+- In clear mode: removes all infrastructure files first
 
-`Session.initialize()` function receives:
+### 2. Embedded File Initialization
 
-- `sessionID`: The session identifier
-- `modelID`: AI model to use
-- `providerID`: Provider for the AI model
-- `messageID`: Unique message identifier
+Two files are written directly from embedded content:
+- **.agents/asimi.conf** - From `dotagents/asimi.conf` embed
+- **.agents/sandbox/bashrc** - From `dotagents/sandbox/bashrc` embed
 
-## Core Execution Steps
+These are always written in clear mode, or if they don't exist.
 
-### 1. Create Initialization Prompt
+### 3. Missing File Detection
 
-- Loads the initialization prompt template from `initialize.txt`
-- The prompt instructs the AI to analyze the codebase and create an `AGENTS.md` file
-- The prompt template is customized with the current worktree path
-- Template content requests:
-  - Analysis of build/lint/test commands
-  - Code style guidelines (imports, formatting, types, naming, error handling)
-  - Concise output (about 20 lines)
-  - Check for existing Cursor rules or Copilot instructions
-  - If an AGENTS.md already exists, improve it
+`checkMissingInfraFiles()` checks for:
+- AGENTS.md
+- Justfile
+- .agents/asimi.conf
+- .agents/sandbox/Dockerfile
+- .agents/sandbox/bashrc
 
-### 2. Submit to Session Prompt System
+If all files exist and not in clear mode, initialization is skipped with a message suggesting `:init clear`.
 
-Calls `SessionPrompt.prompt()` with:
+### 4. Project Name Extraction
 
-- Session ID
-- Message ID
-- Model configuration (provider + model)
-- Text part containing the initialization prompt
+From `GetRepoInfo().Slug`:
+- Full slug example: `github.com/owner/repo`
+- Extracted project name: `repo` (last segment after `/`)
+- Used for container naming: `asimi-sandbox-repo:latest`
 
-## Session Prompt Processing
+### 5. Template Preparation
 
-### 3. Message Creation
+`InitTemplateData` structure contains:
+- `ProjectName` - Extracted project name for container naming
+- `ProjectSlug` - Full repository slug
+- `MissingFiles` - List of files that need creation
+- `ClearMode` - Whether running in clear mode
 
-- Creates a user message with the initialization prompt
-- Touches the session (updates last activity timestamp)
-- Checks if session is busy; if so, queues the request
+The template (`prompts/init.tmpl`) is parsed and executed with this data.
 
-### 4. Agent & Model Resolution
+### 6. Shell Runner Switching
 
-- Resolves the agent (defaults to "build" agent if not specified)
-- Gets the specified model from the provider
-- Validates model availability and configuration
+Before sending the prompt:
+- Captures the current (container) shell runner
+- Switches to host shell runner for init execution
+- This prevents container issues during infrastructure setup
+- Original runner is passed to verification for testing
 
-### 5. System Prompt Assembly
+### 7. AI Prompt Execution
 
-Builds comprehensive system prompt by concatenating:
+Sends `startConversationMsg` with:
+- `prompt` - Rendered template with project-specific data
+- `clearHistory: true` - Starts fresh conversation
+- `RunOnHost: true` - Forces host shell execution
+- `onStreamComplete` - Callback to `verifyInit` after completion
 
-**Provider-specific header** (e.g., Anthropic spoofing if needed)
+## AI Analysis Phase
 
-**Base provider prompt** (different for GPT, Gemini, Claude, etc.)
+The AI agent (via the template prompt) is instructed to:
 
-**Environment information:**
+1. **Explore the codebase** using tools:
+   - Read package manifests (package.json, go.mod, Cargo.toml, etc.)
+   - List directory structure
+   - Analyze existing scripts and build systems
+   - Check for existing infrastructure files
 
-- Current working directory
-- Git repository status
-- Platform (OS)
-- Current date
+2. **Generate/Update Files**:
 
-**Project structure** (up to 200 files from git tree)
+   **Justfile:**
+   - Starts with `PROJECT_NAME := "{{.ProjectSlug}}"`
+   - Common recipes: install, test, run, lint, build, clean, bootstrap
+   - Transpiles existing scripts to just recipes
+   - Ends with `build-sandbox` and `clean-sandbox` recipes using `{{PROJECT_NAME}}`
 
-**Custom instructions** from:
+   **AGENTS.md:**
+   - Language specification
+   - Build commands using just
+   - Test commands (all tests + single test)
+   - Lint/format commands
+   - Code style guidelines (imports, formatting, types, naming, errors)
+   - Project-specific conventions
+   - Note about container configuration
 
-- Local AGENTS.md (searches up from current directory)
-- Local CLAUDE.md
-- Local CONTEXT.md (deprecated)
-- Global AGENTS.md in config directory
-- Global CLAUDE.md in ~/.claude/
-- Additional paths from config instructions
+   **.agents/asimi.conf:**
+   - `[run_in_shell]` section at top
+   - `image_name = "localhost/asimi-sandbox-{{.ProjectName}}:latest"`
+   - Ensures project-specific container is used
 
-### 6. Tool Resolution
+   **.agents/sandbox/Dockerfile:**
+   - Base image: project's primary language runtime (over debian)
+   - Common tools: git, curl, just, ripgrep
+   - No vim, no user creation, no WORKDIR
+   - Ends with: `COPY .agents/sandbox/bashrc /root/.bashrc` and `CMD ["/bin/bash"]`
 
-- Assembles available tools for the agent
-- Configures tool permissions and capabilities
-- Tools include: Read, Write, Edit, Bash, List, Glob, Grep, Task, etc.
+3. **Write files** without waiting for approval (guardrails will verify)
 
-### 7. Message History Retrieval
+## Verification Phase: `verifyInit`
 
-- Fetches all messages in the session
-- Filters out summarized messages
-- Checks for token overflow and compacts if needed
-- Inserts reminder messages based on agent configuration
+After the AI completes, automatic verification runs with retry logic (max 5 attempts).
 
-### 8. AI Stream Processing
+### Verification Steps
 
-- Initiates streaming text generation with the AI model
-- Processes the stream incrementally:
-  - Text chunks are captured
-  - Tool calls are detected and executed
-  - Results are fed back to the model
-  - Process continues until completion
+1. **Configuration Reload**
+   - Reloads `.agents/asimi.conf` to pick up any LLM changes
+   - Ensures latest configuration is used
 
-### 9. Tool Execution Loop
+2. **File Existence Checks**
+   - Verifies AGENTS.md exists
+   - Verifies Justfile exists
+   - Reports failures and triggers retry if missing
 
-When the AI decides to use tools:
+3. **Build Sandbox Container**
+   - Runs `just build-sandbox` on host
+   - Timeout: 30 seconds
+   - Builds the project-specific container image
+   - Reports success/failure with exit code
 
-- Tool calls are extracted from the stream
-- Each tool is invoked with provided parameters
-- Tool results are stored as new message parts
-- Control returns to the AI with tool results
-- AI continues with next step or completes
+4. **Shell Runner Reinitialization**
+   - After successful build, reinitializes shell runner
+   - Gets fresh container with newly built image
+   - Critical for subsequent container tests
 
-## Project Initialization Marking
+5. **Smoke Test in Container**
+   - Runs `uname` in the container
+   - Verifies output contains "Linux"
+   - Confirms container is functional
+   - Timeout: 30 seconds
 
-After prompt completes:
+6. **Host Tests**
+   - Runs `just test` on host
+   - Timeout: 30 seconds
+   - Validates recipes work on host system
 
-- Calls `Project.setInitialized(projectID)`
-- Updates project storage with: `time.initialized = Date.now()`
-- This marks the project as having been analyzed
+7. **Container Tests**
+   - Runs `just test` in container
+   - Timeout: 30 seconds
+   - Validates recipes work in sandboxed environment
 
-## Project Context Discovery
+### Retry Logic: `verifyInitWithRetry`
 
-### Project Identification
+On verification failure:
+1. Closes the container (if exists)
+2. Builds error message with all failures
+3. Sends message back to AI session
+4. AI attempts to fix the issues
+5. Verification runs again (up to 5 total attempts)
+6. After max retries, reports failure to user
 
-- Searches up the directory tree for `.git` folder
-- If found:
-  - Gets git root directory
-  - Runs `git rev-list --max-parents=0 --all` to get first commit SHA
-  - Uses first commit as project ID (unique identifier)
-  - Gets absolute path to git toplevel
-- If not found:
-  - Creates "global" project with "/" as worktree
+### Success Path
 
-### Project Storage
-
-Creates/updates project entry in storage:
-
-- `id`: Git first commit SHA or "global"
-- `worktree`: Git root or "/"
-- `vcs`: "git" if in git repo
-- `time.created`: Current timestamp
-- `time.initialized`: Set after init completes
-
-## File Analysis & AGENTS.md Generation
-
-The AI agent:
-
-- Uses Read/List/Glob tools to explore the codebase
-- Identifies key files (package.json, build configs, test files)
-- Analyzes code patterns and conventions
-- Checks for existing documentation
-- Generates or updates AGENTS.md with:
-  - Build commands
-  - Test commands (including single test execution)
-  - Linting commands
-  - Code style guidelines
-  - Import conventions
-  - Naming conventions
-  - Error handling patterns
-  - Any project-specific rules
-
-## Completion & Storage
-
-- The generated AGENTS.md is written to the project root
-- Session state is updated
-- Project is marked as initialized
-- Future sessions will automatically include this AGENTS.md in their system prompt
-
-## Subsequent Usage
-
-Once initialized:
-
-- All future AI sessions in this project will load AGENTS.md
-- The file is included in the system prompt automatically
-- Agents have immediate context about project conventions
-- No need to re-explain build/test/style guidelines
-
-## Key Design Principles
-
-1. **One-time Analysis**: Init is designed to run once per project, creating persistent guidance
-2. **Hierarchical Rules**: Supports both local (per-project) and global (user-wide) instruction files
-3. **Automatic Discovery**: Searches up directory tree for context files
-4. **Git-Based Identity**: Uses git history to uniquely identify projects
-5. **Streaming AI**: Uses streaming responses for real-time feedback
-6. **Tool Augmentation**: AI can use filesystem tools to analyze codebase structure
-7. **Caching Context**: Generated AGENTS.md becomes part of system prompt cache
+When all verifications pass:
+1. Stages files with git:
+   - `git add AGENTS.md`
+   - `git add Justfile`
+   - `git add .agents/`
+2. Reports success message
+3. Suggests reviewing with `:!just` or starting fresh with `:new`
 
 ## Data Flow Diagram
 
 ```
-User Trigger (API/Keyboard)
+User: :init [clear]
     ↓
-Session.initialize()
+handleInitCommand
+    ├─ Create .agents/sandbox/
+    ├─ [clear mode] Remove all infrastructure files
+    ├─ Write embedded files (asimi.conf, bashrc)
+    ├─ Check missing files
+    ├─ Extract project name from RepoInfo.Slug
+    ├─ Prepare InitTemplateData
+    ├─ Parse & execute init.tmpl
+    ├─ Capture container shell runner
+    └─ Switch to host shell runner
     ↓
-SessionPrompt.prompt()
+startConversationMsg (RunOnHost: true)
     ↓
-├─ Create User Message
-├─ Resolve Agent & Model
-├─ Build System Prompt
-│   ├─ Provider Header
-│   ├─ Base Prompt
-│   ├─ Environment Info
-│   ├─ Project Tree
-│   └─ Custom Instructions (AGENTS.md, etc.)
-├─ Resolve Tools
-├─ Get Message History
-└─ Stream AI Response
+AI Analysis & File Generation
+    ├─ Explore codebase (Read, List, Glob tools)
+    ├─ Analyze build system & conventions
+    ├─ Generate/Update Justfile
+    ├─ Generate/Update AGENTS.md
+    ├─ Generate/Update .agents/asimi.conf
+    └─ Generate/Update .agents/sandbox/Dockerfile
     ↓
-AI Tool Execution Loop
-    ├─ Read files
-    ├─ List directories
-    ├─ Analyze patterns
-    └─ Write AGENTS.md
+onStreamComplete → verifyInit
     ↓
-Project.setInitialized()
+verifyInitWithRetry (attempt 1-5)
+    ├─ Reload configuration
+    ├─ Check AGENTS.md exists
+    ├─ Check Justfile exists
+    ├─ Run: just build-sandbox (host)
+    ├─ Reinitialize shell runner
+    ├─ Run: uname (container smoke test)
+    ├─ Run: just test (host)
+    └─ Run: just test (container)
     ↓
-Complete
+    ├─ [FAIL] → Close container
+    │           Build error message
+    │           Send to AI for fixes
+    │           Retry (if < max attempts)
+    │
+    └─ [PASS] → Stage files with git
+                Report success
+                Suggest next steps
 ```
+
+## Key Design Principles
+
+1. **Template-Driven**: Uses Go templates for flexible, project-specific prompts
+2. **Project-Specific Containers**: Each project gets its own named container image
+3. **Automatic Verification**: Guardrails validate all generated files
+4. **Self-Healing**: AI automatically fixes issues up to 5 retry attempts
+5. **Host Execution**: Init runs on host to avoid container bootstrapping issues
+6. **Embedded Defaults**: Simple config files embedded in binary for reliability
+7. **Git Integration**: Automatically stages successful infrastructure files
+8. **Clear Mode**: Allows complete regeneration when needed
+
+## Configuration Impact
+
+After init completes, the project has:
+
+**Local Configuration** (`.agents/asimi.conf`):
+```toml
+[run_in_shell]
+image_name = "localhost/asimi-sandbox-{project-name}:latest"
+```
+
+**Build Recipe** (Justfile):
+```just
+PROJECT_NAME := "{project-slug}"
+
+build-sandbox:
+    podman machine init --disk-size 30 || true
+    podman machine start || true
+    podman build -t localhost/asimi-sandbox-{{PROJECT_NAME}}:latest -f .agents/sandbox/Dockerfile .
+```
+
+This ensures:
+- Each project uses its own container
+- Container name matches project
+- Multiple projects can coexist
+- Configuration is version-controlled
+
+## Subsequent Usage
+
+Once initialized:
+- All future AI sessions automatically load AGENTS.md in system prompt
+- Shell commands run in project-specific container
+- No need to re-explain build/test/style guidelines
+- Container persists across sessions (until rebuilt)
+
+## Error Handling
+
+**No Session**: "No model connection. Use :login to configure a provider and start chatting."
+
+**Directory Creation Fails**: "Error creating .agents directory: {error}"
+
+**Template Parse Error**: "Error parsing initialization template: {error}"
+
+**Max Retries Exceeded**: 
+```
+❌ Initialization failed after 5 attempts.
+The following issues could not be resolved:
+{list of failures}
+
+Please review the errors and try running ':init' again, or manually fix the issues.
+```
+
+**Container Close Failure**: Logged as warning, doesn't block retry
+
+## Related Files
+
+- `commands.go` - Command handlers and verification logic
+- `prompts/init.tmpl` - AI prompt template
+- `dotagents/asimi.conf` - Embedded default config
+- `dotagents/sandbox/bashrc` - Embedded bashrc
+- `context.go` - `GetRepoInfo()` for project detection
+- `podman_runner.go` - Container shell runner
+- `host_shell_runner.go` - Host shell runner

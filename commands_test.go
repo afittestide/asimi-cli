@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,63 +22,70 @@ func TestFindCommand(t *testing.T) {
 			name:          "exact match with colon",
 			input:         ":quit",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - q",
 			input:         ":q",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - qu",
 			input:         ":qu",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - qui",
 			input:         ":qui",
 			expectFound:   true,
-			expectCommand: "/quit",
+			expectCommand: "quit",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - h",
 			input:         ":h",
 			expectFound:   true,
-			expectCommand: "/help",
+			expectCommand: "help",
 			expectMatches: 1,
 		},
 		{
 			name:          "partial match single - n",
 			input:         ":n",
 			expectFound:   true,
-			expectCommand: "/new",
+			expectCommand: "new",
 			expectMatches: 1,
 		},
 		{
 			name:            "ambiguous match - c",
 			input:           ":c",
 			expectFound:     false,
-			expectMatches:   2, // /clear-history and /context
+			expectMatches:   2, // compact and context
 			expectAmbiguous: true,
 		},
 		{
-			name:          "partial disambiguated - cl",
-			input:         ":cl",
+			name:            "ambiguous match - co",
+			input:           ":co",
+			expectFound:     false,
+			expectMatches:   2, // compact and context
+			expectAmbiguous: true,
+		},
+		{
+			name:          "partial disambiguated - com",
+			input:         ":com",
 			expectFound:   true,
-			expectCommand: "/clear-history",
+			expectCommand: "compact",
 			expectMatches: 1,
 		},
 		{
-			name:          "partial disambiguated - co",
-			input:         ":co",
+			name:          "partial disambiguated - con",
+			input:         ":con",
 			expectFound:   true,
-			expectCommand: "/context",
+			expectCommand: "context",
 			expectMatches: 1,
 		},
 		{
@@ -118,12 +126,12 @@ func TestNormalizeCommandName(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{":help", "/help"},
-		{":quit", "/quit"},
-		{"/help", "/help"},
-		{"/quit", "/quit"},
-		{"", ""},
-		{":new", "/new"},
+		{input: ":help", expected: "help"},
+		{input: ":quit", expected: "quit"},
+		{input: "", expected: ""},
+		{input: ":new", expected: "new"},
+		{input: "help", expected: "help"},
+		{input: "quit", expected: "quit"},
 	}
 
 	for _, tt := range tests {
@@ -132,4 +140,223 @@ func TestNormalizeCommandName(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestHandleInitCommand(t *testing.T) {
+	// Setup a temporary directory for the test
+	tmpDir := t.TempDir()
+	originalWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+	defer func() {
+		err := os.Chdir(originalWd)
+		if err != nil {
+			t.Logf("Failed to change back to original directory: %v", err)
+		}
+	}()
+
+	// Setup a mock model
+	mockTUI := &TUIModel{
+		session: &Session{},
+	}
+
+	t.Run("Clean directory", func(t *testing.T) {
+		cmd := handleInitCommand(mockTUI, []string{})
+		msg := cmd()
+
+		// Check that the message is a startConversationMsg
+		initMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg")
+		require.NotEmpty(t, initMsg.prompt)
+		require.True(t, initMsg.clearHistory)
+		require.NotNil(t, initMsg.onStreamComplete)
+		// initialMessages should contain the status messages
+		require.NotEmpty(t, initMsg.initialMessages, "Expected initialMessages to contain status messages")
+
+		// Check that .agents/asimi.conf was created
+		projectConfigPath := ".agents/asimi.conf"
+		_, err := os.Stat(projectConfigPath)
+		require.NoError(t, err, "Project config file should be created")
+
+		// Check that the content matches the embedded default
+		content, err := os.ReadFile(projectConfigPath)
+		require.NoError(t, err)
+		require.Equal(t, defaultConfContent, string(content))
+
+		// Clean up for the next test
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+
+	t.Run("Some files exist", func(t *testing.T) {
+		// Create a dummy Justfile
+		err := os.WriteFile("Justfile", []byte("default:\n\techo 'hello'"), 0644)
+		require.NoError(t, err)
+
+		cmd := handleInitCommand(mockTUI, []string{})
+		msg := cmd()
+
+		// Check that the message is a startConversationMsg
+		initMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg")
+		require.NotEmpty(t, initMsg.prompt)
+		require.True(t, initMsg.clearHistory)
+		require.NotNil(t, initMsg.onStreamComplete)
+
+		// Check that .agents/asimi.conf was created
+		projectConfigPath := ".agents/asimi.conf"
+		_, err = os.Stat(projectConfigPath)
+		require.NoError(t, err, "Project config file should be created")
+
+		// Clean up for the next test
+		err = os.Remove("Justfile")
+		require.NoError(t, err)
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+
+	t.Run("All files exist", func(t *testing.T) {
+		// Create all the files
+		err := os.MkdirAll(".agents/sandbox", 0755)
+		require.NoError(t, err)
+		files := []string{
+			"AGENTS.md",
+			"Justfile",
+			".agents/asimi.conf",
+			".agents/sandbox/Dockerfile",
+			".agents/sandbox/bashrc",
+		}
+		for _, file := range files {
+			err := os.WriteFile(file, []byte("dummy content"), 0644)
+			require.NoError(t, err)
+		}
+
+		cmd := handleInitCommand(mockTUI, []string{})
+		msg := cmd()
+
+		// Check that the message is a showContextMsg
+		contextMsg, ok := msg.(showContextMsg)
+		require.True(t, ok, "Expected showContextMsg")
+		require.Contains(t, contextMsg.content, "files already exist")
+
+		// Clean up for the next test
+		for _, file := range files {
+			err := os.Remove(file)
+			require.NoError(t, err)
+		}
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+
+	t.Run("Clear mode", func(t *testing.T) {
+		// Create all the files
+		err := os.MkdirAll(".agents/sandbox", 0755)
+		require.NoError(t, err)
+		files := []string{
+			"AGENTS.md",
+			"Justfile",
+			".agents/asimi.conf",
+			".agents/sandbox/Dockerfile",
+			".agents/sandbox/bashrc",
+		}
+		originalContent := "original content"
+		for _, file := range files {
+			err := os.WriteFile(file, []byte(originalContent), 0644)
+			require.NoError(t, err)
+		}
+
+		cmd := handleInitCommand(mockTUI, []string{"clear"})
+		msg := cmd()
+
+		// Check that the message is a startConversationMsg
+		initMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg")
+		require.Contains(t, initMsg.prompt, "Clear mode enabled")
+
+		// Check that files were removed and then recreated (embedded ones)
+		// .agents/asimi.conf should be recreated with embedded content
+		projectConfigPath := ".agents/asimi.conf"
+		content, err := os.ReadFile(projectConfigPath)
+		require.NoError(t, err)
+		require.Equal(t, defaultConfContent, string(content))
+
+		// bashrc should be recreated with embedded content
+		bashrcPath := ".agents/sandbox/bashrc"
+		bashrcContent, err := os.ReadFile(bashrcPath)
+		require.NoError(t, err)
+		require.Equal(t, sandboxBashrc, string(bashrcContent))
+
+		// Other files should be removed (AGENTS.md, Justfile, Dockerfile)
+		_, err = os.Stat("AGENTS.md")
+		require.True(t, os.IsNotExist(err), "AGENTS.md should be removed in clear mode")
+
+		// Clean up
+		err = os.RemoveAll(".agents")
+		require.NoError(t, err)
+	})
+}
+
+func TestRunInitGuardrails(t *testing.T) {
+	// Setup a temporary directory for the test
+	tmpDir := t.TempDir()
+	originalWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+	defer func() {
+		err := os.Chdir(originalWd)
+		if err != nil {
+			t.Logf("Failed to change back to original directory: %v", err)
+		}
+	}()
+
+	// Setup a mock model
+	mockTUI := &TUIModel{}
+
+	t.Run("Missing files", func(t *testing.T) {
+		// Run guardrails with no files present
+		cmd := verifyInit(mockTUI, nil)
+		msg := cmd()
+
+		// When there are errors, runInitGuardrails returns a startConversationMsg to retry
+		retryMsg, ok := msg.(startConversationMsg)
+		require.True(t, ok, "Expected startConversationMsg for retry, got type: %T", msg)
+		require.Contains(t, retryMsg.prompt, "❌ AGENTS.md was not created")
+		require.Contains(t, retryMsg.prompt, "❌ Justfile was not created")
+		require.Contains(t, retryMsg.prompt, "Issues found verifying initialization")
+		require.True(t, retryMsg.RunOnHost, "Expected RunOnHost to be true")
+	})
+
+	t.Run("Files present", func(t *testing.T) {
+		// Create the required files
+		err := os.WriteFile("AGENTS.md", []byte("# Test AGENTS.md"), 0644)
+		require.NoError(t, err)
+		err = os.WriteFile("Justfile", []byte("default:\n\techo 'hello'"), 0644)
+		require.NoError(t, err)
+
+		// Run guardrails
+		cmd := verifyInit(mockTUI, nil)
+		msg := cmd()
+
+		// When just commands fail (which they will in test), it returns startConversationMsg
+		// When all passes, it returns showContextMsg
+		switch m := msg.(type) {
+		case startConversationMsg:
+			// Just commands failed, which is expected in test environment
+			require.Contains(t, m.prompt, "AGENTS.md created")
+			require.Contains(t, m.prompt, "Justfile created")
+			require.True(t, m.RunOnHost, "Expected RunOnHost to be true")
+		case showContextMsg:
+			// All passed (unlikely in test environment)
+			require.Contains(t, m.content, "AGENTS.md created")
+			require.Contains(t, m.content, "Justfile created")
+		default:
+			t.Fatalf("Expected startConversationMsg or showContextMsg, got: %T", msg)
+		}
+
+		// Clean up
+		os.Remove("AGENTS.md")
+		os.Remove("Justfile")
+	})
 }

@@ -420,6 +420,11 @@ func (a *AuthAnthropic) exchange(authorizationCode, verifier string) (*Anthropic
 		return nil, fmt.Errorf("failed to decode token response: %w", err)
 	}
 
+	// Validate that we received valid tokens
+	if tokens.AccessToken == "" {
+		return nil, fmt.Errorf("Anthropic OAuth response did not contain an access token")
+	}
+
 	return &tokens, nil
 }
 
@@ -450,6 +455,7 @@ func (a *AuthAnthropic) access() (string, error) {
 	expiry := time.Now().Add(time.Duration(refreshedTokens.ExpiresIn) * time.Second)
 
 	// Update stored credentials
+	slog.Debug("Saving token in access", "tokens", refreshedTokens)
 	if err := SaveTokenToKeyring("anthropic", refreshedTokens.AccessToken, refreshedTokens.RefreshToken, expiry); err != nil {
 		return "", fmt.Errorf("failed to save refreshed tokens: %w", err)
 	}
@@ -488,14 +494,48 @@ func (a *AuthAnthropic) refreshToken(refreshToken string) (*AnthropicOAuthTokens
 		return nil, fmt.Errorf("failed to decode refresh response: %w", err)
 	}
 
+	// Validate that we received valid tokens
+	if tokens.AccessToken == "" {
+		return nil, fmt.Errorf("token refresh response did not contain an access token")
+	}
+
 	return &tokens, nil
 }
 
-// Login command handler
-func handleLoginCommand(model *TUIModel, args []string) tea.Cmd {
-	// Show provider selection modal
-	model.providerModal = NewProviderSelectionModal()
-	return nil
+// refreshOAuthToken checks if the Anthropic OAuth token is expired
+// and refreshes it if needed. Returns true if token was refreshed.
+func refreshOAuthToken(config *Config) bool {
+	if config.LLM.Provider != "anthropic" {
+		return false
+	}
+
+	tokenData, err := GetOauthToken("anthropic")
+	if err != nil || tokenData == nil {
+		return false
+	}
+
+	// Check if token is expired
+	if !IsTokenExpired(tokenData) {
+		return false
+	}
+
+	// Token expired - refresh it
+	auth := &AuthAnthropic{}
+	newAccessToken, refreshErr := auth.access()
+	if refreshErr == nil {
+		// Successfully refreshed - update config with new token
+		config.LLM.AuthToken = newAccessToken
+		// Get updated token data from keyring (auth.access() should have saved it)
+		token2, err := GetOauthToken("anthropic")
+		if err == nil && token2 != nil {
+			config.LLM.RefreshToken = token2.RefreshToken
+		}
+		slog.Debug("Refreshed OAuth token")
+		return true
+	}
+
+	slog.Warn("Failed to refresh OAuth token", "error", refreshErr)
+	return false
 }
 
 // performOAuthLogin performs OAuth login for non-Anthropic providers
@@ -525,6 +565,7 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 		// Save tokens
 		m.config.LLM.AuthToken = token
 		m.config.LLM.RefreshToken = refresh
+		slog.Debug("In performaOAuthLogin", "auth token", token, "refresh", refresh)
 		if err := UpdateUserOAuthTokens(provider, token, refresh, expiry); err != nil {
 			m.commandLine.AddToast("Authorized, but failed to persist token", "error", 4000)
 		}
@@ -537,7 +578,7 @@ func (m *TUIModel) performOAuthLogin(provider string) tea.Cmd {
 
 		// Update status line
 		m.status.SetAgent(provider + " (" + m.config.LLM.Model + ")")
-		m.content.GetChat().AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
+		m.content.Chat.AddMessage("Authenticated with " + provider + ", model: " + m.config.LLM.Model)
 		m.commandLine.AddToast("Authentication saved", "info", 2500)
 		m.sessionActive = true
 		return nil
@@ -551,7 +592,7 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 
 		// Exchange code for tokens
 		m.commandLine.AddToast("Exchanging authorization code for tokens...", "success", 3000)
-		m.content.GetChat().AddMessage("")
+		m.content.Chat.AddMessage("")
 		tokens, err := auth.exchange(authCode, verifier)
 		if err != nil {
 			return showOauthFailed{fmt.Sprintf("failed to exchange authorization code: %v", err)}
@@ -560,14 +601,10 @@ func (m *TUIModel) completeAnthropicOAuth(authCode, verifier string) tea.Cmd {
 		// Calculate expiry time
 		expiry := time.Now().Add(time.Duration(tokens.ExpiresIn) * time.Second)
 
-		// Store tokens securely
-		if err := SaveTokenToKeyring("anthropic", tokens.AccessToken, tokens.RefreshToken, expiry); err != nil {
-			return showOauthFailed{fmt.Sprintf("failed to save tokens: %v", err)}
-		}
-
-		// Update config file
+		// Store tokens securely in keyring and update config file
+		slog.Debug("In compleseAnthropicOAuth", "token", tokens)
 		if err := UpdateUserOAuthTokens("anthropic", tokens.AccessToken, tokens.RefreshToken, expiry); err != nil {
-			m.commandLine.AddToast("Warning: Failed to update config file", "warning", 4000)
+			return showOauthFailed{fmt.Sprintf("failed to save tokens: %v", err)}
 		}
 
 		// Update in-memory config with the new tokens
@@ -704,6 +741,12 @@ func runOAuthLoopback(provider string) (accessToken, refreshToken string, expiry
 	if err := json.NewDecoder(resp.Body).Decode(&tok); err != nil {
 		return "", "", time.Time{}, err
 	}
+
+	// Validate that we received valid tokens
+	if tok.AccessToken == "" {
+		return "", "", time.Time{}, fmt.Errorf("OAuth response did not contain an access token")
+	}
+
 	exp := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second)
 	return tok.AccessToken, tok.RefreshToken, exp, nil
 }

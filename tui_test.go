@@ -11,24 +11,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/fake"
 )
 
 // mockConfig returns a mock configuration for testing
 func mockConfig() *Config {
 	return &Config{
-		Server: ServerConfig{
-			Host: "localhost",
-			Port: 3000,
-		},
-		Database: DatabaseConfig{
-			Host:     "localhost",
-			Port:     5432,
-			User:     "asimi",
-			Password: "asimi",
-			Name:     "asimi_dev",
-		},
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "text",
@@ -54,7 +45,7 @@ func containsMessage(messages []string, substring string) bool {
 
 // TestTUIModelInit tests the initialization of the TUI model
 func TestTUIModelInit(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	cmd := model.Init()
 
 	// Init should return nil as there's no initial command
@@ -63,7 +54,7 @@ func TestTUIModelInit(t *testing.T) {
 
 // TestTUIModelWindowSizeMsg tests handling of window size messages
 func TestTUIModelWindowSizeMsg(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 	// Send a window size message
 	newModel, cmd := model.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -76,22 +67,21 @@ func TestTUIModelWindowSizeMsg(t *testing.T) {
 }
 
 // newTestModel creates a new TUIModel for testing purposes.
-func newTestModel(t *testing.T) (*TUIModel, *fake.LLM) {
+func newTestModel(t *testing.T) *TUIModel {
 	llm := fake.NewFakeLLM([]string{})
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	// Disable persistent history to keep tests hermetic.
-	model.historyStore = nil
+	model.persistentPromptHistory = nil
 	model.initHistory()
 	// Use native session path for tests now that legacy agent is removed.
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
-	return model, llm
+	return model
 }
 
 func TestCommandCompletionOrderDefaultsToHelp(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	model.prompt.SetValue(":")
 	model.completionMode = "command"
 	model.updateCommandCompletions()
@@ -111,7 +101,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 			name:          "Quit with 'q'",
 			key:           tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")},
 			expectQuit:    false,
-			expectCommand: false,
+			expectCommand: true, // Textarea returns a command for text input
 		},
 		{
 			name:          "First 'ctrl+c' does not quit",
@@ -123,7 +113,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+			model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 			// Send a quit key message
 			newModel, cmd := model.Update(tc.key)
@@ -139,6 +129,11 @@ func TestTUIModelKeyMsg(t *testing.T) {
 				result := cmd()
 				_, ok := result.(tea.QuitMsg)
 				require.True(t, ok)
+			} else if cmd != nil {
+				// If we got a command but don't expect quit, verify it's NOT a quit command
+				result := cmd()
+				_, ok := result.(tea.QuitMsg)
+				require.False(t, ok, "Should not be a quit command")
 			}
 
 			// Model should be unchanged
@@ -149,7 +144,7 @@ func TestTUIModelKeyMsg(t *testing.T) {
 }
 
 func TestDoubleCtrlCToQuit(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 	// First CTRL-C should not quit
 	newModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -194,7 +189,7 @@ func TestTUIModelSubmit(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model, _ := newTestModel(t)
+			model := newTestModel(t)
 
 			model.prompt.SetValue(tc.initialEditorValue)
 
@@ -209,7 +204,7 @@ func TestTUIModelSubmit(t *testing.T) {
 				require.Nil(t, cmd)
 			}
 
-			chat := model.content.GetChat()
+			chat := model.content.Chat
 			require.Equal(t, tc.expectedMessageCount, len(chat.Messages))
 			require.Contains(t, chat.Messages[len(chat.Messages)-1], tc.expectedLastMessage, "prompt", tc.name)
 		})
@@ -282,7 +277,7 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			model, _ := newTestModel(t)
+			model := newTestModel(t)
 			if tc.setup != nil {
 				tc.setup(model)
 			}
@@ -305,7 +300,7 @@ func TestTUIModelKeyboardInteraction(t *testing.T) {
 
 // TestTUIModelView tests the view rendering
 func TestTUIModelView(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 
 	// Test view rendering with zero dimensions (should show initializing)
 	view := model.View()
@@ -340,11 +335,11 @@ func TestPromptComponent(t *testing.T) {
 
 // TestChatComponent tests the chat component
 func TestChatComponent(t *testing.T) {
-	chat := NewChatComponent(50, 10)
+	chat := NewChatComponent(50, 10, false)
 
-	// Should have initial welcome message
+	// Should have initial title message
 	require.Equal(t, 1, len(chat.Messages))
-	require.Equal(t, "Welcome to Asimi CLI! Send a message to start chatting.", chat.Messages[0])
+	require.Contains(t, chat.Messages[0], "New session")
 
 	// Test adding a message
 	testMessage := "Test message"
@@ -353,11 +348,30 @@ func TestChatComponent(t *testing.T) {
 	require.Equal(t, testMessage, chat.Messages[1])
 
 	// Test dimensions
-	chat.SetWidth(60)
+	chat.SetSize(60, 15)
 	require.Equal(t, 60, chat.Width)
-
-	chat.SetHeight(15)
 	require.Equal(t, 15, chat.Height)
+}
+
+func TestChatComponentScrollLock(t *testing.T) {
+	chat := NewChatComponent(50, 10, false)
+
+	chat.SetScrollLock(true)
+	require.True(t, chat.IsScrollLocked())
+	require.True(t, chat.UserScrolled)
+	require.False(t, chat.AutoScroll)
+
+	chat.AddMessage("Asimi: hello")
+	require.True(t, chat.UserScrolled, "user should remain scrolled when locked")
+	require.False(t, chat.AutoScroll, "auto-scroll should stay disabled when locked")
+
+	chat.ScrollToBottom()
+	require.False(t, chat.AutoScroll, "still locked, auto-scroll stays disabled even at bottom")
+
+	chat.SetScrollLock(false)
+	require.False(t, chat.IsScrollLocked())
+	require.True(t, chat.AutoScroll, "auto-scroll should resume when unlock at bottom")
+	require.False(t, chat.UserScrolled, "unlock at bottom should mark user as not scrolled")
 }
 
 // TestCompletionDialog tests the completion dialog
@@ -646,7 +660,7 @@ func TestCommandLineBackspaceAtLineStartExitsCommandMode(t *testing.T) {
 
 // TestTUIModelUpdateFileCompletions tests the file completion functionality with multiple files
 func TestTUIModelUpdateFileCompletions(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Set up mock file list
 	files := []string{
@@ -682,22 +696,32 @@ func TestTUIModelUpdateFileCompletions(t *testing.T) {
 
 // TestRenderHomeView tests the home view rendering
 func TestRenderHomeView(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	model.width = 80
 	model.height = 24
 
 	view := model.renderHomeView(80, 24)
 	require.NotEmpty(t, view)
-	require.Contains(t, view, "Asimi CLI - Interactive Coding Agent")
-	require.Contains(t, view, "Your AI-powered coding assistant")
-	require.Contains(t, view, "Vi mode is always enabled")
-	require.Contains(t, view, "Press Esc to enter NORMAL mode")
-	require.Contains(t, view, "In NORMAL mode, press : to enter COMMAND-LINE mode")
+	require.Contains(t, view, "INSERT")
+	require.Contains(t, view, "Asimi")
+}
+
+// TestRenderHomeViewWithUpdateAvailable tests the home view shows update notification
+func TestRenderHomeViewWithUpdateAvailable(t *testing.T) {
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
+	model.width = 80
+	model.height = 24
+	model.updateAvailable = true
+
+	view := model.renderHomeView(80, 24)
+	require.NotEmpty(t, view)
+	require.Contains(t, view, "Update available")
+	require.Contains(t, view, ":update")
 }
 
 // TestColonCommandCompletion tests command completion with colon prefix in vi mode
 func TestColonCommandCompletion(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Test initial colon shows all commands with colon prefix
 	model.prompt.SetValue(":")
@@ -724,19 +748,31 @@ func TestColonCommandCompletion(t *testing.T) {
 
 // TestColonInNormalModeShowsCompletion tests that pressing : in normal mode shows completion dialog
 func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start in insert mode
-	require.True(t, model.prompt.IsViInsertMode())
+	require.Equal(t, "insert", model.Mode)
 
 	// Press Esc to enter normal mode
-	newModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	newModel, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	updatedModel := newModel.(TUIModel)
-	require.True(t, updatedModel.prompt.IsViNormalMode())
+	// Process the ChangeModeMsg returned by the command
+	if cmd != nil {
+		msg := cmd()
+		newModel, _ = updatedModel.Update(msg)
+		updatedModel = newModel.(TUIModel)
+	}
+	require.Equal(t, "normal", updatedModel.Mode)
 
 	// Press : to enter command-line mode
-	newModel, _ = updatedModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
+	newModel, cmd = updatedModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":")})
 	updatedModel = newModel.(TUIModel)
+	// Process the ChangeModeMsg returned by the command
+	if cmd != nil {
+		msg := cmd()
+		newModel, _ = updatedModel.Update(msg)
+		updatedModel = newModel.(TUIModel)
+	}
 
 	require.True(t, updatedModel.commandLine.IsInCommandMode(), "command line should enter command mode")
 	require.False(t, updatedModel.showCompletionDialog, "completion dialog should not be shown automatically")
@@ -745,7 +781,7 @@ func TestColonInNormalModeActivatesCommandLine(t *testing.T) {
 }
 
 func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
-	model := NewTUIModel(mockConfig(), nil, nil, nil, nil)
+	model := NewTUIModel(mockConfig(), nil, nil, nil, nil, nil)
 	require.Equal(t, ViewChat, model.content.GetActiveView())
 
 	newModel, _ := model.handleCustomMessages(showHelpMsg{topic: "modes"})
@@ -759,58 +795,53 @@ func TestShowHelpMsgDisplaysRequestedTopic(t *testing.T) {
 
 // TestHistoryNavigation_EmptyHistory tests navigation with no history
 func TestHistoryNavigation_EmptyHistory(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Press up arrow with empty history
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.False(t, handled, "Should not handle navigation with empty history")
-	require.Nil(t, cmd)
 
 	// Press down arrow with empty history
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.False(t, handled, "Should not handle navigation with empty history")
-	require.Nil(t, cmd)
 }
 
 // TestHistoryNavigation_SingleEntry tests navigation with one history entry
 func TestHistoryNavigation_SingleEntry(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add one history entry
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
 	}
 	model.historyCursor = 1 // At present
 
 	// Navigate up (to first entry)
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 	require.Equal(t, "first prompt", model.prompt.Value())
 	require.True(t, model.historySaved, "Should save present state")
 
 	// Try to navigate up again (should stay at first entry)
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 
 	// Navigate down (back to present)
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.False(t, model.historySaved, "Should clear saved state when returning to present")
 }
 
 // TestHistoryNavigation_MultipleEntries tests navigation through multiple entries
 func TestHistoryNavigation_MultipleEntries(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current input")
 
 	// Add multiple history entries
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second prompt", SessionSnapshot: 3, ChatSnapshot: 2},
 		{Prompt: "third prompt", SessionSnapshot: 5, ChatSnapshot: 4},
@@ -818,53 +849,46 @@ func TestHistoryNavigation_MultipleEntries(t *testing.T) {
 	model.historyCursor = 3 // At present
 
 	// Navigate up once
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 2, model.historyCursor)
 	require.Equal(t, "third prompt", model.prompt.Value())
 	require.True(t, model.historySaved)
 	require.Equal(t, "current input", model.historyPendingPrompt)
 
 	// Navigate up again
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.Equal(t, "second prompt", model.prompt.Value())
 
 	// Navigate up to first
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 	require.Equal(t, "first prompt", model.prompt.Value())
 
 	// Try to navigate up past first (should stay at first)
-	handled, cmd = model.handleHistoryNavigation(-1)
+	handled = model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 0, model.historyCursor)
 	require.Equal(t, "first prompt", model.prompt.Value())
 
 	// Navigate down
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.Equal(t, "second prompt", model.prompt.Value())
 
 	// Navigate down to third
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 2, model.historyCursor)
 	require.Equal(t, "third prompt", model.prompt.Value())
 
 	// Navigate down to present
-	handled, cmd = model.handleHistoryNavigation(1)
+	handled = model.handleHistoryNavigation(1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 3, model.historyCursor)
 	require.Equal(t, "current input", model.prompt.Value())
 	require.False(t, model.historySaved)
@@ -872,42 +896,40 @@ func TestHistoryNavigation_MultipleEntries(t *testing.T) {
 
 // TestHistoryNavigation_DownWithoutSavedState tests down navigation without saved state
 func TestHistoryNavigation_DownWithoutSavedState(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first prompt", SessionSnapshot: 1, ChatSnapshot: 0},
 	}
 	model.historyCursor = 1 // At present
 	model.historySaved = false
 
 	// Try to navigate down when already at present
-	handled, cmd := model.handleHistoryNavigation(1)
+	handled := model.handleHistoryNavigation(1)
 	require.False(t, handled, "Should not handle down when not in history")
-	require.Nil(t, cmd)
 }
 
 // TestHistoryNavigation_CursorInitialization tests cursor initialization from present
 func TestHistoryNavigation_CursorInitialization(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current")
 
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
-	model.historyCursor = len(model.promptHistory) // At present
+	model.historyCursor = len(model.sessionPromptHistory) // At present
 
 	// First up navigation should go to last entry
-	handled, cmd := model.handleHistoryNavigation(-1)
+	handled := model.handleHistoryNavigation(-1)
 	require.True(t, handled)
-	require.Nil(t, cmd)
 	require.Equal(t, 1, model.historyCursor)
 	require.Equal(t, "second", model.prompt.Value())
 }
 
 // TestWaitingIndicator_StartStop tests the waiting indicator lifecycle
 func TestWaitingIndicator_StartStop(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Initially not waiting
 	require.False(t, model.waitingForResponse)
@@ -930,7 +952,7 @@ func TestWaitingIndicator_StartStop(t *testing.T) {
 
 // TestWaitingIndicator_DoubleStart tests starting waiting when already waiting
 func TestWaitingIndicator_DoubleStart(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	cmd1 := model.startWaitingForResponse()
@@ -945,7 +967,7 @@ func TestWaitingIndicator_DoubleStart(t *testing.T) {
 
 // TestWaitingIndicator_DoubleStop tests stopping when not waiting
 func TestWaitingIndicator_DoubleStop(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Stop when not waiting (should not panic)
 	model.stopStreaming()
@@ -954,7 +976,7 @@ func TestWaitingIndicator_DoubleStop(t *testing.T) {
 
 // TestWaitingTickMsg_WhileWaiting tests waiting tick message handling
 func TestWaitingTickMsg_WhileWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	model.startWaitingForResponse()
@@ -971,7 +993,7 @@ func TestWaitingTickMsg_WhileWaiting(t *testing.T) {
 
 // TestWaitingTickMsg_NotWaiting tests waiting tick when not waiting
 func TestWaitingTickMsg_NotWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Handle tick message when not waiting
 	newModel, cmd := model.handleCustomMessages(waitingTickMsg{})
@@ -983,8 +1005,8 @@ func TestWaitingTickMsg_NotWaiting(t *testing.T) {
 
 // TestHistoryRollback_OnSubmit tests that submitting a historical prompt rolls back state
 func TestHistoryRollback_OnSubmit(t *testing.T) {
-	model, _ := newTestModel(t)
-	chat := model.content.GetChat()
+	model := newTestModel(t)
+	chat := model.content.Chat
 
 	// Clear the welcome message for cleaner testing
 	chat.Messages = []string{}
@@ -993,7 +1015,7 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	// Simulate a conversation
 	chat.AddMessage("You: first")
 	chat.AddMessage("Asimi: response1")
-	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
+	model.sessionPromptHistory = append(model.sessionPromptHistory, promptHistoryEntry{
 		Prompt:          "first",
 		SessionSnapshot: 1,
 		ChatSnapshot:    0, // Before adding messages
@@ -1001,13 +1023,13 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 
 	chat.AddMessage("You: second")
 	chat.AddMessage("Asimi: response2")
-	model.promptHistory = append(model.promptHistory, promptHistoryEntry{
+	model.sessionPromptHistory = append(model.sessionPromptHistory, promptHistoryEntry{
 		Prompt:          "second",
 		SessionSnapshot: 1, // Session hasn't changed (no actual LLM calls)
 		ChatSnapshot:    2, // After first conversation
 	})
 
-	model.historyCursor = len(model.promptHistory)
+	model.historyCursor = len(model.sessionPromptHistory)
 
 	// Navigate to first prompt
 	model.handleHistoryNavigation(-1) // to "second"
@@ -1021,10 +1043,9 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 	chatLenBefore := len(chat.Messages)
 	sessionLenBefore := len(model.session.Messages)
 
-	// The handleEnterKey function should detect historySaved and roll back
 	// We'll test the rollback logic directly
-	if model.historySaved && model.historyCursor < len(model.promptHistory) {
-		entry := model.promptHistory[model.historyCursor]
+	if model.historySaved && model.historyCursor < len(model.sessionPromptHistory) {
+		entry := model.sessionPromptHistory[model.historyCursor]
 		model.session.RollbackTo(entry.SessionSnapshot)
 		chat.TruncateTo(entry.ChatSnapshot)
 	}
@@ -1038,10 +1059,10 @@ func TestHistoryRollback_OnSubmit(t *testing.T) {
 
 // TestNewSessionCommand_ResetsHistory tests that /new command resets history
 func TestNewSessionCommand_ResetsHistory(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add some history
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
@@ -1054,22 +1075,63 @@ func TestNewSessionCommand_ResetsHistory(t *testing.T) {
 	require.True(t, model.waitingForResponse)
 
 	// Execute /new command
-	handleNewSessionCommand(model, []string{})
+	cmd := handleNewSessionCommand(model, []string{})
+
+	// Process the returned message
+	msg := cmd()
+	startMsg, ok := msg.(startConversationMsg)
+	require.True(t, ok, "Expected startConversationMsg")
+	require.True(t, startMsg.clearHistory)
+
+	// Simulate the message being processed by Update
+	updatedModel, _ := model.Update(startMsg)
+	updatedModelValue, ok := updatedModel.(TUIModel)
+	require.True(t, ok, "Expected TUIModel")
 
 	// Verify history was reset
-	require.Empty(t, model.promptHistory)
-	require.Equal(t, 0, model.historyCursor)
-	require.False(t, model.historySaved)
-	require.Empty(t, model.historyPendingPrompt)
-	require.False(t, model.waitingForResponse)
+	require.Empty(t, updatedModelValue.sessionPromptHistory)
+	require.Equal(t, 0, updatedModelValue.historyCursor)
+	require.False(t, updatedModelValue.historySaved)
+	require.Empty(t, updatedModelValue.historyPendingPrompt)
+	require.False(t, updatedModelValue.waitingForResponse)
+}
+
+// TestStartConversationMsg_InitialMessages tests that initialMessages are displayed after clearing history
+func TestStartConversationMsg_InitialMessages(t *testing.T) {
+	model := newTestModel(t)
+
+	// Add some messages to the chat
+	model.content.Chat.AddMessage("existing message 1")
+	model.content.Chat.AddMessage("existing message 2")
+	require.Len(t, model.content.Chat.Messages, 3) // Welcome + 2 messages
+
+	// Create a startConversationMsg with initialMessages
+	msg := startConversationMsg{
+		clearHistory: true,
+		initialMessages: []string{
+			"Initial message 1",
+			"Initial message 2",
+		},
+	}
+
+	// Process the message
+	updatedModel, _ := model.Update(msg)
+	updatedModelValue, ok := updatedModel.(TUIModel)
+	require.True(t, ok, "Expected TUIModel")
+
+	// Verify that the chat was cleared and initialMessages were added
+	// The chat should have: Welcome message + 2 initial messages
+	require.Len(t, updatedModelValue.content.Chat.Messages, 3)
+	require.Contains(t, updatedModelValue.content.Chat.Messages[1], "Initial message 1")
+	require.Contains(t, updatedModelValue.content.Chat.Messages[2], "Initial message 2")
 }
 
 // TestHistoryNavigation_WithArrowKeys tests arrow key handling
 func TestHistoryNavigation_WithArrowKeys(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add history
-	model.promptHistory = []promptHistoryEntry{
+	model.sessionPromptHistory = []promptHistoryEntry{
 		{Prompt: "first", SessionSnapshot: 1, ChatSnapshot: 0},
 		{Prompt: "second", SessionSnapshot: 3, ChatSnapshot: 2},
 	}
@@ -1097,7 +1159,7 @@ func TestHistoryNavigation_WithArrowKeys(t *testing.T) {
 
 // TestCancelActiveStreaming tests the streaming cancellation helper
 func TestCancelActiveStreaming(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Set up active streaming
 	model.streamingActive = true
@@ -1116,7 +1178,7 @@ func TestCancelActiveStreaming(t *testing.T) {
 
 // TestCancelActiveStreaming_NotActive tests cancellation when not streaming
 func TestCancelActiveStreaming_NotActive(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Not streaming
 	model.streamingActive = false
@@ -1131,9 +1193,9 @@ func TestCancelActiveStreaming_NotActive(t *testing.T) {
 
 // TestSaveHistoryPresentState tests saving the present state
 func TestSaveHistoryPresentState(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current prompt")
-	chat := model.content.GetChat()
+	chat := model.content.Chat
 	chat.AddMessage("message 1")
 	chat.AddMessage("message 2")
 
@@ -1154,7 +1216,7 @@ func TestSaveHistoryPresentState(t *testing.T) {
 
 // TestRestoreHistoryPresent tests restoring the present state
 func TestRestoreHistoryPresent(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current")
 	model.historyPendingPrompt = "pending"
 	model.historySaved = true
@@ -1168,7 +1230,7 @@ func TestRestoreHistoryPresent(t *testing.T) {
 
 // TestApplyHistoryEntry tests applying a history entry
 func TestApplyHistoryEntry(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 	model.prompt.SetValue("current")
 
 	entry := promptHistoryEntry{
@@ -1207,7 +1269,7 @@ func TestStatusComponent_WaitingIndicatorView(t *testing.T) {
 
 	// Create a mock session to provide usage data
 	llm := &mockLLMNoTools{}
-	repoInfo := GetRepoInfo()
+	repoInfo := RepoInfo{}
 	sess, err := NewSession(llm, &Config{}, repoInfo, func(any) {})
 	require.NoError(t, err)
 	status.SetSession(sess)
@@ -1232,7 +1294,7 @@ func TestStatusComponent_WaitingIndicatorView(t *testing.T) {
 
 // TestEscapeDuringStreaming_StopsWaiting tests that ESC during streaming stops waiting
 func TestEscapeDuringStreaming_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Set up streaming
 	model.streamingActive = true
@@ -1256,7 +1318,7 @@ func TestEscapeDuringStreaming_StopsWaiting(t *testing.T) {
 
 // TestStreamChunkMsg_StopsWaiting tests that receiving a stream chunk resets the quiet time timer
 func TestStreamChunkMsg_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting and mark as streaming
 	model.startWaitingForResponse()
@@ -1282,7 +1344,7 @@ func TestStreamChunkMsg_StopsWaiting(t *testing.T) {
 
 // TestStreamCompleteMsg_StopsWaiting tests that stream completion stops waiting
 func TestStreamCompleteMsg_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	model.startWaitingForResponse()
@@ -1298,7 +1360,7 @@ func TestStreamCompleteMsg_StopsWaiting(t *testing.T) {
 
 // TestStreamErrorMsg_StopsWaiting tests that stream error stops waiting
 func TestStreamErrorMsg_StopsWaiting(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Start waiting
 	model.startWaitingForResponse()
@@ -1313,19 +1375,69 @@ func TestStreamErrorMsg_StopsWaiting(t *testing.T) {
 	require.False(t, updatedModel.waitingForResponse)
 }
 
+// TestSessionResume_ResetsHistoryState tests that resuming a session resets history state
+// This prevents the bug where entering a prompt after resume would clear the chat
+func TestSessionResume_ResetsHistoryState(t *testing.T) {
+	model := newTestModel(t)
+
+	// Simulate having some history state from a previous session
+	model.sessionPromptHistory = []promptHistoryEntry{
+		{Prompt: "old prompt 1", SessionSnapshot: 1, ChatSnapshot: 0},
+		{Prompt: "old prompt 2", SessionSnapshot: 3, ChatSnapshot: 2},
+	}
+	model.historyCursor = 1
+	model.historySaved = true
+	model.historyPendingPrompt = "pending from old session"
+	model.historyPresentSessionSnapshot = 5
+	model.historyPresentChatSnapshot = 4
+
+	// Create a mock resumed session
+	resumedSession := &Session{
+		ID:          "resumed-session-id",
+		FirstPrompt: "resumed prompt",
+		Messages: []llms.MessageContent{
+			{Role: llms.ChatMessageTypeSystem, Parts: []llms.ContentPart{llms.TextContent{Text: "system"}}},
+			{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hello"}}},
+			{Role: llms.ChatMessageTypeAI, Parts: []llms.ContentPart{llms.TextContent{Text: "hi there"}}},
+		},
+	}
+
+	// Process the sessionSelectedMsg
+	newModel, _ := model.handleCustomMessages(sessionSelectedMsg{session: resumedSession})
+	updatedModel, ok := newModel.(TUIModel)
+	require.True(t, ok)
+
+	// Verify history state was reset
+	require.Empty(t, updatedModel.sessionPromptHistory, "sessionPromptHistory should be empty after resume")
+	require.Equal(t, 0, updatedModel.historyCursor, "historyCursor should be 0 after resume")
+	require.False(t, updatedModel.historySaved, "historySaved should be false after resume")
+	require.Empty(t, updatedModel.historyPendingPrompt, "historyPendingPrompt should be empty after resume")
+	require.Equal(t, 0, updatedModel.historyPresentSessionSnapshot, "historyPresentSessionSnapshot should be 0 after resume")
+	require.Equal(t, 0, updatedModel.historyPresentChatSnapshot, "historyPresentChatSnapshot should be 0 after resume")
+
+	// Verify session was properly set
+	require.True(t, updatedModel.sessionActive)
+	require.Equal(t, "resumed-session-id", updatedModel.session.ID)
+
+	// Verify chat was rebuilt with resumed messages
+	chat := updatedModel.content.Chat
+	require.True(t, containsMessage(chat.Messages, "You: hello"), "Chat should contain resumed human message")
+	require.True(t, containsMessage(chat.Messages, "Asimi: hi there"), "Chat should contain resumed AI message")
+}
+
 // TestHistoryNavigation_RapidNavigation tests rapid navigation through history
 func TestHistoryNavigation_RapidNavigation(t *testing.T) {
-	model, _ := newTestModel(t)
+	model := newTestModel(t)
 
 	// Add many history entries
 	for i := 0; i < 10; i++ {
-		model.promptHistory = append(model.promptHistory, promptHistoryEntry{
+		model.sessionPromptHistory = append(model.sessionPromptHistory, promptHistoryEntry{
 			Prompt:          "prompt " + string(rune('0'+i)),
 			SessionSnapshot: i*2 + 1,
 			ChatSnapshot:    i * 2,
 		})
 	}
-	model.historyCursor = len(model.promptHistory)
+	model.historyCursor = len(model.sessionPromptHistory)
 	model.prompt.SetValue("current")
 
 	// Rapidly navigate up
@@ -1349,12 +1461,11 @@ func TestHistoryNavigation_RapidNavigation(t *testing.T) {
 func TestFileCompletion(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config, nil, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 
@@ -1405,7 +1516,7 @@ func TestFileCompletion(t *testing.T) {
 	require.Contains(t, contextFiles["main.go"], "package main")
 
 	// Assert that the prompt was not sent and the editor is still focused
-	chat := tuiModel.content.GetChat()
+	chat := tuiModel.content.Chat
 	require.NotEmpty(t, chat.Messages)
 	require.True(t, containsMessage(chat.Messages, "Loaded file: main.go"),
 		"messages", chat.Messages)
@@ -1415,12 +1526,11 @@ func TestFileCompletion(t *testing.T) {
 func TestColonCommandCompletionE2E(t *testing.T) {
 	// Create a new TUI model for testing
 	config := mockConfig()
-	model := NewTUIModel(config, nil, nil, nil, nil)
+	model := NewTUIModel(config, nil, nil, nil, nil, nil)
 
 	// Set up a mock session for the test
 	llm := fake.NewFakeLLM([]string{})
-	repoInfo := GetRepoInfo()
-	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, repoInfo, func(any) {})
+	sess, err := NewSession(llm, &Config{LLM: LLMConfig{Provider: "fake"}}, RepoInfo{}, func(any) {})
 	require.NoError(t, err)
 	model.SetSession(sess)
 
@@ -1472,4 +1582,252 @@ func TestLiveAgentE2E(t *testing.T) {
 	// Assert the output
 	require.Contains(t, string(output), "I am ")
 	require.NotContains(t, string(output), "Error")
+}
+
+// Tests from commandline_test.go
+
+func TestYesNoMode(t *testing.T) {
+	cl := NewCommandLineComponent()
+
+	// Test entering yes/no mode
+	cmd := cl.EnterYesNoMode("Are you sure?")
+	assert.True(t, cl.IsInYesNoMode(), "Expected to be in yes/no mode")
+	assert.Equal(t, "Are you sure?", cl.yesNoQuestion, "Question mismatch")
+
+	// Verify mode change message
+	require.NotNil(t, cmd, "Expected mode change command")
+	msg := cmd()
+	modeMsg, ok := msg.(ChangeModeMsg)
+	require.True(t, ok, "Expected ChangeModeMsg")
+	assert.Equal(t, "yesno", modeMsg.NewMode, "Mode mismatch")
+
+	// Test 'y' key
+	keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	cmd, handled := cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected 'y' key to be handled")
+	assert.False(t, cl.IsInYesNoMode(), "Expected to exit yes/no mode after 'y'")
+
+	// Verify response message
+	require.NotNil(t, cmd, "Expected batch command")
+	// The batch command returns multiple messages, we need to check for yesNoResponseMsg
+	// For simplicity, we'll just verify the mode was exited
+
+	// Test entering again and pressing 'n'
+	cl.EnterYesNoMode("Delete everything?")
+	keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	cmd, handled = cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected 'n' key to be handled")
+	assert.False(t, cl.IsInYesNoMode(), "Expected to exit yes/no mode after 'n'")
+
+	// Test entering again and pressing 'esc'
+	cl.EnterYesNoMode("Continue?")
+	keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+	cmd, handled = cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected 'esc' key to be handled")
+	assert.False(t, cl.IsInYesNoMode(), "Expected to exit yes/no mode after 'esc'")
+
+	// Test that other keys are ignored in yes/no mode
+	cl.EnterYesNoMode("Test?")
+	keyMsg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	cmd, handled = cl.HandleKey(keyMsg)
+	assert.True(t, handled, "Expected key to be handled (ignored) in yes/no mode")
+	assert.True(t, cl.IsInYesNoMode(), "Expected to remain in yes/no mode after invalid key")
+}
+
+func TestYesNoModeView(t *testing.T) {
+	// Initialize the global theme for tests
+	if globalTheme == nil {
+		NewTheme()
+	}
+
+	cl := NewCommandLineComponent()
+	cl.SetWidth(80)
+
+	// Test view in yes/no mode
+	cl.EnterYesNoMode("Delete all files?")
+	view := cl.View()
+	require.Contains(t, view, "Delete all files?", "Expected view to contain question")
+	require.Contains(t, view, "(y/n)", "Expected view to contain '(y/n)'")
+}
+
+func TestYesNoModePriority(t *testing.T) {
+	// Initialize the global theme for tests
+	if globalTheme == nil {
+		NewTheme()
+	}
+
+	cl := NewCommandLineComponent()
+	cl.SetWidth(80)
+
+	// Add a toast
+	cl.AddToast("Test toast", "info", 5000)
+
+	// Enter yes/no mode
+	cl.EnterYesNoMode("Confirm?")
+
+	// Yes/no should have priority over toast
+	view := cl.View()
+	require.Contains(t, view, "Confirm?", "Expected yes/no prompt to have priority over toast")
+	require.NotContains(t, view, "Test toast", "Expected toast to be hidden when in yes/no mode")
+}
+
+// Tests from main_branch_test.go
+
+func TestIsMainBranch(t *testing.T) {
+	tests := []struct {
+		name     string
+		branch   string
+		expected bool
+	}{
+		{
+			name:     "main branch",
+			branch:   "main",
+			expected: true,
+		},
+		{
+			name:     "master branch",
+			branch:   "master",
+			expected: true,
+		},
+		{
+			name:     "feature branch",
+			branch:   "feature/test",
+			expected: false,
+		},
+		{
+			name:     "develop branch",
+			branch:   "develop",
+			expected: false,
+		},
+		{
+			name:     "empty branch",
+			branch:   "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isMainBranch(tt.branch)
+			require.Equal(t, tt.expected, result, "isMainBranch(%q)", tt.branch)
+		})
+	}
+}
+
+func TestGetRepoInfo(t *testing.T) {
+	// Test that GetRepoInfo can be called
+	repoInfo := GetRepoInfo()
+	// Just verify the function can be called without panicking
+	// The actual content depends on the test environment
+	t.Logf("GetRepoInfo returned: %+v", repoInfo)
+}
+
+// Tests from select_window_test.go
+
+func TestSelectWindowNavigationHelpers(t *testing.T) {
+	// Create a window with mixed selectable/non-selectable items
+	sw := NewSelectWindow[string]()
+	sw.SetItems([]string{"a", "error1", "b", "c", "error2", "d"})
+
+	// isSelectable returns false for items starting with "error"
+	isSelectable := func(s string) bool {
+		return len(s) < 5 || s[:5] != "error"
+	}
+
+	t.Run("NextSelectableIndex", func(t *testing.T) {
+		// From "a" (0), next selectable is "b" (2), skipping "error1" (1)
+		require.Equal(t, 2, sw.NextSelectableIndex(0, isSelectable))
+
+		// From "b" (2), next selectable is "c" (3)
+		require.Equal(t, 3, sw.NextSelectableIndex(2, isSelectable))
+
+		// From "c" (3), next selectable is "d" (5), skipping "error2" (4)
+		require.Equal(t, 5, sw.NextSelectableIndex(3, isSelectable))
+
+		// From "d" (5), no next selectable, stay at 5
+		require.Equal(t, 5, sw.NextSelectableIndex(5, isSelectable))
+
+		// With nil isSelectable, all items are selectable
+		require.Equal(t, 1, sw.NextSelectableIndex(0, nil))
+	})
+
+	t.Run("PrevSelectableIndex", func(t *testing.T) {
+		// From "d" (5), prev selectable is "c" (3), skipping "error2" (4)
+		require.Equal(t, 3, sw.PrevSelectableIndex(5, isSelectable))
+
+		// From "c" (3), prev selectable is "b" (2)
+		require.Equal(t, 2, sw.PrevSelectableIndex(3, isSelectable))
+
+		// From "b" (2), prev selectable is "a" (0), skipping "error1" (1)
+		require.Equal(t, 0, sw.PrevSelectableIndex(2, isSelectable))
+
+		// From "a" (0), no prev selectable, stay at 0
+		require.Equal(t, 0, sw.PrevSelectableIndex(0, isSelectable))
+
+		// With nil isSelectable, all items are selectable
+		require.Equal(t, 4, sw.PrevSelectableIndex(5, nil))
+	})
+
+	t.Run("FirstSelectableIndex", func(t *testing.T) {
+		// First selectable is "a" (0)
+		require.Equal(t, 0, sw.FirstSelectableIndex(isSelectable))
+
+		// With nil isSelectable, first is 0
+		require.Equal(t, 0, sw.FirstSelectableIndex(nil))
+
+		// Test with items where first is not selectable
+		sw2 := NewSelectWindow[string]()
+		sw2.SetItems([]string{"error1", "error2", "a", "b"})
+		require.Equal(t, 2, sw2.FirstSelectableIndex(isSelectable))
+	})
+
+	t.Run("LastSelectableIndex", func(t *testing.T) {
+		// Last selectable is "d" (5)
+		require.Equal(t, 5, sw.LastSelectableIndex(isSelectable))
+
+		// With nil isSelectable, last is len-1
+		require.Equal(t, 5, sw.LastSelectableIndex(nil))
+
+		// Test with items where last is not selectable
+		sw2 := NewSelectWindow[string]()
+		sw2.SetItems([]string{"a", "b", "error1", "error2"})
+		require.Equal(t, 1, sw2.LastSelectableIndex(isSelectable))
+	})
+
+	t.Run("CountSelectableItems", func(t *testing.T) {
+		// 4 selectable items: a, b, c, d
+		require.Equal(t, 4, sw.CountSelectableItems(isSelectable))
+
+		// With nil isSelectable, all items are counted
+		require.Equal(t, 6, sw.CountSelectableItems(nil))
+	})
+
+	t.Run("EmptyWindow", func(t *testing.T) {
+		empty := NewSelectWindow[string]()
+		empty.SetItems([]string{})
+
+		require.Equal(t, 0, empty.FirstSelectableIndex(isSelectable))
+		require.Equal(t, 0, empty.LastSelectableIndex(isSelectable))
+		require.Equal(t, 0, empty.CountSelectableItems(isSelectable))
+	})
+}
+
+func TestIsModelSelectable(t *testing.T) {
+	tests := []struct {
+		status   string
+		expected bool
+	}{
+		{"active", true},
+		{"ready", true},
+		{"login_required", true},
+		{"error", false},
+		{"unknown", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.status, func(t *testing.T) {
+			model := Model{Status: tt.status}
+			require.Equal(t, tt.expected, IsModelSelectable(model))
+		})
+	}
 }

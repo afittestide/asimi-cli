@@ -12,24 +12,21 @@ import (
 func TestNewResumeWindowDefaults(t *testing.T) {
 	window := NewResumeWindow()
 
-	assert.Equal(t, 70, window.width)
-	assert.Equal(t, 15, window.height)
-	assert.Equal(t, 8, window.maxVisible)
-	assert.False(t, window.loading)
-	assert.Empty(t, window.sessions)
-	assert.Nil(t, window.errorMsg)
+	assert.Equal(t, 70, window.Width)
+	assert.Equal(t, 15, window.Height)
+	assert.False(t, window.Loading)
+	assert.Empty(t, window.Items)
 }
 
 func TestResumeWindowSetSizeAdjustsVisibleSlots(t *testing.T) {
 	window := NewResumeWindow()
 
 	window.SetSize(80, 10)
-	assert.Equal(t, 80, window.width)
-	assert.Equal(t, 10, window.height)
-	assert.Equal(t, 6, window.maxVisible)
+	assert.Equal(t, 80, window.Width)
+	assert.Equal(t, 10, window.Height)
 
 	window.SetSize(50, 2)
-	assert.Equal(t, 1, window.maxVisible) // min clamp
+	assert.Equal(t, 2, window.Height) // min clamp
 }
 
 func TestResumeWindowSetSessionsAndRender(t *testing.T) {
@@ -42,14 +39,14 @@ func TestResumeWindowSetSessionsAndRender(t *testing.T) {
 	}
 
 	window.SetSessions(sessions)
-	assert.False(t, window.loading)
+	assert.False(t, window.Loading)
 	assert.Equal(t, 2, window.GetItemCount())
 
 	render := window.RenderList(0, 0, window.GetVisibleSlots())
 	assert.Contains(t, render, sessionTitlePreview(sessions[0]))
 	assert.Contains(t, render, sessionTitlePreview(sessions[1]))
 	assert.Contains(t, render, "▶ ")
-	assert.Contains(t, render, "1 msg")
+	assert.Contains(t, render, "]    1 Need to refactor")
 }
 
 func TestResumeWindowLoadingAndErrorStates(t *testing.T) {
@@ -91,8 +88,7 @@ func TestResumeWindowScrollInfo(t *testing.T) {
 	window.SetSessions(sessions)
 	render := window.RenderList(5, 5, 5)
 
-	assert.Contains(t, render, "6-10 of 20 sessions")
-	assert.Contains(t, render, "Message 6")
+	assert.Contains(t, render, "Message 6")    // Uses last human message when Messages is populated
 	assert.NotContains(t, render, "Message 2") // scrolled past
 }
 
@@ -124,21 +120,6 @@ func TestSessionTitlePreviewFallbacks(t *testing.T) {
 	assert.Equal(t, "User question", sessionTitlePreview(session))
 }
 
-func TestFormatMessageCount(t *testing.T) {
-	assert.Equal(t, "", formatMessageCount(nil))
-
-	msgs := []llms.MessageContent{
-		textMessage(llms.ChatMessageTypeHuman, "hi"),
-		textMessage(llms.ChatMessageTypeAI, "hello"),
-	}
-	assert.Equal(t, "2 msgs", formatMessageCount(msgs))
-
-	one := []llms.MessageContent{
-		textMessage(llms.ChatMessageTypeHuman, "single"),
-	}
-	assert.Equal(t, "1 msg", formatMessageCount(one))
-}
-
 func testSession(id, prompt string, updated time.Time, messageTexts ...string) Session {
 	var messages []llms.MessageContent
 	for _, text := range messageTexts {
@@ -146,19 +127,11 @@ func testSession(id, prompt string, updated time.Time, messageTexts ...string) S
 	}
 
 	return Session{
-		ID:          id,
-		FirstPrompt: prompt,
-		LastUpdated: updated,
-		Messages:    messages,
-		Model:       "test",
-	}
-}
-
-func textMessage(role llms.ChatMessageType, text string) llms.MessageContent {
-	return llms.MessageContent{
-		Role: role,
-		Parts: []llms.ContentPart{
-			llms.TextContent{Text: text},
-		},
+		ID:           id,
+		FirstPrompt:  prompt,
+		LastUpdated:  updated,
+		Messages:     messages,
+		MessageCount: len(messages), // Set MessageCount for list views
+		Model:        "test",
 	}
 }

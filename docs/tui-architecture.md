@@ -1,19 +1,44 @@
 # TUI Architecture Documentation
 
-This document describes the architecture of the Terminal User Interface (TUI) for Claude Code, focusing on two major refactorings that established clean component boundaries and message-passing patterns.
+This document describes the architecture of the Terminal User Interface (TUI) for Claude Code, focusing on three major refactorings that established clean component boundaries and message-passing patterns.
 
 ## Table of Contents
 
 1. [Overview](#overview)
 2. [Component Architecture](#component-architecture)
 3. [Mode Management System](#mode-management-system)
+   - [SELECT Mode Unification](#select-mode-unification)
 4. [Command Line Component](#command-line-component)
-5. [Message Flow Patterns](#message-flow-patterns)
-6. [Future Improvements](#future-improvements)
+5. [Mouse Event Handling](#mouse-event-handling)
+6. [Message Flow Patterns](#message-flow-patterns)
+7. [Future Improvements](#future-improvements)
 
 ---
 
 ## Overview
+
+### Screen Layout
+
+```
+┌─────────────────────────────────────────┐
+│                                         │
+│         CONTENT AREA                    │  ← Mouse wheel works here
+│         (Chat/Help/Models/Resume)       │
+│                                         │
+│         Y = 0 to contentHeight          │
+│                                         │
+├─────────────────────────────────────────┤  ← contentHeight boundary
+│         EMPTY LINE                      │
+├─────────────────────────────────────────┤
+│  ┌───────────────────────────────────┐  │
+│  │    PROMPT AREA                    │  │  ← Mouse wheel ignored here
+│  └───────────────────────────────────┘  │
+├─────────────────────────────────────────┤
+│  STATUS LINE                            │
+├─────────────────────────────────────────┤
+│  COMMAND LINE                           │
+└─────────────────────────────────────────┘
+```
 
 The TUI follows the [Bubbletea](https://github.com/charmbracelet/bubbletea) architecture pattern:
 - **Model**: `TUIModel` holds application state
@@ -97,7 +122,7 @@ This violated separation of concerns and created tight coupling.
 
 ```go
 type ChangeModeMsg struct {
-    NewMode string // "insert", "normal", "visual", "command", "help", "models", "resume"
+    NewMode string // "insert", "normal", "visual", "command", "help", "select", "scroll"
 }
 ```
 
@@ -105,36 +130,40 @@ type ChangeModeMsg struct {
 
 ```go
 case ChangeModeMsg:
-    // Centralized mode management - update Mode and status
+    wasScroll := m.Mode == "scroll"
     m.Mode = msg.NewMode
-    
-    // Update status component
-    viEnabled, _, viPending := m.prompt.ViModeStatus()
-    
-    // Map mode to display string
-    var displayMode string
-    switch msg.NewMode {
-    case "insert":
-        displayMode = ViModeInsert
-    case "normal":
-        displayMode = ViModeNormal
-    case "visual":
-        displayMode = ViModeVisual
-    case "command":
-        displayMode = "COMMAND"
-    case "help":
-        displayMode = "HELP"
-    case "models":
-        displayMode = "MODELS"
-    case "resume":
-        displayMode = "RESUME"
-    default:
-        displayMode = msg.NewMode
+    isScroll := m.Mode == "scroll"
+    if wasScroll && !isScroll {
+        m.content.Chat.SetScrollLock(false)
+    } else if !wasScroll && isScroll {
+        m.content.Chat.SetScrollLock(true)
     }
-    
-    m.status.SetViMode(viEnabled, displayMode, viPending)
+    m.status.SetMode(m.Mode)
+    if m.Mode == "select" {
+        m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
+        m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
+    } else if m.Mode == "insert" {
+        m.prompt.TextArea.Placeholder = PlaceholderDefault
+    }
     return m, nil
 ```
+
+**Special Modes:**
+
+- `scroll` - Dedicated chat-navigation mode entered with `Ctrl-B`. It locks the viewport in place (no auto-scroll) and provides vi-style paging:
+  - `Ctrl-F` / `Ctrl-B` - Page down/up
+  - `Ctrl-D` / `Ctrl-U` - Half page down/up
+  - `j` / `k` / `↓` / `↑` - Half page down/up (vi-style)
+  - `G` - Jump to bottom
+  - `:` - Enter command mode without snapping back
+  - `Esc` / `i` - Return to insert mode
+
+- `select` - Unified list selection mode used for both models and resume views. Provides consistent navigation:
+  - `j` / `k` / `↓` / `↑` - Navigate up/down
+  - `Ctrl-D` / `Ctrl-U` - Half page down/up
+  - `g` / `G` - Jump to top/bottom
+  - `Enter` - Select item
+  - `:quit` / `Esc` - Return to chat
 
 ### Component Integration
 
@@ -156,6 +185,22 @@ func (c *ContentComponent) ShowHelp(topic string) tea.Cmd {
     // ... setup ...
     return func() tea.Msg {
         return ChangeModeMsg{NewMode: "help"}
+    }
+}
+
+func (c *ContentComponent) ShowModels(models []AnthropicModel, currentModel string) tea.Cmd {
+    c.activeView = ViewModels
+    // ... setup ...
+    return func() tea.Msg {
+        return ChangeModeMsg{NewMode: "select"}
+    }
+}
+
+func (c *ContentComponent) ShowResume(sessions []Session) tea.Cmd {
+    c.activeView = ViewResume
+    // ... setup ...
+    return func() tea.Msg {
+        return ChangeModeMsg{NewMode: "select"}
     }
 }
 
@@ -192,8 +237,8 @@ View() renders with updated status
 - `"visual"` → `<VISUAL>`
 - `"command"` → `<COMMAND>`
 - `"help"` → `<HELP>`
-- `"models"` → `<MODELS>`
-- `"resume"` → `<RESUME>`
+- `"select"` → `<SELECT>` (used for both models and resume views)
+- `"scroll"` → `<SCROLL>`
 - `"learning"` → (maps to itself)
 
 ### Benefits
@@ -206,6 +251,81 @@ View() renders with updated status
 ✅ **Testable** - Verify mode changes via messages  
 ✅ **Decoupled** - Components don't know about status  
 ✅ **Consistent** - Same pattern everywhere  
+
+### SELECT Mode Unification
+
+#### Problem
+
+Previously, the TUI had separate `MODELS` and `RESUME` modes for list selection interfaces. Both modes were essentially identical:
+- Same navigation patterns (j/k, Ctrl-D/U, g/G)
+- Same selection behavior (Enter to select)
+- Same exit behavior (Esc/:quit to return to chat)
+- Same visual presentation (title bar + scrollable list)
+
+Having two separate modes added unnecessary complexity to mode management logic, status bar display, and documentation.
+
+#### Solution: Unified SELECT Mode
+
+Both modes were merged into a single `SELECT` mode that handles all list selection interfaces.
+
+**Implementation Changes:**
+
+```go
+// content.go - Both methods now return the same mode
+func (c *ContentComponent) ShowModels(...) tea.Cmd {
+    c.activeView = ViewModels
+    // ... setup ...
+    return func() tea.Msg {
+        return ChangeModeMsg{NewMode: "select"}
+    }
+}
+
+func (c *ContentComponent) ShowResume(...) tea.Cmd {
+    c.activeView = ViewResume
+    // ... setup ...
+    return func() tea.Msg {
+        return ChangeModeMsg{NewMode: "select"}
+    }
+}
+```
+
+**Mode Handler:**
+
+```go
+case ChangeModeMsg:
+    // ...
+    if m.Mode == "select" {
+        m.commandLine.AddToast(" :quit to close | j/k to navigate | Enter to select ", "success", 3000)
+        m.prompt.TextArea.Placeholder = "j/k to navigate | Enter to select | :quit to close"
+    }
+    // ...
+```
+
+**View Differentiation:**
+
+The content component uses `c.activeView` (ViewModels/ViewResume) to distinguish between different selection views when needed. The title bar still shows context-specific information:
+- "Select Model" for model selection
+- "Choose a session to resume [1/10]:" for session selection
+
+#### Benefits
+
+✅ **Simpler Mode Management** - One mode instead of two  
+✅ **Consistent User Experience** - Same behavior for all list selections  
+✅ **Less Code** - Fewer conditional branches  
+✅ **Easier to Extend** - Adding new selection views (e.g., "select provider", "select workspace") is trivial  
+✅ **Better Documentation** - Clearer mental model for users  
+✅ **Maintainability** - Less code to maintain and test  
+
+#### Future Selection Interfaces
+
+This pattern makes it easy to add new selection interfaces:
+
+1. **Provider Selection** - `:provider` command to switch between Anthropic/OpenAI/etc.
+2. **Workspace Selection** - `:workspace` command to switch between different project contexts
+3. **Theme Selection** - `:theme` command to choose color schemes
+4. **History Search** - `:search` command to search through conversation history
+
+All would use the same `SELECT` mode with consistent navigation.
 
 ---
 
@@ -315,6 +435,152 @@ TUIModel.handleKeyMsg()
 ✅ **Better Encapsulation** - All command line logic in one place  
 ✅ **Easier Testing** - Component can be tested independently  
 ✅ **Maintainability** - Clear responsibilities  
+
+---
+
+## Mouse Event Handling
+
+### Problem
+
+Mouse wheel events were being processed twice, causing duplicate scrolling and potentially affecting areas outside the content window:
+
+1. **Duplicate Processing**: Events were handled by both `content.Update(msg)` and `handleMouseMsg()`
+2. **No Position Checking**: Events were processed regardless of mouse cursor position
+3. **Unintended Side Effects**: Mouse wheel could affect prompt history navigation
+
+### Solution: Position-Aware Single Processing
+
+The mouse event handling now follows these principles:
+
+1. **Position Checking**: Only process events within the content area
+2. **Single Handler**: Events are processed exactly once
+3. **Component Delegation**: Content component handles its own scrolling
+
+### Implementation
+
+**Position Checking** (`tui.go`):
+```go
+case tea.MouseMsg:
+    // Only handle mouse events if they're within the content area
+    // Content area is from top of screen to just above the prompt
+    contentHeight := m.height - 6 // Subtract prompt, status, command line, etc.
+    if msg.Y < contentHeight {
+        // Mouse is in content area - let content component handle it
+        var contentCmd tea.Cmd
+        m.content, contentCmd = m.content.Update(msg)
+        return m, contentCmd
+    }
+    // Mouse is outside content area - ignore it
+    return m, nil
+```
+
+**Content Height Calculation**:
+```go
+contentHeight := m.height - 6
+
+// Breakdown:
+// - Command line: 1 line
+// - Status line: 1 line
+// - Prompt (with borders): ~2-3 lines
+// - Empty line: 1 line
+// = 6 lines reserved for UI chrome
+```
+
+### Event Flow
+
+```
+Mouse Wheel Event (Y position)
+       ↓
+   TUI Update()
+       ↓
+   Check: msg.Y < contentHeight?
+       ↓
+       ├─→ YES (in content area)
+       │        ↓
+       │   content.Update(msg)
+       │        ↓
+       │   Chat.Update(msg)
+       │        ↓
+       │   Viewport.ScrollUp/Down()  ← Single scroll ✓
+       │
+       └─→ NO (outside content area)
+                ↓
+           Ignore event  ← No scrolling ✓
+```
+
+### Component Responsibilities
+
+**TUIModel** (`tui.go`):
+- Checks mouse event position
+- Routes events to content component only if in content area
+- Ignores events outside content area
+
+**ContentComponent** (`content.go`):
+- Receives mouse events from TUI
+- Delegates to active view (chat, help, models, resume)
+- Handles view-specific mouse behavior
+
+**ChatComponent** (`chat.go`):
+- Handles mouse wheel scrolling
+- Updates viewport position
+- Tracks user scrolling vs auto-scrolling
+- Supports touch gestures (drag scrolling)
+
+**PromptComponent** (`prompt.go`):
+- Does NOT handle mouse events
+- Only responds to keyboard input
+- History navigation via up/down arrow keys
+
+### Supported Mouse Events
+
+**In Content Area**:
+- `MouseWheelUp` - Scroll content up
+- `MouseWheelDown` - Scroll content down
+- `MouseLeft` + `MouseActionPress` - Start touch drag
+- `MouseMotion` - Touch drag scrolling
+- `MouseLeft` + `MouseActionRelease` - End touch drag
+
+**Outside Content Area**:
+- All mouse events are ignored
+
+### Benefits
+
+✅ **No Duplicate Scrolling** - Each mouse event processed exactly once  
+✅ **Position Awareness** - Events only affect area under cursor  
+✅ **Clean Separation** - Each component handles its own input  
+✅ **Predictable Behavior** - Users get expected scrolling  
+✅ **No Side Effects** - Prompt history navigation unaffected  
+✅ **Touch Support** - Drag scrolling works in content area  
+
+### Testing Scenarios
+
+**Scenario 1: Scroll in Chat Area**
+```
+User: Scrolls mouse wheel over chat messages
+Expected: Chat scrolls smoothly
+Result: ✓ Works correctly
+```
+
+**Scenario 2: Scroll over Prompt**
+```
+User: Scrolls mouse wheel over prompt input
+Expected: Nothing happens
+Result: ✓ Works correctly (event ignored)
+```
+
+**Scenario 3: Keyboard History Navigation**
+```
+User: Presses up/down arrows in prompt
+Expected: Navigate through prompt history
+Result: ✓ Works correctly (unaffected by mouse fix)
+```
+
+**Scenario 4: Touch Drag Scrolling**
+```
+User: Drags finger/mouse in chat area
+Expected: Chat scrolls based on drag distance
+Result: ✓ Works correctly (handled by chat component)
+```
 
 ---
 
@@ -455,9 +721,10 @@ All refactorings maintain backward compatibility:
 These refactorings established a clean, maintainable architecture:
 
 1. **Mode Management**: Single source of truth with centralized message handling
-2. **Component Boundaries**: Each component handles its own input and state
-3. **Message Passing**: Clean communication via bubbletea messages
-4. **No Polling**: View() just renders, no logic
-5. **Testability**: Components can be tested in isolation
+2. **SELECT Mode Unification**: Merged MODELS and RESUME modes into a single, extensible SELECT mode
+3. **Component Boundaries**: Each component handles its own input and state
+4. **Message Passing**: Clean communication via bubbletea messages
+5. **No Polling**: View() just renders, no logic
+6. **Testability**: Components can be tested in isolation
 
 The result is a more maintainable, extensible, and testable codebase that follows bubbletea best practices.
